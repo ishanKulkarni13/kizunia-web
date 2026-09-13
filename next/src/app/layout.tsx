@@ -8,6 +8,7 @@ import NextTopLoader from "nextjs-toploader";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "sonner";
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,6 +54,7 @@ export default function RootLayout({
           />
           <Toaster />
         </ThemeProvider>
+        <SpeedInsights />
         <Analytics />
       </body>
     </html>

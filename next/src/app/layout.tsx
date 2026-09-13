@@ -7,6 +7,7 @@ import NextTopLoader from "nextjs-toploader";
 // import "@mdxeditor/editor/style.css";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { Toaster } from "sonner";
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -53,6 +54,7 @@ export default function RootLayout({
              />
           <Toaster />
         </ThemeProvider>
+        <SpeedInsights />
       </body>
     </html>
   );

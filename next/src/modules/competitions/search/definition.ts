@@ -155,13 +155,38 @@ const endDate = dateRangeFilter<CompetitionWhere>({
   toWhere: (range) => ({ endDate: dateBounds(range) }),
 });
 
+/**
+ * `OPEN` is a wildcard, not an ordinary member of the enum: a competition
+ * declaring it is eligible for every audience, so it must match a search for
+ * `UNDERGRADUATE` exactly as it matches one for `POSTGRADUATE`. Selecting
+ * `OPEN` alongside the requested values (rather than replacing them) is what
+ * makes that true without special-casing the "only `OPEN` was requested" case
+ * — that request already asks for `OPEN`, so adding it again changes nothing,
+ * which is exactly how `openForAll` in `presets.ts` keeps meaning "declares
+ * `OPEN`" rather than accidentally becoming "matches anything".
+ *
+ * An *absent* relation is not covered by this and must not be: a competition
+ * with no eligibility rows has not declared itself open to anyone, so it is
+ * correctly excluded by `some`, the same as a competition with only
+ * unrelated values.
+ */
 const eligibilities = enumRelationMultiFilter<
   CompetitionWhere,
   EligibilityType
 >({
   spec: specs.eligibilities,
   values: Object.values(EligibilityType),
-  toWhere: (values) => ({ eligibilities: { some: { type: { in: values } } } }),
+  toWhere: (values) => ({
+    eligibilities: {
+      some: {
+        type: {
+          in: values.includes(EligibilityType.OPEN)
+            ? values
+            : [...values, EligibilityType.OPEN],
+        },
+      },
+    },
+  }),
 });
 
 const registrationTypes = enumMultiFilter<CompetitionWhere, RegistrationType>({

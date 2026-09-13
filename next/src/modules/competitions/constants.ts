@@ -12,6 +12,7 @@ import {
   DifficultyLevel,
   OrganizerType,
   RegistrationFeeType,
+  EligibilityType,
 } from "@/generated/prisma";
 
 /**
@@ -193,6 +194,32 @@ export const DIFFICULTY_OPTIONS = [
     label: "Advanced",
   },
 ] as const;
+
+/**
+ * Labels mirror the ones in `search/ui.ts`'s `eligibilities` filter spec —
+ * kept as a second literal list, not a shared import, because that module
+ * must stay free of `@/generated/prisma` (see its module doc). The values
+ * themselves come from the one domain enum either way, so there is no
+ * second vocabulary, only the copy is duplicated.
+ */
+export const ELIGIBILITY_OPTIONS: { value: EligibilityType; label: string }[] = [
+  { value: EligibilityType.SCHOOL, label: "School students" },
+  { value: EligibilityType.UNDERGRADUATE, label: "Undergraduates" },
+  { value: EligibilityType.POSTGRADUATE, label: "Postgraduates" },
+  { value: EligibilityType.PHD, label: "PhD candidates" },
+  { value: EligibilityType.FRESHER, label: "Freshers" },
+  { value: EligibilityType.PROFESSIONAL, label: "Working professionals" },
+  { value: EligibilityType.ENGINEERING, label: "Engineering" },
+  { value: EligibilityType.MANAGEMENT, label: "Management" },
+  { value: EligibilityType.DESIGN, label: "Design" },
+  { value: EligibilityType.SCIENCE, label: "Science" },
+  { value: EligibilityType.COMMERCE, label: "Commerce" },
+  { value: EligibilityType.ARTS, label: "Arts" },
+  { value: EligibilityType.MEDICAL, label: "Medical" },
+  { value: EligibilityType.LAW, label: "Law" },
+  { value: EligibilityType.OPEN, label: "Open to everyone" },
+  { value: EligibilityType.OTHER, label: "Other" },
+];
 
 export const SUGGESTION_STATUS_OPTIONS: {
   value:

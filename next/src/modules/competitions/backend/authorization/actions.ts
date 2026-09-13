@@ -43,4 +43,12 @@ export enum CompetitionAction {
      */
     MANAGE_TECHNOLOGIES = "MANAGE_TECHNOLOGIES",
 
+    /**
+     * Attach/detach eligibility values on this Competition. `EligibilityType`
+     * is a fixed domain enum, not a global catalog, so unlike
+     * `MANAGE_TECHNOLOGIES` this has no platform-level counterpart to defer
+     * to.
+     */
+    MANAGE_ELIGIBILITY = "MANAGE_ELIGIBILITY",
+
 }

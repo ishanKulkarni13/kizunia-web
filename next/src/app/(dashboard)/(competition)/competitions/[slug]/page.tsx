@@ -8,6 +8,7 @@ import {
   Users,
   CreditCard,
   Monitor,
+  GraduationCap,
 } from "lucide-react";
 
 import PageWrapper from "@/components/page-wrapper";
@@ -28,6 +29,7 @@ import {
   COMPETITION_MODE_OPTIONS,
   COMPETITION_STATUS_OPTIONS,
   DIFFICULTY_OPTIONS,
+  ELIGIBILITY_OPTIONS,
   getCompetitionEnumLabel,
   ORGANIZER_TYPE_OPTIONS,
   REGISTRATION_FEE_TYPE_OPTIONS,
@@ -79,7 +81,8 @@ export default async function CompetitionPage({
     competition.mode ||
     competition.registrationFee !== null ||
     competition.registrationFeeType ||
-    competition.registrationPlatform;
+    competition.registrationPlatform ||
+    competition.eligibilities.length > 0;
 
   const isAboutSectionRequired =
     competition.content?.content &&
@@ -293,22 +296,6 @@ export default async function CompetitionPage({
               </Card>
             )}
 
-            {competition.eligibilities &&
-              competition.eligibilities.length > 0 && (
-                <Card className="p-6 space-y-4">
-                  <h2 className="text-xl font-semibold">Eligibilities</h2>
-
-                  <Separator />
-
-                  <div className="flex flex-wrap gap-2">
-                    {competition.eligibilities.map((el: any) => (
-                      <Badge key={el.type} variant="outline">
-                        {getCompetitionEnumLabel(el.type)}
-                      </Badge>
-                    ))}
-                  </div>
-                </Card>
-              )}
           </div>
 
           {/* Sidebar */}
@@ -406,6 +393,30 @@ export default async function CompetitionPage({
                           )}
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {competition.eligibilities.length > 0 && (
+                  <div className="flex gap-3">
+                    <GraduationCap className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+                    <div className="min-w-0 space-y-2">
+                      <p className="font-medium">Eligibility</p>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {competition.eligibilities.map((eligibility) => (
+                          <Badge
+                            key={eligibility.type}
+                            variant="outline"
+                            className="whitespace-normal text-left"
+                          >
+                            {getCompetitionEnumLabel(
+                              eligibility.type,
+                              ELIGIBILITY_OPTIONS,
+                            )}
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}

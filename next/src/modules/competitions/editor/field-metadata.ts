@@ -24,12 +24,14 @@ export type EditorTab =
   | "schedule"
   | "locations"
   | "technologies"
+  | "eligibility"
   | "documentation";
 
 export type SummaryFieldKey =
   | EditableScalarKey
   | "logoAsset"
   | "technologies"
+  | "eligibilities"
   | "locations";
 
 export interface FieldMeta {
@@ -151,6 +153,7 @@ export const FIELD_METADATA: readonly FieldMeta[] = [
   { key: "organizerType", label: "Organizer Type", tab: "general", importance: "optional", nullable: true },
   { key: "difficulty", label: "Difficulty", tab: "general", importance: "optional", nullable: true },
   { key: "technologies", label: "Technologies", tab: "technologies", importance: "optional", nullable: true },
+  { key: "eligibilities", label: "Eligibility", tab: "eligibility", importance: "optional", nullable: true },
   { key: "locations", label: "Locations", tab: "locations", importance: "optional", nullable: true },
 
   // ---------------------------------------------------------------------

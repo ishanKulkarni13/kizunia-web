@@ -47,6 +47,11 @@ import { CompetitionLifecycleService } from "./lifecycle.service";
 import { ApplyLifecycleSchema } from "../schemas/lifecycle";
 import { AttachCompetitionTechnologySchema } from "../schemas/competition-technology";
 import { CompetitionTechnologyService } from "./competition-technology.service";
+import {
+  AttachCompetitionEligibilitySchema,
+  EligibilityTypeParamSchema,
+} from "../schemas/competition-eligibility";
+import { CompetitionEligibilityService } from "./competition-eligibility.service";
 import { CompetitionBookmarkService } from "./competition-bookmark.service";
 import { CompetitionRegistrationService } from "./competition-registration.service";
 import { CompetitionUserStateService } from "./competition-user-state.service";
@@ -1017,6 +1022,147 @@ export class CompetitionController {
       // -----------------------------------------------------------------
 
       return ApiResponse.ok(technologies);
+    });
+  }
+
+  // ==========================================================================
+  // Eligibilities
+  // ==========================================================================
+
+  static async listEligibilities(request: NextRequest, competitionId: string) {
+    return Route.execute(async () => {
+      // -----------------------------------------------------------------
+      // Authentication
+      // -----------------------------------------------------------------
+
+      const actor = await SessionService.getActor(request);
+
+      // -----------------------------------------------------------------
+      // Context
+      // -----------------------------------------------------------------
+
+      const context = await CompetitionContextResolver.resolve({
+        actor,
+        competitionId,
+      });
+
+      // -----------------------------------------------------------------
+      // Authorization
+      // -----------------------------------------------------------------
+
+      CompetitionAuthorizer.manageEligibility(context);
+
+      // -----------------------------------------------------------------
+      // Business Logic
+      // -----------------------------------------------------------------
+
+      const eligibilities = await CompetitionEligibilityService.list(
+        context.competition.id,
+      );
+
+      // -----------------------------------------------------------------
+      // Response
+      // -----------------------------------------------------------------
+
+      return ApiResponse.ok(eligibilities);
+    });
+  }
+
+  static async attachEligibility(request: NextRequest, competitionId: string) {
+    return Route.execute(async () => {
+      // -----------------------------------------------------------------
+      // Authentication
+      // -----------------------------------------------------------------
+
+      const actor = await SessionService.getActor(request);
+
+      // -----------------------------------------------------------------
+      // Validation
+      // -----------------------------------------------------------------
+
+      const body = await request.json();
+
+      const data = AttachCompetitionEligibilitySchema.parse(body);
+
+      // -----------------------------------------------------------------
+      // Context
+      // -----------------------------------------------------------------
+
+      const context = await CompetitionContextResolver.resolve({
+        actor,
+        competitionId,
+      });
+
+      // -----------------------------------------------------------------
+      // Authorization
+      // -----------------------------------------------------------------
+
+      CompetitionAuthorizer.manageEligibility(context);
+
+      // -----------------------------------------------------------------
+      // Business Logic
+      // -----------------------------------------------------------------
+
+      const eligibilities = await CompetitionEligibilityService.attach(
+        context.competition.id,
+        data.type,
+      );
+
+      // -----------------------------------------------------------------
+      // Response
+      // -----------------------------------------------------------------
+
+      return ApiResponse.created(eligibilities);
+    });
+  }
+
+  static async detachEligibility(
+    request: NextRequest,
+    competitionId: string,
+    type: string,
+  ) {
+    return Route.execute(async () => {
+      // -----------------------------------------------------------------
+      // Authentication
+      // -----------------------------------------------------------------
+
+      const actor = await SessionService.getActor(request);
+
+      // -----------------------------------------------------------------
+      // Validation
+      // -----------------------------------------------------------------
+
+      const data = EligibilityTypeParamSchema.parse({ type });
+
+      // -----------------------------------------------------------------
+      // Context
+      // -----------------------------------------------------------------
+
+      const context = await CompetitionContextResolver.resolve({
+        actor,
+        competitionId,
+      });
+
+      // -----------------------------------------------------------------
+      // Authorization
+      // -----------------------------------------------------------------
+
+      CompetitionAuthorizer.manageEligibility(context);
+
+      // -----------------------------------------------------------------
+      // Business Logic
+      // -----------------------------------------------------------------
+
+      const eligibilities = await CompetitionEligibilityService.detach(
+        context.competition.id,
+        data.type,
+      );
+
+      // -----------------------------------------------------------------
+      // Response
+      // -----------------------------------------------------------------
+
+      return ApiResponse.ok(eligibilities);
     });
   }
 

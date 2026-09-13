@@ -12,6 +12,7 @@ import {
 import { CompetitionPermissionsDTO } from "../backend/authorization/dto";
 import type { CompetitionLocationDTO } from "./competition-location.dto";
 import type { CompetitionTechnologyDTO } from "./competition-technology.dto";
+import type { CompetitionEligibilityDTO } from "./competition-eligibility.dto";
 
 
 export interface CompetitionEditDTO {
@@ -140,6 +141,14 @@ export interface CompetitionEditDTO {
    * technologies, this relationship has no ordering.
    */
   technologies: CompetitionTechnologyDTO[];
+
+  /**
+   * Who the competition is open to. Managed through the dedicated
+   * eligibilities endpoints, not the competition PATCH, same as
+   * `locations`/`technologies` — an empty array is a valid, distinct state
+   * ("no eligibility declared"), not the same as `OPEN`.
+   */
+  eligibilities: CompetitionEligibilityDTO[];
 
 }
 export interface CompetitionEditDTOWithPermissions extends CompetitionEditDTO {

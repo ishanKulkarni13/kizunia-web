@@ -81,6 +81,17 @@ export class CompetitionAuthorizer {
         );
     }
 
+    static manageEligibility(
+        context: CompetitionContext,
+    ): void {
+        Authorization.assert(
+            CompetitionPolicy.can(
+                context,
+                CompetitionAction.MANAGE_ELIGIBILITY,
+            ),
+        );
+    }
+
     static can(
         context: CompetitionContext,
         action: CompetitionAction,

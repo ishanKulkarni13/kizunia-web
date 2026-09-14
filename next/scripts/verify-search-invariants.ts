@@ -299,8 +299,9 @@ async function verifyScopeGuardEnforcement(): Promise<void> {
   }
   report("management scope with no actorId throws", managementThrew);
 
-  // Every scope actually restricts what it claims to. Public rows must
-  // never include a non-PUBLIC visibility; admin may return any.
+  // Discovery and access are separate concerns: public search must include
+  // PUBLIC competitions only. UNLISTED, PRIVATE, and ARCHIVED competitions
+  // remain directly governed by VIEW authorization, but never appear here.
   const publicRows = await prisma.competition.findMany({
     where: buildSearchQuery({
       definition: competitionSearchDefinition,
@@ -313,7 +314,7 @@ async function verifyScopeGuardEnforcement(): Promise<void> {
   });
 
   report(
-    "public scope never returns a non-PUBLIC row",
+    "public discovery excludes UNLISTED, PRIVATE, and ARCHIVED",
     publicRows.every((r) => r.visibility === "PUBLIC"),
     `visibilities seen: ${JSON.stringify([...new Set(publicRows.map((r) => r.visibility))])}`,
   );

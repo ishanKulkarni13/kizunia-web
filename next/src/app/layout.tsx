@@ -23,6 +23,18 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Kizunia",
   description: "Building cool stuff",
+  icons: {
+  icon: [
+    {
+      url: "/website-logo-white.svg",
+      media: "(prefers-color-scheme: dark)",
+    },
+    {
+      url: "/website-logo-black.svg",
+      media: "(prefers-color-scheme: light)",
+    },
+  ],
+},
 };
 
 export default function RootLayout({

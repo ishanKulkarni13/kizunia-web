@@ -43,6 +43,12 @@ export const RateLimitPolicyId = {
   AUTH_SIGN_IN: "auth:sign-in",
   AUTH_SIGN_UP: "auth:sign-up",
   AUTH_PASSWORD_RESET_REQUEST: "auth:password-reset-request",
+  /**
+   * Phase 0's manual/internal recommendation-generation testing route. Not a
+   * spend concern (one local DB read plus in-memory scoring), but a full
+   * pipeline run per request is real CPU work, so it is still bounded.
+   */
+  RECOMMENDATIONS_GENERATE: "recommendations:generate",
 } as const;
 
 export type RateLimitPolicyId =
@@ -207,5 +213,14 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "closed",
     description:
       "Password-reset spam protection, symmetric for existent and non-existent accounts so the limiter itself never signals whether an address has an account.",
+  },
+  [RateLimitPolicyId.RECOMMENDATIONS_GENERATE]: {
+    id: RateLimitPolicyId.RECOMMENDATIONS_GENERATE,
+    limit: 30,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Authenticated internal testing route for the Phase 0 recommendation engine (the route already requires a session, so `user` is valid here). 30/min is far above manual click-testing rhythm while still stopping a stuck retry loop from repeatedly re-running the full pipeline. Local DB read plus in-memory scoring only — no external spend — so it fails open: a limiter outage should not block a developer testing the engine.",
   },
 } as const;

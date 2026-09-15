@@ -65,3 +65,30 @@ items in
 The fact that so much is open is not a gap in this design — it is the point. Everything the rest of
 the subsystem depends on is specified **without** the formula, which is exactly what makes the
 formula replaceable.
+
+---
+
+## Phase 0
+
+A concrete recommendation engine now exists as its own capability, independent of the notification
+subsystem: [`docs/architecture/recommendation/`](../../recommendation/README.md). It implements
+candidate selection, eligibility, preference matching, a first scoring strategy, threshold and
+ranking against the contract `userId -> RecommendationResult` — see
+[`docs/project/feature-specification/recommendation/README.md`](../../../project/feature-specification/recommendation/README.md).
+
+This directory's open questions are **not** all resolved by Phase 0. In particular:
+
+- The scoring formula Phase 0 chose (`WeightedCoverageScorer`,
+  [`docs/architecture/recommendation/scoring-strategy.md`](../../recommendation/scoring-strategy.md))
+  is a first version for a manually-triggered testing surface, not a product-validated answer to
+  ND-R-07.
+- Phase 0's candidate selection reads `Competition.status` only, not the timestamp-based reasoning
+  this directory recommends for the exact registration-open boundary — a deliberate, temporary
+  simplification Phase 1 must revisit (see
+  [`docs/architecture/recommendation/candidate-selection.md`](../../recommendation/candidate-selection.md)).
+- Phase 0's preference profile is a hardcoded dummy, not a persisted model — open decision A-2
+  below remains open.
+
+Phase 1 Notifications is expected to depend on the Phase 0 engine for relevance rather than
+implementing scoring or ranking itself — see
+[`docs/project/feature-specification/recommendation/phase-relationship.md`](../../../project/feature-specification/recommendation/phase-relationship.md).

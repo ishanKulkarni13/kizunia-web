@@ -107,3 +107,20 @@ scoring — it is not down-ranked
 The consequence for this stage: ranking never needs to know about notification history, and must
 not be given a penalty term for it. A previously surfaced competition that is still eligible for a
 *different* intent ranks on its merits.
+
+---
+
+## Phase 0
+
+A first, deterministic ranking and a first threshold/Top-N mechanism are implemented in
+[`docs/architecture/recommendation/`](../../recommendation/README.md): score descending, then
+`registrationDeadline` ascending (nulls last), then `startDate` ascending (nulls last), then `id`
+ascending — see
+[`docs/architecture/recommendation/pipeline.md`](../../recommendation/pipeline.md). Threshold is a
+floor never relaxed to fill Top-N, matching this document's rule exactly, though Phase 0's default
+threshold value (`0.5`) is derived from its own first scoring strategy and is not a claim about
+what Phase 1's eventual threshold should be — swapping the formula means re-deriving it, as this
+document's sibling ([`scoring-strategy.md`](scoring-strategy.md)) already states. Selection-as-policy
+(vs. a bare Top-N number) is **not** what Phase 0 implements — Phase 0's single consumer is a
+manual testing route with one simple Top-N config value; the richer selection-policy model this
+document describes remains Phase 1's to build when a second, differently-shaped intent exists.

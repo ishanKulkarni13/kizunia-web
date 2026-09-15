@@ -364,7 +364,6 @@ model User {
 
   // Relationships
   links                           Link[]
-  interests                       UserCategory[]
   notificationPref                NotificationPreference?
   badges                          UserBadge[]
   competitionMembers              CompetitionMember[]
@@ -655,13 +654,12 @@ model Technology {
   @@map("technology")
 }
 
-// Global pool of categories/interests. Shared across Users, Competitions, Projects.
+// Global pool of categories. Shared across Competitions and Projects.
 model Category {
   id   String @id @default(cuid())
   name String @unique
   slug String @unique
 
-  users        UserCategory[]
   competitions CompetitionCategory[]
   projects     ProjectCategory[]
 
@@ -688,15 +686,6 @@ model Badge {
 // User Domain — Join Tables
 // =============================================================================
 
-model UserCategory {
-  userId     String
-  categoryId String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-
-  @@id([userId, categoryId])
-  @@map("user_category")
-}
 
 model UserBadge {
   userId   String

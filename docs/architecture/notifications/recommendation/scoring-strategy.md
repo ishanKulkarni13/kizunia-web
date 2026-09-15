@@ -107,3 +107,15 @@ follow-up.
 Scoring produces a signal; ranking orders candidates. They are separated so that ordering concerns
 — tie-breaking, recency bias, diversity across a selection — can change without touching the
 scorer. See [ranking-and-selection.md](ranking-and-selection.md).
+
+---
+
+## Phase 0
+
+A first strategy now exists and is implemented, not just specified:
+[`WeightedCoverageScorer`](../../recommendation/scoring-strategy.md) — a weighted mean over the
+dimensions a user actually expressed a preference in, comparable across users by construction. It
+is a manually-validated first version for Phase 0's testing surface, not a claim that ND-R-07 is
+resolved; the formula, its exact system weights, and the missing-vs-mismatch penalty remain open
+for Phase 1 to reconsider with real usage data. See
+[`docs/architecture/recommendation/scoring-strategy.md`](../../recommendation/scoring-strategy.md).

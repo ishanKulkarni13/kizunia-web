@@ -75,3 +75,19 @@ threshold's value, and the location algorithm are all open. See
 Everything the rest of the subsystem depends on is specified **without** the formula. That is what
 makes the algorithm replaceable — see
 [`scoring-strategy.md`](../../../../architecture/notifications/recommendation/scoring-strategy.md).
+
+---
+
+## Phase 0
+
+Everything in the flow diagram above from "Candidate Competitions" through "Apply Minimum
+Threshold" is now implemented as its own capability — not as notification code — by the Phase 0
+Competition Recommendation Engine:
+[`docs/project/feature-specification/recommendation/README.md`](../../recommendation/README.md).
+Phase 1's "Notification Policy" and "Select Top N" stages should call into that engine for
+everything above them in the diagram, rather than re-implementing candidate selection, hard
+constraints, relevance calculation, ranking, or thresholding. See
+[`docs/project/feature-specification/recommendation/phase-relationship.md`](../../recommendation/phase-relationship.md)
+for exactly where the two connect, and what Phase 0 simplified (a hardcoded preference profile, no
+temporal dimensions, `status`-only candidate selection) that Phase 1 must reconsider before relying
+on it for scheduled, unattended evaluation.

@@ -74,6 +74,15 @@ other domain does not know about.
 | Competitions | `CompetitionRegistration` | `REGISTRATION_CLOSING` exclusion |
 | Users | User identity | Recipient identity |
 | Taxonomy / Locations | Category and location structures | Preference matching |
+| Recommendations (Phase 0) | `userId -> RecommendationResult` | Relevance evaluation — see [`docs/architecture/recommendation/README.md`](../recommendation/README.md) |
+
+The Recommendations dependency is different in kind from the others: it is not a raw data read but
+a call into another capability's own public contract. Notifications should depend on
+`RecommendationService` (or the pure engine directly) for relevance, not reimplement scoring or
+ranking — see
+[`docs/project/feature-specification/recommendation/phase-relationship.md`](../../project/feature-specification/recommendation/phase-relationship.md).
+This is what "Relevance and ranking **integration** (not the competition domain's data)" in "What
+the module owns" above now means concretely.
 
 ### The direction rule
 

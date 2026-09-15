@@ -130,3 +130,17 @@ The line between selection and filtering is pragmatic: selection is what the **q
 efficiently express, filtering is what the **rules** require. A rule that happens to be
 expressible in the query is still conceptually a filter, and must produce the same outcome either
 way — which is what makes moving it later a performance change rather than a behavior change.
+
+---
+
+## Phase 0
+
+[`docs/architecture/recommendation/candidate-selection.md`](../../recommendation/candidate-selection.md)
+implements a first candidate-selection stage, but with a narrower rule than this document
+recommends: it reads `Competition.status === REGISTRATION_OPEN` only, not the timestamp-based
+reasoning above. This is an explicit, temporary product decision for a manually-triggered testing
+surface — the sweep-lag concern this document raises is real and **unaddressed** by Phase 0. Phase
+1's `TOP_RELEVANT_COMPETITION` intent, which runs unattended on a schedule, should not inherit this
+simplification without re-deciding it. The cost problem and the blocking "where does relevant come
+from" question below remain fully open; Phase 0 evaluates one user manually, not the daily
+all-users case this document is about.

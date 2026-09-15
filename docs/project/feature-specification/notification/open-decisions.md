@@ -49,6 +49,15 @@ not have and a preference shape this specification does not describe.
 **See:**
 [`preference-storage.md`](../../../architecture/notifications/persistence/preference-storage.md).
 
+**Phase 0 note:** the Competition Recommendation Engine
+([`docs/architecture/recommendation/README.md`](../../../architecture/recommendation/README.md))
+needed a preference profile before this decision could be made, and deliberately did not make it
+for the notification subsystem — it uses a hardcoded dummy profile
+(`DummyPreferenceProfileProvider`), not `NotificationPreference` and not `User.interests` (which
+has been removed from the domain rather than repurposed as a preference source). This decision
+remains open and unaffected. See
+[`recommendation/preferences/phase-0-dummy-profile.md`](../recommendation/preferences/phase-0-dummy-profile.md).
+
 ### A-3. What "queue" means, given there is no queue — **Blocking**
 
 The architecture requires generation and delivery to be separate, with a queue between them
@@ -76,6 +85,15 @@ stored relevance introduces staleness and a storage model this specification doe
 
 **See:**
 [`candidate-selection.md`](../../../architecture/notifications/recommendation/candidate-selection.md).
+
+**Phase 0 note:** a recommendation engine now exists
+([`docs/architecture/recommendation/README.md`](../../../architecture/recommendation/README.md))
+and makes "recompute relevance on demand" a cheap, real option — Phase 0's whole design is a
+synchronous, on-demand `userId -> RecommendationResult` call. That does not resolve this decision
+by itself: Phase 0 evaluates one user manually, not "all near-deadline competitions against all
+eligible users" inside a single scheduled invocation, which is the actual cost problem this item
+describes. This remains open for Phase 1 to decide with that engine as an available building
+block, not as a pre-made answer.
 
 ### A-5. Storage shape for an aggregated notification
 

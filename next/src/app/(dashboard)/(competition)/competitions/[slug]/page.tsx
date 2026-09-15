@@ -45,33 +45,36 @@ import {
   ValidationFailedError,
 } from "@/lib/errors";
 import { ZodError } from "zod";
+import { getCachedPublicCompetition } from "@/modules/competitions/cache/competition.cache";
 
-const getCompetition = cache(async (slug: string) => {
-  try {
-    const parsedSlug = SlugSchema.parse(slug);
+// const getCompetition = cache(async (slug: string) => {
+//   try {
+//     const parsedSlug = SlugSchema.parse(slug);
 
-    return await CompetitionService.findPublicBySlug(parsedSlug);
-  } catch (error) {
-    if (error instanceof ZodError) {
-      return null;
-    }
+//     return await CompetitionService.findPublicBySlug(parsedSlug);
+//   } catch (error) {
+//     if (error instanceof ZodError) {
+//       return null;
+//     }
 
-    if (isAppError(error)) {
-      if (
-        error.code === CompetitionErrorCode.NOT_FOUND ||
-        error.code === CompetitionErrorCode.ARCHIVED ||
-        error.code === CompetitionErrorCode.DELETED
-      ) {
-        return null;
-      }
-    }
+//     if (isAppError(error)) {
+//       if (
+//         error.code === CompetitionErrorCode.NOT_FOUND ||
+//         error.code === CompetitionErrorCode.ARCHIVED ||
+//         error.code === CompetitionErrorCode.DELETED
+//       ) {
+//         return null;
+//       }
+//     }
 
-    // Log the original error server-side.
-    throw new Error(
-      "An unexpected error occurred while fetching the competition.",
-    );
-  }
-});
+//     // Log the original error server-side.
+//     throw new Error(
+//       "An unexpected error occurred while fetching the competition.",
+//     );
+//   }
+// });
+
+export const revalidate = 300;
 
 export async function generateMetadata({
   params,
@@ -80,7 +83,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
 
-  const competition = await getCompetition(slug);
+  const competition = await getCachedPublicCompetition(slug);
 
   if (!competition) {
     return {};
@@ -94,7 +97,6 @@ export async function generateMetadata({
   return {
     title: competition.title,
     description,
-    
 
     icons: logoUrl ? [{ url: logoUrl }] : undefined,
 
@@ -129,7 +131,7 @@ export default async function CompetitionPage({
 }) {
   const { slug } = await params;
 
-  const competition = await getCompetition(slug);
+  const competition = await getCachedPublicCompetition(slug);
 
   if (!competition) {
     notFound();

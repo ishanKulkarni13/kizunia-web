@@ -35,6 +35,7 @@ import {
   CompetitionAdminTableDTO,
 } from "./authorization/dto";
 import { AuthorizationActor, StrictAuthorizationActor } from "@/authorization";
+import { invalidateCompetitionCache } from "../cache/competition-cache-invalidation";
 /**
  * ============================================================================
  * Create
@@ -366,6 +367,8 @@ export class CompetitionService {
       context.competition.id,
     );
 
+    invalidateCompetitionCache(competition.slug, context.competition.slug);
+
     return competitionMapper.toEditDTOWithPermissions({
       competition,
       role: context.membership?.role ?? null,
@@ -378,11 +381,18 @@ export class CompetitionService {
   }: {
     context: CompetitionContext;
   }): Promise<void> {
-    CompetitionRepository.softDelete(context.competition.id);
+    await CompetitionRepository.softDelete(context.competition.id);
+    invalidateCompetitionCache(context.competition.slug);
   }
 
   static async restore(context: CompetitionContext) {
-    return CompetitionRepository.restore(context.competition.id);
+    const competition = await CompetitionRepository.restore(
+      context.competition.id,
+    );
+
+    invalidateCompetitionCache(competition.slug);
+
+    return competition;
   }
 
   // ==========================================================================

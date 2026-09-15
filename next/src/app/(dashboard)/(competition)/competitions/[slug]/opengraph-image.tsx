@@ -1,5 +1,6 @@
 import { SlugSchema } from "@/lib/validation/index";
 import { CompetitionService } from "@/modules/competitions/backend/service";
+import { getCachedPublicCompetition } from "@/modules/competitions/cache/competition.cache";
 import { ImageResponse } from "next/og";
 import { cache } from "react";
 
@@ -12,11 +13,7 @@ export const size = {
 
 export const contentType = "image/png";
 
-const getCompetition = cache(async (slug: string) => {
-  const parsedSlug = SlugSchema.parse(slug);
 
-  return CompetitionService.findPublicBySlug(parsedSlug);
-});
 
 export default async function Image({
   params,
@@ -24,7 +21,7 @@ export default async function Image({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const competition = await getCompetition(slug);
+  const competition = await getCachedPublicCompetition(slug);
 
   if (!competition) {
     return new ImageResponse(

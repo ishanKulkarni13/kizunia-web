@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import '@mdxeditor/editor/style.css'
+import "@mdxeditor/editor/style.css";
 import "./globals.css";
 import "./mdx.css";
 import NextTopLoader from "nextjs-toploader";
 // import "@mdxeditor/editor/style.css";
 import { ThemeProvider } from "@/providers/theme-provider";
+import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "sonner";
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -45,14 +47,15 @@ export default function RootLayout({
           disableTransitionOnChange
         >
           {children}
-           <NextTopLoader
-              color="var(--color-primary)"
-              height={4}
-              showSpinner={false}
-             
-             />
+          <NextTopLoader
+            color="var(--color-primary)"
+            height={4}
+            showSpinner={false}
+          />
           <Toaster />
         </ThemeProvider>
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );

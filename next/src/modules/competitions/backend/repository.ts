@@ -363,6 +363,8 @@ export class CompetitionRepository {
           },
         },
 
+        eligibilities: true,
+
         locations: this.locationsInclude,
       },
     });

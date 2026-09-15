@@ -49,6 +49,8 @@ export const CompetitionErrorCode = {
      */
     TECHNOLOGY_INACTIVE: "COMPETITION_TECHNOLOGY_INACTIVE",
 
+    ELIGIBILITY_NOT_FOUND: "COMPETITION_ELIGIBILITY_NOT_FOUND",
+
 } as const;
 
 export type CompetitionErrorCode =

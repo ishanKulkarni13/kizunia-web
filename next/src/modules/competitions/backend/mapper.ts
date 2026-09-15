@@ -23,6 +23,7 @@ import {
 } from "./authorization/dto";
 import { competitionLocationMapper } from "./competition-location.mapper";
 import { competitionTechnologyMapper } from "./competition-technology.mapper";
+import { competitionEligibilityMapper } from "./competition-eligibility.mapper";
 
 /**
  * Prisma payload used when loading Competition cards.
@@ -248,6 +249,8 @@ export class CompetitionMapper {
 
       technologies: competitionTechnologyMapper.toDTOs(competition.technologies),
 
+      eligibilities: competitionEligibilityMapper.toDTOs(competition.eligibilities),
+
 
     };
   }
@@ -344,6 +347,8 @@ export class CompetitionMapper {
       })),
 
       technologies: competitionTechnologyMapper.toDTOs(competition.technologies),
+
+      eligibilities: competitionEligibilityMapper.toDTOs(competition.eligibilities),
 
       role,
       permissions,

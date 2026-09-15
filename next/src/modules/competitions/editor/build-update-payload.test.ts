@@ -38,6 +38,7 @@ function makeCompetition(
     bannerAsset: null,
     categories: [],
     technologies: [],
+    eligibilities: [],
     role: null,
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     permissions: {
@@ -50,6 +51,7 @@ function makeCompetition(
       canManageMedia: true,
       canManageLinks: true,
       canManageTechnologies: true,
+      canManageEligibility: true,
     },
     ...overrides,
   };
@@ -115,18 +117,20 @@ describe("buildUpdateCompetitionPayload", () => {
     );
   });
 
-  it("never includes locations or technologies (managed by their own endpoints)", () => {
+  it("never includes locations, technologies, or eligibilities (managed by their own endpoints)", () => {
     const saved = makeCompetition();
     const current = makeCompetition({
       technologies: [
         { id: "t1", name: "React", slug: "react", type: "LIBRARY" as never, iconAsset: null },
       ],
+      eligibilities: [{ type: "OPEN" as never }],
     });
 
     const payload = buildUpdateCompetitionPayload(current, saved);
 
     expect(payload).not.toHaveProperty("technologies");
     expect(payload).not.toHaveProperty("locations");
+    expect(payload).not.toHaveProperty("eligibilities");
   });
 
   it("supports an all-null-optional-fields competition producing no blockers by itself", () => {

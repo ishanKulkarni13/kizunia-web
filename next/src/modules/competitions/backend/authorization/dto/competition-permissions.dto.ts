@@ -22,4 +22,6 @@ export interface CompetitionPermissionsDTO {
   canManageLinks: boolean;
 
   canManageTechnologies: boolean;
+
+  canManageEligibility: boolean;
 }

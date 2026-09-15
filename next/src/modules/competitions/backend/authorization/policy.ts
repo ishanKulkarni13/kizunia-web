@@ -25,16 +25,17 @@ export class CompetitionPolicy {
 
   /**
    * ===========================================================================
-   * Public View
+   * View
    * ===========================================================================
+   *
+   * PUBLIC competitions are discoverable and viewable. UNLISTED competitions
+   * are not discoverable, but remain directly viewable when their slug is
+   * known. PRIVATE and ARCHIVED competitions require membership.
    */
   private static canView(
     context: CompetitionContext,
   ): AuthorizationDecision {
     return AuthorizationEvaluator.start(context)
-
-      // Platform admins can always access
-      .platformOverride()
 
       // Banned users cannot access anything
       .security(
@@ -50,13 +51,18 @@ export class CompetitionPolicy {
         "Competition has been deleted.",
       )
 
-      // Only public competitions
+      // Platform admins can access any non-deleted competition
+      .platformOverride()
+
+      // Members can view any visibility; non-members can directly view only
+      // PUBLIC and UNLISTED competitions. Search discovery remains PUBLIC-only.
       .require(
         (ctx) =>
-          ctx.competition.visibility ===
-          CompetitionVisibility.PUBLIC,
+          ctx.membership !== null ||
+          ctx.competition.visibility === CompetitionVisibility.PUBLIC ||
+          ctx.competition.visibility === CompetitionVisibility.UNLISTED,
         AuthorizationCode.RESOURCE_PRIVATE,
-        "Competition is private.",
+        "Competition is private or archived.",
       )
 
       // Explicitly allow

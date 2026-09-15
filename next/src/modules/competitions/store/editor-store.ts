@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import type { CompetitionEditDTOWithPermissions } from "../types/edit-dto";
 import type { CompetitionLocationDTO } from "../types/competition-location.dto";
 import type { CompetitionTechnologyDTO } from "../types/competition-technology.dto";
+import type { CompetitionEligibilityDTO } from "../types/competition-eligibility.dto";
 import { CompetitionApi } from "../api/competition-api";
 import { UpdateCompetitionSchema } from "../schemas/update-competition";
 import { CompetitionErrorCode } from "../errors/error-code";
@@ -76,6 +77,12 @@ interface CompetitionEditorStore {
    * persisted it. Same reasoning as `setLocations`.
    */
   setTechnologies(technologies: CompetitionTechnologyDTO[]): void;
+
+  /**
+   * Replaces the eligibility list after an eligibilities endpoint has
+   * already persisted it. Same reasoning as `setLocations`/`setTechnologies`.
+   */
+  setEligibilities(eligibilities: CompetitionEligibilityDTO[]): void;
 
   /**
    * Merges a freshly-persisted asset slot (logo/banner/cover) into both
@@ -203,6 +210,27 @@ export const useCompetitionEditorStore = create<CompetitionEditorStore>(
             ? {
                 ...state.original,
                 technologies,
+              }
+            : state.original,
+        };
+      }),
+
+    setEligibilities: (eligibilities) =>
+      set((state) => {
+        if (!state.competition) {
+          return state;
+        }
+
+        return {
+          competition: {
+            ...state.competition,
+            eligibilities,
+          },
+
+          original: state.original
+            ? {
+                ...state.original,
+                eligibilities,
               }
             : state.original,
         };

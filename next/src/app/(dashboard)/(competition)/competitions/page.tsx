@@ -38,7 +38,11 @@ export const metadata: Metadata = {
   title: "Competitions",
   description:
     "Discover hackathons, coding contests, innovation challenges and open opportunities from colleges and organizations.",
-  openGraph: {
+   alternates: {
+    canonical: "/competitions",
+  },
+  
+    openGraph: {
     title: "Competitions",
     description:
       "Discover hackathons, coding contests, innovation challenges and open opportunities from colleges and organizations.",

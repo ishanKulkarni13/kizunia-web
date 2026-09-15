@@ -15,8 +15,12 @@ function formatStatus(status: string) {
 }
 
 export const metadata: Metadata = {
-  title: "Suggestions",
+  title: "My Suggestions",
   description: "Competitions you have suggested to Kizunia.",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default async function MySuggestionsPage() {

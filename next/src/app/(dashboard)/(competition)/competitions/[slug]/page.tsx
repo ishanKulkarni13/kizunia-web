@@ -60,8 +60,22 @@ export async function generateMetadata({
 
     return {
       title: competition.title,
-      description,
-      icons: logoUrl ? [{ url: logoUrl }] : undefined,
+      
+      description:
+        competition.shortDescription ||
+        `Discover ${competition.title} on Kizunia, including eligibility, dates, location, registration details, and more.`,
+      
+        icons: logoUrl ? [{ url: logoUrl }] : undefined,
+      alternates: {
+        canonical: `/competitions/${slug}`,
+      },
+
+      robots: {
+        index: competition.visibility === "PUBLIC",
+        // || competition.visibility === "UNLISTED",
+        follow: competition.visibility === "PUBLIC",
+        // || competition.visibility === "UNLISTED",
+      },
 
       openGraph: {
         title: competition.title,

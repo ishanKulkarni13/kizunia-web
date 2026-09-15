@@ -7,6 +7,7 @@ import { CompetitionRepository } from "./repository";
 
 import type { PlatformContext } from "@/authorization/platform/context";
 import {
+  CompetitionAuthorizer,
   CompetitionContextResolver,
   CompetitionPermissionResolver,
   type CompetitionContext,
@@ -233,8 +234,31 @@ export class CompetitionService {
     return { ...recordState, upcoming };
   }
 
-  static async findBySlug(slug: string): Promise<CompetitionDetailDTO | null> {
+  /**
+   * Finds a publicly available competition by its slug.
+   * It is the same for every user, regardless of their role or membership. It does not require authentication.
+   * Returns the competition details when a matching competition exists, or
+   * `null` when no competition matches the supplied slug.
+   *
+   * @param slug The unique slug identifying the competition.
+   * @returns The competition detail DTO, or `null` if no competition is found.
+   */
+  static async findPublicBySlug(
+    slug: string,
+  ): Promise<CompetitionDetailDTO | null> {
     // PUBLIC
+    // const actor = await SessionService.getOptionalActor(request);
+    const actor = { id: null, role: null, banned: null }; // For public access, we can set actor to null values
+    const context = await CompetitionContextResolver.resolveBySlug({
+      actor: {
+        id: actor?.id ?? null,
+        role: actor?.role ?? null,
+        banned: actor?.banned ?? null,
+      },
+      slug,
+    });
+    CompetitionAuthorizer.read(context);
+
     const competition = await CompetitionRepository.findBySlug(slug);
 
     if (!competition) {
@@ -243,11 +267,12 @@ export class CompetitionService {
     return competitionMapper.toDetailDTO(competition);
   }
 
-  static async adminFindForEdit(
-    context: CompetitionContext,
-  ) { //: Promise<CompetitionDetailDTO>
+  static async adminFindForEdit(context: CompetitionContext) {
+    //: Promise<CompetitionDetailDTO>
     // for admin edit
-    const competition = await CompetitionRepository.findByIdForEdit(context.competition.id);
+    const competition = await CompetitionRepository.findByIdForEdit(
+      context.competition.id,
+    );
 
     return competitionMapper.toEditDTOWithPermissions({
       competition: competition,
@@ -348,7 +373,11 @@ export class CompetitionService {
     });
   }
 
-  static async delete({context}: {context:CompetitionContext}): Promise<void> {
+  static async delete({
+    context,
+  }: {
+    context: CompetitionContext;
+  }): Promise<void> {
     CompetitionRepository.softDelete(context.competition.id);
   }
 

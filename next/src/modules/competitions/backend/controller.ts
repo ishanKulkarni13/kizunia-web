@@ -303,7 +303,7 @@ export class CompetitionController {
     });
   }
 
-  static async findPublicBySlug(request: NextRequest, slug: string) {
+  static async findPublicBySlug( {slug}:{slug: string}) {
     return Route.execute(async () => {
       const parsedSlug = SlugSchema.parse(slug);
 

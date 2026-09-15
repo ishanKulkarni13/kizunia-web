@@ -17,14 +17,10 @@ import PageWrapper from "@/components/page-wrapper";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { ForwardRefEditor } from "@/components/shared/mdx/ForwardRefEditor";
 import { Suspense, cache } from "react";
-import { CompetitionApi } from "@/modules/competitions/api/competition-api";
 import { ForwardRefMdxViewer } from "@/components/shared/mdx/ForwardRefMdxViewer";
 import Image from "next/image";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import { ApiError } from "@/lib/http";
 import { CompetitionErrorCode } from "@/modules/competitions/errors/error-code";
 import {
   COMPETITION_MODE_OPTIONS,
@@ -39,9 +35,42 @@ import {
 import { CompetitionUserStateProvider } from "@/modules/competitions/components/user-state/competition-user-state-provider";
 import { CompetitionBookmarkButton } from "@/modules/competitions/components/user-state/competition-bookmark-button";
 import { CompetitionRegistrationButton } from "@/modules/competitions/components/user-state/competition-registration-button";
+import { CompetitionService } from "@/modules/competitions/backend/service";
+import { SlugSchema } from "@/lib/validation/index";
+import { CompetitionDetailDTO } from "@/modules/competitions/types/dto";
+import {
+  convertZodError,
+  isAppError,
+  RateLimitError,
+  ValidationFailedError,
+} from "@/lib/errors";
+import { ZodError } from "zod";
 
 const getCompetition = cache(async (slug: string) => {
-  return CompetitionApi.getPublic(slug);
+  try {
+    const parsedSlug = SlugSchema.parse(slug);
+
+    return await CompetitionService.findPublicBySlug(parsedSlug);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return null;
+    }
+
+    if (isAppError(error)) {
+      if (
+        error.code === CompetitionErrorCode.NOT_FOUND ||
+        error.code === CompetitionErrorCode.ARCHIVED ||
+        error.code === CompetitionErrorCode.DELETED
+      ) {
+        return null;
+      }
+    }
+
+    // Log the original error server-side.
+    throw new Error(
+      "An unexpected error occurred while fetching the competition.",
+    );
+  }
 });
 
 export async function generateMetadata({
@@ -51,97 +80,60 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
 
-  try {
-    const response = await getCompetition(slug);
-    const competition = response.data;
+  const competition = await getCompetition(slug);
 
-    const logoUrl = competition.logoAsset?.secureUrl;
-    const description = competition.shortDescription || undefined;
-
-    return {
-      title: competition.title,
-      
-      description:
-        competition.shortDescription ||
-        `Discover ${competition.title} on Kizunia, including eligibility, dates, location, registration details, and more.`,
-      
-        icons: logoUrl ? [{ url: logoUrl }] : undefined,
-      alternates: {
-        canonical: `/competitions/${slug}`,
-      },
-
-      robots: {
-        index: competition.visibility === "PUBLIC",
-        // || competition.visibility === "UNLISTED",
-        follow: competition.visibility === "PUBLIC",
-        // || competition.visibility === "UNLISTED",
-      },
-
-      openGraph: {
-        title: competition.title,
-        description,
-        images: logoUrl
-          ? [
-              {
-                url: logoUrl,
-                alt: `${competition.title} logo`,
-              },
-            ]
-          : undefined,
-      },
-
-      twitter: {
-        card: logoUrl ? "summary_large_image" : "summary",
-        title: competition.title,
-        description,
-        images: logoUrl ? [logoUrl] : undefined,
-      },
-    };
-  } catch (error) {
-    if (error instanceof ApiError) {
-      if (
-        error.code === CompetitionErrorCode.NOT_FOUND ||
-        error.code === CompetitionErrorCode.ARCHIVED ||
-        error.code === CompetitionErrorCode.DELETED
-      ) {
-        return {};
-      }
-    }
-
-    throw error;
+  if (!competition) {
+    return {};
   }
+
+  const logoUrl = competition.logoAsset?.secureUrl;
+  const description =
+    competition.shortDescription ||
+    `Discover ${competition.title} on Kizunia, including eligibility, dates, location, registration details, and more.`;
+
+  return {
+    title: competition.title,
+    description,
+    
+
+    icons: logoUrl ? [{ url: logoUrl }] : undefined,
+
+    alternates: {
+      canonical: `/competitions/${slug}`,
+    },
+
+    robots: {
+      index: competition.visibility === "PUBLIC",
+      follow: competition.visibility === "PUBLIC",
+    },
+
+    openGraph: {
+      type: "website",
+      siteName: "Kizunia",
+      title: competition.title,
+      description,
+    },
+
+    twitter: {
+      card: "summary_large_image",
+      title: competition.title,
+      description,
+    },
+  };
 }
 
 export default async function CompetitionPage({
   params,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{
-    location?: string;
-    organizer?: string;
-    minTeamSize?: string;
-  }>;
 }) {
   const { slug } = await params;
-  let response;
-  try {
-    response = await getCompetition(slug);
-  } catch (error) {
-    if (error instanceof ApiError) {
-      if (
-        error.code == CompetitionErrorCode.NOT_FOUND ||
-        error.code == CompetitionErrorCode.ARCHIVED ||
-        error.code == CompetitionErrorCode.DELETED
-      )
-        notFound();
-    } else {
-      throw error;
-    }
-  }
-  if (!!!response) {
+
+  const competition = await getCompetition(slug);
+
+  if (!competition) {
     notFound();
   }
-  const competition = response.data;
 
   const isSideBarRequired =
     competition.registrationDeadline ||

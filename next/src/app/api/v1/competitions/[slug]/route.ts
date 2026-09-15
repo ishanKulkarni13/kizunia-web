@@ -15,7 +15,6 @@ export async function GET(
   const { slug } = await params;
 
   return CompetitionController.findPublicBySlug(
-    request,
-    slug,
+    {slug}
   );
 }

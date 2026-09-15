@@ -35,7 +35,7 @@ export const getCachedPublicCompetition = (slug: string) =>
     },
     ["competition", "public", slug],
     {
-      revalidate: 300,
+      revalidate: 60,
       tags: [`competition:${slug}`],
     },
   )();

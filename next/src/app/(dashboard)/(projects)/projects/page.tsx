@@ -28,12 +28,23 @@ import { ProjectCards } from "@/modules/projects/frontend/components/discovery/p
 import { ProjectFilters } from "@/modules/projects/frontend/components/discovery/project-filters";
 import { PROJECT_FILTER_SPECS } from "@/modules/projects/search/ui";
 import { TaxonomyService } from "@/modules/taxonomy";
+import { Metadata } from "next/types";
 
 const PATHNAME = "/projects";
+
+export const metadata: Metadata = {
+  title: "Projects",
+  description:
+    "Discover interesting projects built by the Kizunia community and explore ideas, technologies, and creators.",
+  alternates: {
+    canonical: "/projects",
+  },
+};
 
 interface Props {
   searchParams: Promise<RawSearchParams>;
 }
+
 
 /**
  * Project discovery — the public listing.

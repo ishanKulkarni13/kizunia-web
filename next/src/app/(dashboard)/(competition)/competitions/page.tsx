@@ -26,12 +26,33 @@ import CompetitionsCards from "@/modules/competitions/components/allCompititions
 import { CompetitionFilters } from "@/modules/competitions/components/discovery/competition-filters";
 import { COMPETITION_FILTER_SPECS } from "@/modules/competitions/search/ui";
 import { TaxonomyService } from "@/modules/taxonomy";
+import { Metadata } from "next/types";
 
 const PATHNAME = "/competitions";
 
 interface Props {
   searchParams: Promise<RawSearchParams>;
 }
+
+export const metadata: Metadata = {
+  title: "Competitions",
+  description:
+    "Discover hackathons, coding contests, innovation challenges and open opportunities from colleges and organizations.",
+   alternates: {
+    canonical: "/competitions",
+  },
+  
+    openGraph: {
+    title: "Competitions",
+    description:
+      "Discover hackathons, coding contests, innovation challenges and open opportunities from colleges and organizations.",
+  },
+  twitter: {
+    title: "Competitions",
+    description:
+      "Discover hackathons, coding contests, innovation challenges and open opportunities from colleges and organizations.",
+  },
+};
 
 /**
  * Competition discovery.

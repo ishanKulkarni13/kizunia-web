@@ -22,7 +22,7 @@ import type { DimensionId, PreferenceEntry, RecommendationConfig } from "../engi
 import { defaultRecommendationConfig } from "../config/recommendation-config";
 import { CandidateService } from "./candidate.service";
 import {
-  DummyPreferenceProfileProvider,
+  DbPreferenceProfileProvider,
   ExplicitProfileProvider,
   type PreferenceProfileProvider,
 } from "./preference-profile.provider";
@@ -38,7 +38,7 @@ export interface GenerateRecommendationsOptions {
   readonly includeDiagnostics?: boolean;
 }
 
-const defaultProvider: PreferenceProfileProvider = new DummyPreferenceProfileProvider();
+const defaultProvider: PreferenceProfileProvider = new DbPreferenceProfileProvider();
 
 export class RecommendationService {
   /**

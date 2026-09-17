@@ -49,6 +49,21 @@ export const RateLimitPolicyId = {
    * pipeline run per request is real CPU work, so it is still bounded.
    */
   RECOMMENDATIONS_GENERATE: "recommendations:generate",
+  /**
+   * Notification-preference read/write for the current user. Same
+   * subject/failure-mode profile as `COMPETITIONS_USER_STATE_READ/WRITE`:
+   * local DB only, no spend, guards against a stuck retry loop rather than
+   * cost.
+   */
+  NOTIFICATION_PREFERENCES_READ: "notification-preferences:read",
+  NOTIFICATION_PREFERENCES_WRITE: "notification-preferences:write",
+  /**
+   * Competition-preference read/write for the current user. The write path
+   * validates against category/technology/search-area tables, so it is a
+   * little heavier than a bare upsert, but still local DB only.
+   */
+  COMPETITION_PREFERENCES_READ: "competition-preferences:read",
+  COMPETITION_PREFERENCES_WRITE: "competition-preferences:write",
 } as const;
 
 export type RateLimitPolicyId =
@@ -222,5 +237,41 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "open",
     description:
       "Authenticated internal testing route for the Phase 0 recommendation engine (the route already requires a session, so `user` is valid here). 30/min is far above manual click-testing rhythm while still stopping a stuck retry loop from repeatedly re-running the full pipeline. Local DB read plus in-memory scoring only — no external spend — so it fails open: a limiter outage should not block a developer testing the engine.",
+  },
+  [RateLimitPolicyId.NOTIFICATION_PREFERENCES_READ]: {
+    id: RateLimitPolicyId.NOTIFICATION_PREFERENCES_READ,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Reading one's own notification preferences (the route already requires a session). One indexed read, local DB cost only — fails open, a limiter outage should not stop a settings page from loading.",
+  },
+  [RateLimitPolicyId.NOTIFICATION_PREFERENCES_WRITE]: {
+    id: RateLimitPolicyId.NOTIFICATION_PREFERENCES_WRITE,
+    limit: 60,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Toggling one's own notification preferences. One indexed upsert, local DB cost only. 60/min is far above any real toggling rhythm while still stopping a stuck retry loop — fails open, a limiter outage should not block a settings change.",
+  },
+  [RateLimitPolicyId.COMPETITION_PREFERENCES_READ]: {
+    id: RateLimitPolicyId.COMPETITION_PREFERENCES_READ,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Reading one's own competition preference profile (the route already requires a session). One indexed read, local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.COMPETITION_PREFERENCES_WRITE]: {
+    id: RateLimitPolicyId.COMPETITION_PREFERENCES_WRITE,
+    limit: 30,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Replacing one's own competition preference profile. Heavier than a bare upsert — validates category/technology/search-area values before a transactional delete+recreate — so the ceiling is lower than the read/toggle policies, but still local DB cost only, so it fails open.",
   },
 } as const;

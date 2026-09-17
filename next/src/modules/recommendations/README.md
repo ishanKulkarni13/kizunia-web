@@ -59,13 +59,18 @@ Phase 1 Notifications is expected to call `RecommendationService`
 a dependency rather than reimplementing scoring or ranking. See
 [`docs/architecture/recommendation/README.md#phase-relationship`](../../../../docs/architecture/recommendation/README.md).
 
+## Preference profile persistence
+
+Open decision A-2 in the notification spec is resolved: the preference profile is now backed by
+the persisted `CompetitionPreference` model (see `next/src/modules/preferences/`), read through
+`DbPreferenceProfileProvider` — the default `PreferenceProfileProvider` wired into
+`recommendation.service.ts`. `DummyPreferenceProfileProvider` and `ExplicitProfileProvider` remain
+in `backend/preference-profile.provider.ts` for the internal tuning route and for tests that need a
+fixed, hand-built profile; the port is what made this swap a one-line change with no other change
+to this module.
+
 ## Phase 0 simplifications (deliberate, temporary)
 
-- **Preference profile is a hardcoded dummy**, the same for every user
-  (`DummyPreferenceProfileProvider`). No weighted preference storage exists
-  yet; see open decision A-2 in the notification spec. The
-  `PreferenceProfileProvider` port is the seam a real, persisted adapter
-  will plug into later without changing the engine.
 - **No temporal dimensions.** `startDate`, `endDate`, `registrationDeadline`,
   `registrationStartDate` are not scored — they remain ordinary competition
   fields, used only as ranking tiebreakers.

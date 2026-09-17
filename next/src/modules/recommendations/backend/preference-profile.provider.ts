@@ -2,29 +2,31 @@
  * Recommendations — Preference Profile Provider
  *
  * =============================================================================
- * Why a port, and why a dummy adapter behind it
+ * Why a port, and what sits behind it now
  * =============================================================================
  *
  * `userId -> PreferenceProfile` is the one input the engine needs that does
- * not come from the competition domain. No weighted preference storage
- * exists anywhere in the schema today — `NotificationPreference` is legacy
- * and untyped, and is not being repurposed here (see open decision A-2 in
- * `docs/project/feature-specification/notification/open-decisions.md`,
- * which Phase 0 deliberately leaves open). Per explicit product direction,
- * Phase 0 also does not read `User.interests`/`UserCategory` or any
- * portfolio field as a preference source — that relation has been removed
- * from the domain entirely (see the schema migration
- * `remove_user_category_interests`).
+ * not come from the competition domain. Phase 0 shipped with no persisted
+ * preference storage — `NotificationPreference` was legacy and untyped, and
+ * open decision A-2 (`docs/project/feature-specification/notification/open-decisions.md`)
+ * deliberately left "what backs a real preference profile" unresolved.
+ * Per explicit product direction, Phase 0 also never read
+ * `User.interests`/`UserCategory` as a preference source — that relation
+ * was removed from the domain entirely (see the schema migration
+ * `remove_user_category_interests`), not repurposed.
  *
- * So Phase 0 uses `DummyPreferenceProfileProvider`: the same hardcoded,
- * representative profile for every user, good enough to exercise the whole
- * pipeline end-to-end (`userId -> RecommendationResult`) by hand. The port
- * is what makes this a *temporary* choice rather than a structural one —
- * when a real, persisted preference model exists, a new adapter replaces
- * `DummyPreferenceProfileProvider` in `recommendation.service.ts` and
- * nothing else in this module changes.
+ * A-2 is now resolved: `CompetitionPreference` (see `prisma/schema.prisma`
+ * and `modules/preferences`) is the persisted profile, and
+ * `DbPreferenceProfileProvider` below is the real adapter — the module's
+ * `defaultProvider` (`recommendation.service.ts`) now points at it instead
+ * of `DummyPreferenceProfileProvider`. `DummyPreferenceProfileProvider` and
+ * `ExplicitProfileProvider` stay in this file for the internal tuning route
+ * and tests that need a fixed, hand-built profile — the whole point of the
+ * port is that every adapter is interchangeable and nothing outside this
+ * file needs to know which one is active.
  */
 import { DimensionId, type PreferenceEntry, type PreferenceProfile } from "../engine";
+import { CompetitionPreferenceRepository } from "@/modules/preferences/backend/competition-preference.repository";
 
 export interface PreferenceProfileProvider {
   load(userId: string): Promise<PreferenceProfile>;
@@ -72,5 +74,28 @@ export class ExplicitProfileProvider implements PreferenceProfileProvider {
 
   async load(): Promise<PreferenceProfile> {
     return this.entries;
+  }
+}
+
+/**
+ * The real adapter: reads the user's persisted `CompetitionPreference` rows
+ * (`modules/preferences`) and reshapes them into the flat `PreferenceEntry[]`
+ * the engine expects. This is the hand-off this file's module docstring
+ * anticipated — see `recommendation.service.ts`'s `defaultProvider`.
+ *
+ * The `as DimensionId` cast is safe, not a mapping function:
+ * `CompetitionPreferenceDimension`'s enum values are defined in
+ * `prisma/schema.prisma` to be identical strings to `DimensionId`'s values,
+ * specifically so no translation layer is needed here.
+ */
+export class DbPreferenceProfileProvider implements PreferenceProfileProvider {
+  async load(userId: string): Promise<PreferenceProfile> {
+    const rows = await CompetitionPreferenceRepository.findByUser(userId);
+
+    return rows.map((row) => ({
+      dimension: row.dimension as DimensionId,
+      value: row.value,
+      weight: row.weight,
+    }));
   }
 }

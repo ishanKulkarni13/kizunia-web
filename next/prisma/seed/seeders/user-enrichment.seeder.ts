@@ -5,7 +5,8 @@
 // User category interests were removed from the domain model — see
 // docs/architecture/recommendation/README.md for why preference profiles no
 // longer come from this table.
-import { PrismaClient } from "../../../src/generated/prisma";
+// import { NotificationIntent, PrismaClient } from "../../../src/generated/prisma";
+import {  PrismaClient } from "../../../src/generated/prisma";
 import { users } from "../data/users";
 
 interface Maps {
@@ -73,24 +74,21 @@ export async function seedUserEnrichment(
         .catch(() => {});
     }
 
-    // Notification preferences (one per user)
-    await prisma.notificationPreference
-      .upsert({
-        where: { userId },
-        update: {},
-        create: {
-          userId,
-          emailNotifications: true,
-          pushNotifications: enrichment.index < 4, // first 4 users have push on
-          preferences: {
-            competitionReminders: true,
-            newCompetitions: enrichment.index % 2 === 0,
-            weeklyDigest: true,
-          },
-        },
-      })
-      .catch(() => {});
+    // Notification preferences (one row per user per intent)
+    // await prisma.notificationPreference
+    //   .upsert({
+    //     where: {
+    //       userId_intent: { userId, intent: NotificationIntent.TOP_RELEVANT_COMPETITION },
+    //     },
+    //     update: {},
+    //     create: {
+    //       userId,
+    //       intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
+    //       enabled: enrichment.index < 4, // first 4 users opted in
+    //     },
+    //   })
+    //   .catch(() => {});
 
-    console.log(`     ✓ User #${enrichment.index + 1} enriched`);
+    // console.log(`     ✓ User #${enrichment.index + 1} enriched`);
   }
 }

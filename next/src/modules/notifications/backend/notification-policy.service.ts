@@ -1,0 +1,86 @@
+/**
+ * Notifications — Policy Service
+ *
+ * Business Layer
+ *
+ * The seam between Phase 0 and Phase 1. It gathers the two inputs the policy
+ * needs — the user's notification preference and the recommendation engine's
+ * output — and hands them to a pure decision function. It adds no rules of
+ * its own; every rule lives in `policy/`, where it is testable without a
+ * database.
+ *
+ * Responsibilities
+ * ----------------
+ * ✓ Establish "now" once per evaluation
+ * ✓ Read the intent's enabled state, and relevance from the Phase 0 engine
+ * ✓ Delegate the decision to the policy and return its verdict unchanged
+ *
+ * Does NOT
+ * ----------------
+ * ✗ Compute relevance, scoring, ranking or eligibility
+ * ✗ Query Prisma directly
+ * ✗ Create, store, queue or deliver a notification — that layer does not
+ *   exist yet, and this service stops at the decision
+ */
+import { NotificationIntent } from "@/generated/prisma";
+import { NotificationPreferenceService } from "@/modules/preferences/backend/notification-preference.service";
+import { RecommendationService } from "@/modules/recommendations/backend/recommendation.service";
+
+import { evaluateTopRelevantCompetition } from "../policy/top-relevant-competition.policy";
+import type { NotificationDecision } from "../policy/types";
+
+export class NotificationPolicyService {
+  /**
+   * `userId -> should we notify them about their top relevant competition?`
+   *
+   * Returns a decision, not a notification. Producing and delivering one is a
+   * later layer's job.
+   */
+  static async evaluateTopRelevantCompetition(
+    userId: string,
+  ): Promise<NotificationDecision> {
+    const now = new Date();
+    const enabled = await this.isIntentEnabled(
+      userId,
+      NotificationIntent.TOP_RELEVANT_COMPETITION,
+    );
+
+    // Short-circuit: running the engine for a user who has opted out would be
+    // work whose result is discarded. The policy checks `enabled` before it
+    // reads `recommendations`, so the empty array below is never observable.
+    if (!enabled) {
+      return evaluateTopRelevantCompetition({
+        userId,
+        enabled: false,
+        recommendations: [],
+        now,
+      });
+    }
+
+    // Engine defaults only. Threshold/topN/dimension overrides belong to the
+    // internal tuning route, not to a production notification evaluation.
+    const result = await RecommendationService.generateForUser({ userId });
+
+    return evaluateTopRelevantCompetition({
+      userId,
+      enabled: true,
+      recommendations: result.items,
+      now,
+    });
+  }
+
+  /**
+   * `getForUser` reports every known intent, filling the opt-in default for a
+   * user with no row, so a missing entry here would mean the enum and that
+   * service had drifted apart — treat it as disabled rather than notifying on
+   * an assumption.
+   */
+  private static async isIntentEnabled(
+    userId: string,
+    intent: NotificationIntent,
+  ): Promise<boolean> {
+    const preferences = await NotificationPreferenceService.getForUser(userId);
+
+    return preferences.find((p) => p.intent === intent)?.enabled ?? false;
+  }
+}

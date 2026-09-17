@@ -229,3 +229,32 @@ need; it can be added later if notification lifecycle reporting requires it.
 
 **Consequence:** Because an undelivered notification does not consume its triple (ND-H-03), a user
 who re-enables the intent may receive that competition in a later evaluation. This is intended.
+
+---
+
+## ND-P-15 — Notification and competition preference persistence
+
+**Status:** Accepted
+
+Resolves open item A-2. Two separate Prisma models, both keyed by `userId`, neither collapsed into
+the other:
+
+- `NotificationPreference` — one row per `(userId, intent)`, with a plain `enabled` boolean. Replaces
+  the legacy model (`emailNotifications`/`pushNotifications`/untyped `preferences` JSON), which had
+  zero write call sites anywhere in the app and presupposed channels Phase 1 does not have. A new
+  intent is a new `NotificationIntent` enum value plus an additive migration, never a restructure. A
+  user with no row for a given intent defaults to **disabled** — opt-in, not opt-out.
+- `CompetitionPreference` — one row per `(userId, dimension, value)`, with a `weight` in `[0, 1]`
+  (database-enforced via a `CHECK` constraint). `dimension` is a database enum whose values mirror
+  the recommendation engine's `DimensionId` exactly, so no translation layer sits between storage and
+  the engine's `PreferenceProfileProvider`. No row for a dimension means no preference for it (ND-P-03);
+  no rows at all means an empty profile (ND-P-04).
+
+Neither model carries history or versioning (ND-H-05 — every evaluation reads the current state).
+
+**Rationale:** A keyed, per-row structure (rather than per-intent or per-dimension columns) extends
+to new intents and dimensions without restructuring either table, at the cost of a slightly less
+direct read than a dedicated column would give — acceptable at Phase 1's read volume (see
+[`preference-storage.md`](../../../../architecture/notifications/persistence/preference-storage.md)).
+
+**See:** `next/prisma/schema.prisma`, `next/src/modules/preferences/`.

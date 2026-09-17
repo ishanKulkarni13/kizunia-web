@@ -4,7 +4,7 @@
 >
 > **Last Updated:** 2026-09-12
 >
-> **Rulings:** [ND-I-10](../decisions/intents.md#nd-i-10--registration_closing-targets-24-hours-before-the-deadline)
+> **Rulings:** [ND-I-10](../decisions/intents.md#nd-i-10--registration_closing-targets-2-days-before-the-deadline)
 > through [ND-I-14](../decisions/intents.md#nd-i-14--no-standalone-registration_closed-notification),
 > [ND-P-13](../decisions/preferences.md#nd-p-13--registration_closing-exposes-a-user-configurable-maximum)
 
@@ -17,7 +17,7 @@
 | **Kind** | Deadline |
 | **Purpose** | Give the user a chance to register before registration closes |
 | **Trigger** | Scheduled deadline evaluation |
-| **Timing** | 24 hours before the actual registration deadline timestamp |
+| **Timing** | 2 days before the actual registration deadline timestamp (temporary, simple rule — see below) |
 | **User eligibility** | Intent enabled, required capability available |
 | **Candidate rule** | Competition is **relevant to** or **bookmarked by** the user |
 | **Exclusions** | User has marked the competition as Registered |
@@ -40,11 +40,16 @@ competition — the point is the clock.
 
 ## Timing
 
-The initial notification timing is **exactly 24 hours before the actual registration deadline
-timestamp**.
+The initial notification timing is **2 days before the actual registration deadline timestamp**.
 
-The 24-hour calculation is based on the real deadline timestamp, **not** simply the previous
-calendar day. "The day before" is ambiguous for a deadline at 23:00 and useless for one at 01:00.
+The calculation is based on the real deadline timestamp, **not** simply the second-previous
+calendar day. Measuring against the exact timestamp avoids the ambiguity calendar-day framing would
+introduce for a deadline at 23:00 vs. one at 01:00.
+
+**This is a temporary, simple rule** (ND-I-10), chosen because it is coarse enough for a daily
+scheduled sweep to approximate without sub-day scheduling precision — not because 2 days is
+inherently the right lead time. Notification timing may become dynamically/smartly determined later
+without requiring a different persistence model; see [`future/README.md`](../future/README.md).
 
 The deadline itself comes from the competition's `registrationDeadline`. Note that the competition
 domain treats the deadline as exclusive — at the exact instant `now` equals the deadline,
@@ -52,8 +57,8 @@ registration is closed, not still open. See
 [`lifecycle-automation.md`](../../../../architecture/workflows/competition/lifecycle-automation.md).
 
 > **Open:** a scheduled job cannot fire at an arbitrary instant for every competition. The
-> evaluation window that approximates T-24h — for example, "deadline falls within the next 24 to 48
-> hours, and no notification has been sent for this deadline event" — is **not decided** and must
+> evaluation window that approximates T-2d — for example, "deadline falls within the next 2 to 3
+> days, and no notification has been sent for this deadline event" — is **not decided** and must
 > be resolved before implementation. See [`open-decisions.md`](../open-decisions.md).
 
 ---
@@ -208,7 +213,7 @@ into independent toggles is a plausible future refinement, recorded at
 
 ## Known gaps
 
-- **The evaluation window** approximating T-24h is undecided (above, and in
+- **The evaluation window** approximating T-2d is undecided (above, and in
   [`open-decisions.md`](../open-decisions.md)).
 - **Where "relevant to the user" comes from** for this intent — recomputed at evaluation time, or
   read from stored relevance produced by the discovery pipeline — is undecided and has real cost

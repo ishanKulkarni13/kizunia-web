@@ -89,9 +89,9 @@ Carrying it is cheap. Reconstructing it after the fact is not possible.
 
 Worth calling out separately: "now" belongs in the context, established once at initialization.
 
-A pipeline that reads the clock at several stages can decide a deadline is 24 hours away during
-candidate selection and 23 hours away during generation. Time is an input to this subsystem, and
-inputs belong in the context.
+A pipeline that reads the clock at several stages can decide a deadline is 2 days away during
+candidate selection and a few hours closer during generation. Time is an input to this subsystem,
+and inputs belong in the context.
 
 ---
 

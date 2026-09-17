@@ -1,8 +1,8 @@
 # Preference Storage
 
-> **Status:** Design — blocking open decision
+> **Status:** Implemented
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-17
 
 Two independent preference systems are stored
 ([`preferences/README.md`](../../../project/feature-specification/notification/preferences/README.md)):
@@ -17,9 +17,9 @@ to the same user.
 
 ---
 
-## Blocking: the legacy `NotificationPreference` model
+## Resolved: the legacy `NotificationPreference` model was replaced
 
-A `NotificationPreference` model **already exists** in the Prisma schema:
+A `NotificationPreference` model previously existed with this shape:
 
 ```text
 model NotificationPreference {
@@ -30,17 +30,37 @@ model NotificationPreference {
 }
 ```
 
-It is unused by this specification's design and presupposes things Phase 1 does not have:
+It was unused by this specification's design and presupposed things Phase 1 does not have:
 
 - **channel toggles** for email and push, when Phase 1 delivers in-app web only
   ([`future/channels.md`](../../../project/feature-specification/notification/future/channels.md));
 - **an untyped `preferences` JSON field**, with no defined shape.
 
-**Open item A-2 — extend it, replace it, or leave it orphaned and introduce a new model.**
+**Open item A-2 resolution: replaced, not extended.** Confirmed before replacing it that no code
+path anywhere in the app ever wrote to this table — the only reference was a negative assertion in
+a recommendation-engine test — so there was no real data a migration needed to carry forward, and
+the old fields had no meaningful mapping to a per-intent shape anyway. The replacement is a
+per-intent row, keyed on `(userId, intent)`:
 
-This must be decided before preference persistence is built. Whatever is chosen, the channel fields
-should not be treated as meaningful until channels exist — a `pushNotifications` toggle that
-controls nothing is a promise to the user that the product does not keep.
+```text
+enum NotificationIntent {
+  TOP_RELEVANT_COMPETITION
+}
+
+model NotificationPreference {
+  userId    String
+  intent    NotificationIntent
+  enabled   Boolean  @default(false)   // opt-in: no row means not yet configured
+  // ...
+  @@unique([userId, intent])
+}
+```
+
+A new intent is a new enum value plus an additive migration — never a restructure of this model.
+No channel fields exist; they will be added only when a channel actually exists to back them. See
+`next/prisma/schema.prisma` and `next/src/modules/preferences/` for the implementation, and
+[`decisions/preferences.md`](../../../project/feature-specification/notification/decisions/preferences.md#nd-p-15--notification-and-competition-preference-persistence)
+for the corresponding ruling.
 
 ---
 
@@ -74,8 +94,10 @@ The concession is to the *matching algorithm*, not to the *model*.
 | Readable cheaply at user-eligibility time, for every user in a sweep | [`../pipeline/stages.md`](../pipeline/stages.md) |
 
 The third and fourth pull against each other: per-intent columns are cheap to read and require a
-migration per intent; a keyed structure extends freely and reads less directly. This trade-off is
-part of open item A-2.
+migration per intent; a keyed structure extends freely and reads less directly. **Resolved toward
+the keyed structure** — one row per `(userId, intent)` — favoring extensibility, since Phase 1 has
+exactly one intent and the read volume that would justify optimizing for per-intent columns does
+not exist yet. Revisit only if a real sweep-read cost problem shows up.
 
 ---
 

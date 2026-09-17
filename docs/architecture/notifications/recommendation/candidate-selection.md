@@ -103,9 +103,10 @@ may be, and requires invalidation when a user edits their profile.
 
 ## The deadline evaluation window
 
-`REGISTRATION_CLOSING` targets exactly 24 hours before the deadline timestamp
-([ND-I-10](../../../project/feature-specification/notification/decisions/intents.md#nd-i-10--registration_closing-targets-24-hours-before-the-deadline)),
-and a scheduled job cannot fire at an arbitrary instant per competition.
+`REGISTRATION_CLOSING` targets 2 days before the deadline timestamp
+([ND-I-10](../../../project/feature-specification/notification/decisions/intents.md#nd-i-10--registration_closing-targets-2-days-before-the-deadline)
+— a temporary, simple rule, amended from an originally-considered 24 hours), and a scheduled job
+cannot fire at an arbitrary instant per competition.
 
 The window that approximates it — and the guarantee that a given deadline event produces exactly
 one notification per user regardless of how many times the job runs — is **blocking**, item A-1 in

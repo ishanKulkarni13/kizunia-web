@@ -9,7 +9,7 @@ Both Phase 1 intents are scheduled.
 | Intent | Schedule |
 | --- | --- |
 | `TOP_RELEVANT_COMPETITION` | Daily at midnight |
-| `REGISTRATION_CLOSING` | Deadline evaluation — window **undecided** |
+| `REGISTRATION_CLOSING` | Deadline evaluation, targeting T-2d — window **undecided** |
 
 ---
 
@@ -88,18 +88,20 @@ there are no sufficiently relevant new opportunities for a user, nothing is gene
 
 ## `REGISTRATION_CLOSING` — deadline evaluation
 
-The intent targets exactly 24 hours before the actual registration deadline **timestamp**, not the
-previous calendar day
-([ND-I-10](../../../project/feature-specification/notification/decisions/intents.md#nd-i-10--registration_closing-targets-24-hours-before-the-deadline)).
+The intent targets 2 days before the actual registration deadline **timestamp**, not the
+second-previous calendar day
+([ND-I-10](../../../project/feature-specification/notification/decisions/intents.md#nd-i-10--registration_closing-targets-2-days-before-the-deadline)
+— amended from an originally-considered 24 hours; still a temporary, simple rule, not a permanent
+one).
 
 A scheduled job cannot fire at an arbitrary instant per competition, so the schedule approximates
 the target through a **window**.
 
 **This is blocking** — open item A-1. Whatever is chosen must answer:
 
-- which competitions are in scope for a given run — for example, "deadline falls within the next 24
-  to 48 hours";
-- how often the job runs, which determines how close to T-24h the notification lands;
+- which competitions are in scope for a given run — for example, "deadline falls within the next 2
+  to 3 days";
+- how often the job runs, which determines how close to T-2d the notification lands;
 - how a deadline event is identified, so that **exactly one** notification per user per deadline
   event is produced no matter how many runs see it.
 

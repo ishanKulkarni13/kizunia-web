@@ -66,8 +66,8 @@ unit-testable and only the query is integration-tested.
 
 ## Time
 
-Notification logic is unusually time-dependent — a daily sweep, a T-24h deadline window, deadline
-timestamps, `registrationStartDate` boundaries.
+Notification logic is unusually time-dependent — a daily sweep, a T-2d deadline window (temporary,
+simple rule — ND-I-10), deadline timestamps, `registrationStartDate` boundaries.
 
 The repository's convention has a clear preference order:
 

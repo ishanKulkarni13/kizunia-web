@@ -22,12 +22,14 @@ These were surfaced while writing this specification and have no answer in the d
 
 ### A-1. The `REGISTRATION_CLOSING` evaluation window — **Blocking**
 
-`REGISTRATION_CLOSING` targets exactly 24 hours before the actual deadline timestamp
-([ND-I-10](decisions/intents.md#nd-i-10--registration_closing-targets-24-hours-before-the-deadline)).
-A scheduled job cannot fire at an arbitrary instant for every competition.
+`REGISTRATION_CLOSING` targets 2 days before the actual deadline timestamp
+([ND-I-10](decisions/intents.md#nd-i-10--registration_closing-targets-2-days-before-the-deadline) —
+amended from an originally-considered 24 hours specifically to make this window easier to
+approximate; the 2-day figure is still a temporary, simple rule, not a permanent one). A scheduled
+job cannot fire at an arbitrary instant for every competition.
 
-**Needs deciding:** the evaluation window that approximates T-24h — for example "the deadline falls
-within the next 24 to 48 hours and no notification has been sent for this deadline event" — or a
+**Needs deciding:** the evaluation window that approximates T-2d — for example "the deadline falls
+within the next 2 to 3 days and no notification has been sent for this deadline event" — or a
 finer schedule, or per-competition scheduling.
 
 **Blocks:** `REGISTRATION_CLOSING` implementation entirely.
@@ -35,28 +37,6 @@ finer schedule, or per-competition scheduling.
 **Related:** the repository's scheduled jobs run through Vercel Cron
 ([`internal-jobs.md`](../../../architecture/workflows/internal-jobs.md)), which constrains the
 achievable granularity.
-
-### A-2. The legacy `NotificationPreference` model — **Blocking**
-
-A `NotificationPreference` model already exists in the Prisma schema, carrying `emailNotifications`,
-`pushNotifications` and an untyped `preferences` JSON field. It presupposes channels Phase 1 does
-not have and a preference shape this specification does not describe.
-
-**Needs deciding:** extend it, replace it, or leave it orphaned and introduce a new model.
-
-**Blocks:** preference persistence.
-
-**See:**
-[`preference-storage.md`](../../../architecture/notifications/persistence/preference-storage.md).
-
-**Phase 0 note:** the Competition Recommendation Engine
-([`docs/architecture/recommendation/README.md`](../../../architecture/recommendation/README.md))
-needed a preference profile before this decision could be made, and deliberately did not make it
-for the notification subsystem — it uses a hardcoded dummy profile
-(`DummyPreferenceProfileProvider`), not `NotificationPreference` and not `User.interests` (which
-has been removed from the domain rather than repurposed as a preference source). This decision
-remains open and unaffected. See
-[`recommendation/preferences/phase-0-dummy-profile.md`](../recommendation/preferences/phase-0-dummy-profile.md).
 
 ### A-3. What "queue" means, given there is no queue — **Blocking**
 

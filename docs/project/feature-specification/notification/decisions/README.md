@@ -57,6 +57,7 @@ ID prefixes map to topic files:
 | ND-P-12 | Notification preferences are per-intent and separate from the competition preference profile |
 | ND-P-13 | `REGISTRATION_CLOSING` exposes a user-configurable maximum |
 | ND-P-14 | A notification generated before the user disables its intent is not sent |
+| ND-P-15 | Notification preferences and competition preferences persist as two separate, keyed-row models |
 
 ### Relevance — [relevance.md](relevance.md)
 
@@ -83,7 +84,7 @@ ID prefixes map to topic files:
 | ND-I-07 | Registration reopening does not reset discovery history |
 | ND-I-08 | Discovery freshness is defined by becoming actionable, not by creation date |
 | ND-I-09 | A competition becoming registration-open needs no separate lifecycle notification |
-| ND-I-10 | `REGISTRATION_CLOSING` targets 24 hours before the actual deadline timestamp |
+| ND-I-10 | `REGISTRATION_CLOSING` targets 2 days before the actual deadline timestamp (temporary, simple rule) |
 | ND-I-11 | `REGISTRATION_CLOSING` eligibility is relevant OR bookmarked, excluding marked-as-registered |
 | ND-I-12 | Multiple qualifying relationships produce one notification, not several |
 | ND-I-13 | `REGISTRATION_CLOSING` aggregates its selection into one summary notification |

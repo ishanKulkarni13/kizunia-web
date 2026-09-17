@@ -80,7 +80,7 @@ Also relevant: a registration row is never removed by lifecycle. It survives eve
 | Read | Used for |
 | --- | --- |
 | `status` (`CompetitionStatus`) | Registration-open candidacy |
-| `registrationDeadline` | Deadline window; the exact T-24h target |
+| `registrationDeadline` | Deadline window; the exact T-2d target (temporary, simple rule — ND-I-10) |
 | `registrationStartDate` | When a competition becomes actionable |
 | `startDate`, `endDate` | Lifecycle context |
 | Categories, technologies, eligibility, mode, fee | Preference matching |

@@ -156,17 +156,31 @@ only says Phase 1 does not need one to get the behavior.
 
 ---
 
-## ND-I-10 — `REGISTRATION_CLOSING` targets 24 hours before the deadline
+## ND-I-10 — `REGISTRATION_CLOSING` targets 2 days before the deadline
 
-**Status:** Accepted
+**Status:** Accepted (amended)
 
-`REGISTRATION_CLOSING` is an actionable deadline notification. Initial timing is 24 hours before
-the actual registration deadline **timestamp** — not simply the previous calendar day.
+`REGISTRATION_CLOSING` is an actionable deadline notification. Initial timing is 2 days before
+the actual registration deadline **timestamp** — not simply the second-previous calendar day.
 
-**Rationale:** "The day before" is ambiguous for a deadline at 23:00 and useless for one at 01:00.
+**Rationale:** "N days before" measured against the exact timestamp avoids the ambiguity of
+calendar-day framing (a deadline at 23:00 vs. one at 01:00). 2 days, rather than the originally
+considered 24 hours, is a deliberately coarse, simple rule for the current implementation — coarse
+enough that a daily scheduled sweep (the same cadence already used for `TOP_RELEVANT_COMPETITION`,
+ND-I-04) can approximate it without needing sub-day scheduling precision.
+
+**This value is explicitly temporary.** It is a simple placeholder, not a permanent architectural
+invariant. Notification timing may become dynamically or "smartly" determined later (e.g. varying
+by competition, user behavior, or channel) without that being a breaking change to this ruling —
+implementing dynamic timing is future work, tracked in
+[`future/README.md`](../future/README.md), not committed to here.
+
+**Amended:** originally 24 hours before the deadline. Changed to 2 days to simplify the scheduling
+story (see below) while the notification delivery system itself remains unbuilt.
 
 **Open:** a scheduled job cannot fire at an arbitrary instant, so the evaluation window that
-approximates T-24h is an open decision — see [`open-decisions.md`](../open-decisions.md).
+approximates T-2d is still an open decision, though a coarser target narrows it considerably — see
+[`open-decisions.md`](../open-decisions.md).
 
 ---
 

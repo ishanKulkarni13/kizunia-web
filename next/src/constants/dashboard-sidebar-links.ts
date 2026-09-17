@@ -1,6 +1,8 @@
 import {
+  BellIcon,
   FileCodeIcon,
   FileUser,
+  SlidersHorizontalIcon,
   Trophy,
   UsersIcon,
   type LucideIcon,
@@ -126,7 +128,21 @@ export const SideBarNavMain: SidebarNavSection[] = [
 ];
 
 /**
- * Secondary nav (Settings / Get Help / etc). Reserved extension point —
- * intentionally empty until those destinations exist.
+ * Secondary nav (Settings / Get Help / etc). Renders as a flat list of
+ * links only — `nav-secondary.tsx` does not render nested `items` the way
+ * the primary nav does, so each entry here must be a direct link.
  */
-export const SideBarNavSecondary: SidebarNavSection[] = [];
+export const SideBarNavSecondary: SidebarNavSection[] = [
+  {
+    id: "notification-preferences",
+    title: "Notifications",
+    url: "/user/notification-preferences",
+    icon: BellIcon,
+  },
+  {
+    id: "competition-preferences",
+    title: "Competition Preferences",
+    url: "/user/competition-preferences",
+    icon: SlidersHorizontalIcon,
+  },
+];

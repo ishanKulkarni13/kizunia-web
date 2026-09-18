@@ -46,6 +46,12 @@ export enum PlatformAction {
   // Assets
   MANAGE_MEDIA = "MANAGE_MEDIA",
 
+  // Notifications
+  // Authoring and scheduling platform announcements. The only write in the
+  // system whose blast radius is every user, so it is its own permission rather
+  // than riding on ACCESS_ADMIN_DASHBOARD.
+  MANAGE_NOTIFICATION_ANNOUNCEMENTS = "MANAGE_NOTIFICATION_ANNOUNCEMENTS",
+
   // Site
   MANAGE_SITE_SETTINGS = "MANAGE_SITE_SETTINGS",
   VIEW_AUDIT_LOGS = "VIEW_AUDIT_LOGS",

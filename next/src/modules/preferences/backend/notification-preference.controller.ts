@@ -34,7 +34,9 @@ export class NotificationPreferenceController {
         actor,
       });
 
-      const preferences = await NotificationPreferenceService.getForUser(actor.id);
+      // The actor, not just their id: which intents apply is a function of
+      // what they may do, not only of who they are.
+      const preferences = await NotificationPreferenceService.getForUser(actor);
 
       return ApiResponse.ok({ preferences });
     });
@@ -59,7 +61,7 @@ export class NotificationPreferenceController {
       const input = UpdateNotificationPreferenceSchema.parse(body);
 
       const preference = await NotificationPreferenceService.update(
-        actor.id,
+        actor,
         input.intent,
         input.enabled,
       );

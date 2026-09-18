@@ -90,12 +90,20 @@ export function evaluateTopRelevantCompetition(
     intent: INTENT,
     userId,
     evaluatedAt: now,
-    subject: {
-      competitionId: top.competition.id,
-      competition: top.competition,
-      score: top.score,
-      rank: top.rank,
-    },
+    // Exactly one, always (ND-I-06) — but expressed as the same collection
+    // every intent uses, so consumers need no branch for "the one that only
+    // ever has one".
+    subjects: [
+      {
+        competitionId: top.competition.id,
+        competition: top.competition,
+        score: top.score,
+        rank: top.rank,
+        // Discovery happens once per competition per user by definition, so
+        // there is no second occasion to distinguish (ND-I-07).
+        occasionVersion: null,
+      },
+    ],
   };
 }
 

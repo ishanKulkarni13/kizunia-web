@@ -52,10 +52,10 @@ describe("evaluateTopRelevantCompetition", () => {
 
     expect(decision.intent).toBe("TOP_RELEVANT_COMPETITION");
     expect(decision.userId).toBe(USER_ID);
-    expect(decision.subject.competitionId).toBe("comp-a");
-    expect(decision.subject.competition.id).toBe("comp-a");
-    expect(decision.subject.score).toBe(0.9);
-    expect(decision.subject.rank).toBe(1);
+    expect(decision.subjects[0].competitionId).toBe("comp-a");
+    expect(decision.subjects[0].competition.id).toBe("comp-a");
+    expect(decision.subjects[0].score).toBe(0.9);
+    expect(decision.subjects[0].rank).toBe(1);
   });
 
   it("suppresses when the intent is disabled, even though recommendations exist", () => {
@@ -102,8 +102,8 @@ describe("evaluateTopRelevantCompetition", () => {
     if (!decision.eligible) throw new Error("expected an eligible decision");
 
     // The contract is a single subject, not a list — ND-I-06.
-    expect(decision.subject.competitionId).toBe("comp-a");
-    expect(decision.subject.rank).toBe(1);
+    expect(decision.subjects[0].competitionId).toBe("comp-a");
+    expect(decision.subjects[0].rank).toBe(1);
   });
 
   it("reports the disabled intent, not the empty result, when both are true", () => {
@@ -135,7 +135,7 @@ describe("evaluateTopRelevantCompetition", () => {
     expect(decision.eligible).toBe(true);
     if (!decision.eligible) throw new Error("expected an eligible decision");
 
-    expect(decision.subject.competitionId).toBe("comp-a");
+    expect(decision.subjects[0].competitionId).toBe("comp-a");
   });
 
   it("echoes the injected evaluation time on both outcomes", () => {

@@ -38,8 +38,13 @@ export class NotificationPolicyService {
    */
   static async evaluateTopRelevantCompetition(
     userId: string,
+    evaluatedAt?: Date,
   ): Promise<NotificationDecision> {
-    const now = new Date();
+    // A scheduled evaluation supplies its own anchor, frozen when the work was
+    // scheduled (ND-D-07), so a retry reproduces the same decision rather than
+    // a fresh one. The default keeps the existing manual/internal callers
+    // working unchanged.
+    const now = evaluatedAt ?? new Date();
     const enabled = await this.isIntentEnabled(
       userId,
       NotificationIntent.TOP_RELEVANT_COMPETITION,
@@ -70,17 +75,14 @@ export class NotificationPolicyService {
   }
 
   /**
-   * `getForUser` reports every known intent, filling the opt-in default for a
-   * user with no row, so a missing entry here would mean the enum and that
-   * service had drifted apart — treat it as disabled rather than notifying on
-   * an assumption.
+   * Delegated rather than read here: the preference service owns what an
+   * unset intent defaults to, and a second copy of that rule in the policy
+   * layer would be free to disagree with it.
    */
   private static async isIntentEnabled(
     userId: string,
     intent: NotificationIntent,
   ): Promise<boolean> {
-    const preferences = await NotificationPreferenceService.getForUser(userId);
-
-    return preferences.find((p) => p.intent === intent)?.enabled ?? false;
+    return NotificationPreferenceService.isEnabledForUser(userId, intent);
   }
 }

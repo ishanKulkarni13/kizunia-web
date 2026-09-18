@@ -1,8 +1,8 @@
 # Notification Storage
 
-> **Status:** Design — open decisions attached
+> **Status:** Implemented
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-18
 
 Notification history is an **append-only log of occurrences**. That framing, not any particular
 table shape, is what the storage design must preserve.
@@ -62,43 +62,90 @@ demonstrates this reasoning: `CompetitionBookmark` carries an explicit
 
 ---
 
-## Blocking: the aggregated notification shape
+## The shape: one record, several subjects
 
-`REGISTRATION_CLOSING` produces **one** user-facing notification covering several competitions,
-while deduplication reads a per-competition triple. Two shapes are possible and neither is chosen —
-open item **A-5**.
+Resolved as **one record with a child collection of subjects**
+([ND-H-11](../../../project/feature-specification/notification/decisions/history.md#nd-h-11--a-records-subject-set-is-a-child-collection-not-a-column)).
 
-| Shape | Gains | Costs |
-| --- | --- | --- |
-| One record, several subjects | Matches what the user saw; response state sits at the right level | Dedup must look inside a subject set; the record is no longer a flat row |
-| Several records, shared presentation group | Dedup stays a simple lookup; flat rows | The inbox must reconstruct the grouping; response state needs a defined level |
+```text
+notification            "4 competitions closing soon"
+├─ target  competition A  rank 1
+├─ target  competition B  rank 2
+├─ target  competition C  rank 3
+└─ target  competition D  rank 4
+```
 
-Requirements either shape must satisfy:
+This satisfies all three requirements at once: the user sees one notification, history records
+exactly which competitions it covered, and response state sits on the record the user actually
+interacted with.
 
-- the user sees one notification
-  ([ND-I-12](../../../project/feature-specification/notification/decisions/intents.md#nd-i-12--one-notification-per-deadline-event));
-- history records which competitions were included;
-- response state is meaningful where the user actually interacts.
+The alternative — several flat records sharing a presentation group — keeps deduplication a simple
+lookup, but makes "the user saw one notification" a reconstruction the inbox has to perform
+correctly every time rather than a fact the data states.
+
+**Why not a JSON array of subjects on the record.** Deduplication asks "has this user already been
+told about competition X?" on the hot path of every evaluation. Against a child table that is an
+index scan; against a JSON array it is a scan of every one of the user's notifications.
+
+Each subject row carries its **user** alongside its notification — denormalised, deliberately not a
+foreign key — so that lookup needs no join. User deletion still reaches these rows through the
+notification's cascade.
+
+### Subject identity includes the occasion
+
+A subject row identifies *what* the notification was about and *which occasion of it*
+([ND-H-12](../../../project/feature-specification/notification/decisions/history.md#nd-h-12--subject-identity-includes-the-occasion-not-just-the-entity)).
+For the deadline intent that is the deadline timestamp itself.
+
+```text
+competition A, deadline 2026-10-01T23:00Z   → notified
+organizer moves it to 2026-10-08            → a different occasion, may notify again
+deadline unchanged, sweep runs again        → same occasion, suppressed
+```
+
+Without an occasion in the key both available answers are wrong: suppress forever, and the user is
+never warned about the deadline they can act on; ignore history, and every sweep re-notifies.
 
 ---
 
-## Delivery and response states
+## Four tables, not one
 
-Both start false. Both move forward only.
+| Table | Holds |
+| --- | --- |
+| `notification` | What the user is told, once. Title, body, action, snapshot payload, read and responded state |
+| `notification_target` | What it is about — subject type, id, occasion, rank |
+| `notification_delivery` | One row per (notification, channel, destination), with its own status, attempts and retry schedule |
+| `notification_delivery_attempt` | The per-attempt audit trail: when, what outcome, what the provider said |
 
-`delivered` is the load-bearing one — it is what consumes a triple. Its exact semantics and the
-underlying mechanism are deliberately left open
-([`../delivery/README.md`](../delivery/README.md)), but **whatever definition is adopted must be
-consistent with that consequence**: a notification counted as delivered is one the user is presumed
-to have been told.
+The split is what lets a delivery fail without touching the notification
+([ND-D-01](../../../project/feature-specification/notification/decisions/delivery.md#nd-d-01--generation-and-delivery-are-separate-failure-domains)),
+and what lets one user's three browsers have three independent outcomes while the user still has
+one notification.
 
-Phase 1 needs no separate suppression or cancellation state. A notification suppressed by a
-preference change is simply left `delivered = false`
-([ND-P-14](../../../project/feature-specification/notification/decisions/preferences.md#nd-p-14--disabling-an-intent-suppresses-already-generated-notifications)).
+### Read, responded, and delivered are three different things
 
-The tracking vocabulary is deliberately minimal: existence, delivery, response. Richer states are
-future work that must not require contaminating this model
-([`../cross-cutting/analytics-and-tracking.md`](../cross-cutting/analytics-and-tracking.md)).
+The Phase 1 vocabulary was existence, delivery and response. It is now four states across two
+tables, because collapsing them lost information the product needs:
+
+| State | Lives on | Answers |
+| --- | --- | --- |
+| Delivery status | `notification_delivery` | Did we get it out, and to where? |
+| `readAt` | `notification` | Does this still need the user's attention? |
+| `respondedAt` | `notification` | Did this notification achieve anything? |
+
+Read and responded are independent
+([ND-H-10](../../../project/feature-specification/notification/decisions/history.md#nd-h-10--read-and-responded-are-separate-states)),
+and neither is evidence about delivery. All four combinations occur — including unread-but-responded,
+which is what clicking straight through a push banner produces.
+
+**Nothing in this model claims the user saw anything.** For push, the strongest available statement
+is that the provider accepted the message. That is `SENT`, and it is deliberately not `DELIVERED`
+([ND-D-03](../../../project/feature-specification/notification/decisions/delivery.md#nd-d-03--delivery-state-vocabulary)).
+
+A notification suppressed by a preference change is left with its push delivery `SKIPPED` and a
+stated reason; the notification itself stays in the inbox
+([ND-P-14](../../../project/feature-specification/notification/decisions/preferences.md#nd-p-14--disabling-an-intent-suppresses-already-generated-notifications),
+[ND-D-12](../../../project/feature-specification/notification/decisions/delivery.md#nd-d-12--preferences-are-re-checked-immediately-before-sending)).
 
 ---
 
@@ -116,7 +163,12 @@ future work that must not require contaminating this model
 
 ## Retention
 
-Undecided. Whether history is kept indefinitely, and whether notifications age out of the inbox, is
-an open item — and it interacts with deduplication: **pruning a delivered record would make a
-competition eligible for discovery again.** Any retention policy has to reckon with that, not just
-with storage size.
+Still open, and deliberately so — recorded as A-11.
+
+What *is* decided: **nothing that participates in deduplication is pruned.** Deleting a delivered
+record would make its subject eligible for discovery again and re-notify a user about something
+they were already told. Only finished *job* rows are pruned, on a fixed horizon, because they carry
+no product meaning once the notification exists.
+
+The three tables age very differently — attempts fastest, notifications slowest — so a single
+horizon is probably the wrong answer when this is picked up.

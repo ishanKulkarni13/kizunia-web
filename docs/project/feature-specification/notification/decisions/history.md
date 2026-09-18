@@ -2,7 +2,7 @@
 
 > **Status:** Live
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-17
 
 Rulings covering notification records, what suppresses future notifications, and how user response
 is tracked. Explanatory treatment lives in [`history/`](../history/README.md).
@@ -202,3 +202,89 @@ Previous discovery does not make the competition irrelevant.
 **Rationale:** Relevance and notification eligibility are different questions. Deleting past
 recommendations from the ranking would corrupt the ranking itself and would leak discovery history
 into every other intent that consumes relevance.
+
+---
+
+## ND-H-10 — Read and responded are separate states
+
+**Status:** Accepted — resolves open item A-8, extends [ND-H-08](#nd-h-08--response-is-binary)
+
+A notification carries two independent interaction timestamps:
+
+| State | Set when | Answers |
+| --- | --- | --- |
+| **Read** | The user has seen it in the inbox, or marked it read | "Is this still demanding attention?" |
+| **Responded** | The user opened the notification's action | "Did this notification do anything?" |
+
+Neither implies the other, and neither is implied by delivery. All four combinations are real and
+meaningful:
+
+```text
+unread,  unresponded   the normal state of a new notification
+read,    unresponded   seen and dismissed — the notification did not land
+read,    responded     the notification worked
+unread,  responded     clicked straight through from a push banner
+```
+
+**Rationale:** A-8 asked whether these should ever diverge. They must: the inbox needs "what needs
+my attention?", which is read state, while the product needs "did this notification achieve
+anything?", which is response. Collapsing them means either the unread badge lies after a user
+glances at the list, or every scroll-past is counted as a notification that worked. ND-H-08 stands
+unchanged — response is still one bit, with no richer interaction vocabulary; this ruling adds a
+second, differently-scoped bit rather than making response granular.
+
+---
+
+## ND-H-11 — A record's subject set is a child collection, not a column
+
+**Status:** Accepted — resolves open item A-5
+
+An aggregated notification is **one** record with **several** subject rows attached to it.
+
+```text
+notification  "4 competitions closing soon"
+├── subject  competition A  rank 1
+├── subject  competition B  rank 2
+├── subject  competition C  rank 3
+└── subject  competition D  rank 4
+```
+
+This satisfies all three requirements A-5 imposed: the user sees one notification
+([ND-I-12](intents.md#nd-i-12--one-notification-per-deadline-event)), history records exactly which
+competitions were covered, and response state sits on the record the user actually interacted with.
+
+**Alternative rejected:** several flat records sharing a presentation group. It keeps deduplication
+a simple lookup, but makes "the user saw one notification" a reconstruction the inbox has to
+perform correctly every time rather than a fact the data states.
+
+**Why not a JSON array of subjects on the record:** deduplication asks "has this user already been
+told about competition X?" on the hot path of every evaluation. Against a child collection that is
+an index scan; against a JSON array it is a scan of every one of the user's notifications.
+
+Each subject row carries its user alongside its notification, so that deduplication lookup needs no
+join.
+
+---
+
+## ND-H-12 — Subject identity includes the occasion, not just the entity
+
+**Status:** Accepted — resolves open item A-7
+
+A subject row identifies *what the notification was about* and *which occasion of it*. For the
+deadline intent, the occasion is the deadline timestamp itself.
+
+```text
+competition A, deadline 2026-10-01T23:00Z   ->  notified
+organizer moves the deadline to 2026-10-08  ->  a different occasion, may notify again
+deadline unchanged, sweep runs again        ->  same occasion, suppressed
+```
+
+**Rationale:** A-7 asked what happens when an organizer moves a deadline after a notification was
+generated. Without an occasion in the key, the two available answers are both wrong: suppress
+forever, and the user is never told about the deadline they can actually act on; ignore history,
+and every sweep re-notifies. Versioning the subject makes "the deadline moved" a genuinely new
+event and "the sweep ran twice" a duplicate, which is exactly the distinction the product needs.
+
+This generalizes past the deadline intent: any future intent whose subject can recur gets the same
+mechanism without a schema change. An intent whose subject cannot recur simply leaves the occasion
+empty.

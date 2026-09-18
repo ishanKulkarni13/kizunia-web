@@ -1,12 +1,12 @@
 # Kizunia Notifications Architecture
 
-> **Status:** Design — no implementation started
+> **Status:** Implemented — see [IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md)
 >
 > **Version:** 1.0
 >
 > **Audience:** Backend Developers, Contributors
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-18
 
 ---
 
@@ -55,8 +55,9 @@ None of those should require rewriting the subsystem.
 | 6 | [triggers/README.md](triggers/README.md) | How evaluations start |
 | 7 | [persistence/README.md](persistence/README.md) | What is stored |
 | 8 | [delivery/README.md](delivery/README.md) | How notifications leave the system |
-| 9 | [cross-cutting/README.md](cross-cutting/README.md) | Flags, entitlements, analytics, failure |
-| 10 | [testing/README.md](testing/README.md) | What must be independently testable |
+| 9 | [jobs/README.md](jobs/README.md) | How work is scheduled, claimed, retried and recovered |
+| 10 | [cross-cutting/README.md](cross-cutting/README.md) | Flags, entitlements, analytics, failure |
+| 11 | [testing/README.md](testing/README.md) | What must be independently testable |
 
 ---
 
@@ -70,6 +71,7 @@ None of those should require rewriting the subsystem.
 | [`triggers/`](triggers/README.md) | Scheduled, event and admin invocation |
 | [`persistence/`](persistence/README.md) | Notification and preference storage |
 | [`delivery/`](delivery/README.md) | Generation/delivery split, the queue seam, clients and channels |
+| [`jobs/`](jobs/README.md) | The work model, claiming and leases, execution on Vercel |
 | [`cross-cutting/`](cross-cutting/README.md) | Feature flags, entitlements, analytics, failure and idempotency |
 | [`testing/`](testing/README.md) | Testing strategy and the required test surface |
 
@@ -90,22 +92,24 @@ Verified against the repository, not assumed:
 
 | Fact | Consequence |
 | --- | --- |
-| **There is no queue or job infrastructure.** Every scheduled task is a plain synchronous service invoked by an authenticated HTTP `GET` with a `CRON_SECRET` bearer token, registered in `vercel.json` | The queue between generation and delivery is a seam to design, not a component to configure. See [`delivery/queue.md`](delivery/queue.md) |
+| **There was no queue or job infrastructure.** Scheduled work is invoked by an authenticated HTTP `GET` with a `CRON_SECRET` bearer token, registered in `vercel.json` | A durable job table plus a sweep now sits between generation and delivery, invoked through that same convention. See [`jobs/README.md`](jobs/README.md) |
+| **Vercel's Hobby plan allows two cron entries, daily** — and both were already used | One tick endpoint dispatches a registry of tasks, each with its own cadence. Cadence is configuration, not structure |
 | Modules live at `next/src/modules/<domain>/` | Notifications is a sibling module, not a folder inside competitions |
 | `CompetitionBookmark` and `CompetitionRegistration` already exist, keyed `(competitionId, userId)` | Recipient relationships are reads against existing tables, not new state |
 | `CompetitionStatus` is derived from lifecycle dates by a pure function plus a nightly sweep | Notifications reads competition state; it never derives or writes it |
-| A legacy, unused `NotificationPreference` model exists | Its disposition is an open, blocking decision. See [`persistence/preference-storage.md`](persistence/preference-storage.md) |
+| `NotificationPreference` is one row per `(user, intent)`, opt-in by default | Per-intent defaults are decided per intent, not globally (ND-P-16). See [`persistence/preference-storage.md`](persistence/preference-storage.md) |
 | Tests use Vitest, with established integration-test configuration and patterns | Testing follows existing conventions; no parallel system. See [`testing/strategy.md`](testing/strategy.md) |
 
 ---
 
 ## Status
 
-**Design only. No implementation started.**
+**Implemented**, end to end: three intents, two channels, a durable work queue with lease-based
+crash recovery, bounded retry, an inbox, and admin announcements.
 
-Several blocking decisions must be resolved before implementation — the `REGISTRATION_CLOSING`
-evaluation window, the legacy preference model, what the queue actually is, and where relevance
-comes from for the deadline intent. They are listed in
+Every blocking decision this document previously listed has been resolved and recorded as a ruling.
+Current state, remaining environment configuration and known issues are in
+[IMPLEMENTATION-STATUS.md](IMPLEMENTATION-STATUS.md); what is still deliberately undecided is in
 [`open-decisions.md`](../../project/feature-specification/notification/open-decisions.md).
 
 ---

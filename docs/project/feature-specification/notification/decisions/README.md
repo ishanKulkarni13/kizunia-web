@@ -2,7 +2,7 @@
 
 > **Status:** Live
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-17
 
 This area is the **authoritative record** of finalized product and behavioral decisions for the
 Notifications subsystem. Where any other document disagrees with a ruling here, the ruling wins.
@@ -24,6 +24,7 @@ ID prefixes map to topic files:
 | `ND-R-xx` | Relevance, thresholds, selection | [relevance.md](relevance.md) |
 | `ND-I-xx` | Notification intents | [intents.md](intents.md) |
 | `ND-H-xx` | Records, deduplication, response | [history.md](history.md) |
+| `ND-D-xx` | Delivery, channels, retry, idempotency | [delivery.md](delivery.md) |
 
 ## Rules for changing this register
 
@@ -58,6 +59,8 @@ ID prefixes map to topic files:
 | ND-P-13 | `REGISTRATION_CLOSING` exposes a user-configurable maximum |
 | ND-P-14 | A notification generated before the user disables its intent is not sent |
 | ND-P-15 | Notification preferences and competition preferences persist as two separate, keyed-row models |
+| ND-P-16 | Defaults are per-intent; announcements default on, recommendation-driven intents default off |
+| ND-P-17 | The deadline summary maximum stays a configured bound; the per-user control is deferred |
 
 ### Relevance — [relevance.md](relevance.md)
 
@@ -93,6 +96,11 @@ ID prefixes map to topic files:
 | ND-I-16 | Recipient rules use only relationships Kizunia actually knows |
 | ND-I-17 | Competition state is not re-validated immediately before delivery in Phase 1 |
 | ND-I-18 | The notification model is client-agnostic; Phase 1 targets web |
+| ND-I-19 | The deadline evaluation window is a daily band one sweep-interval wide |
+| ND-I-20 | Deadline relevance is recomputed per user from the recommendation engine, never stored |
+| ND-I-21 | `FEATURE_ANNOUNCEMENT` is an admin-authored broadcast with no segmentation |
+| ND-I-22 | Announcements are scheduled; immediate delivery is a schedule time of now |
+| ND-I-23 | The daily evaluation is one global run at a configured hour, not per-user local time |
 
 ### History — [history.md](history.md)
 
@@ -107,6 +115,27 @@ ID prefixes map to topic files:
 | ND-H-07 | Different intents are independent, including on the same day for the same competition |
 | ND-H-08 | Response is binary: opening or clicking a notification marks it responded |
 | ND-H-09 | A previously notified competition may still appear in later rankings |
+| ND-H-10 | Read and responded are separate, independent states |
+| ND-H-11 | A record's subject set is a child collection, not a column or a JSON array |
+| ND-H-12 | Subject identity includes the occasion, so a moved deadline is a new event |
+
+### Delivery — [delivery.md](delivery.md)
+
+| ID | Decision |
+| --- | --- |
+| ND-D-01 | Generation and delivery are separate failure domains |
+| ND-D-02 | The queue is a persisted table plus a sweep |
+| ND-D-03 | Delivery state vocabulary, with `SENT` and `DELIVERED` kept distinct |
+| ND-D-04 | In-app delivery completes at persistence |
+| ND-D-05 | At-least-once processing; exactly-once is not claimed |
+| ND-D-06 | Idempotency is enforced by database constraints, not by a read-then-write check |
+| ND-D-07 | Occurrence identity is decided by the scheduler, never by the worker |
+| ND-D-08 | Retries are bounded, backed off with jitter, and classified |
+| ND-D-09 | An invalid push subscription is deactivated on first proof |
+| ND-D-10 | Infrastructure lives behind a work-queue port and a push-provider port |
+| ND-D-11 | One notification may have several deliveries; the user still has one notification |
+| ND-D-12 | Preferences are re-checked immediately before sending |
+| ND-D-13 | A stale delivery is skipped, not failed |
 
 ---
 

@@ -1,112 +1,126 @@
 # The Queue
 
-> **Status:** Design — blocking open decision (A-3)
+> **Status:** Implemented
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-18
+>
+> **Ruling:** [ND-D-02](../../../project/feature-specification/notification/decisions/delivery.md#nd-d-02--the-queue-is-a-persisted-table-plus-a-sweep)
 
 ```text
 Notification Decision -> Notification Generation -> Queue -> Delivery
 ```
 
-The queue is the seam between deciding a notification should exist and getting it to the user.
+The queue is the seam between deciding a notification should exist and getting
+it to the user.
 
 ---
 
-## What it is for
+## What it is
 
-The separation provides a foundation for:
+A Postgres table, `notification_job`, and a sweep that drains it.
 
-- asynchronous delivery;
-- retries;
-- additional delivery channels;
-- delivery status tracking;
-- future notification clients.
+The earlier version of this document framed this as an open choice between a
+persisted table and a purely conceptual seam with synchronous delivery, and
+named the condition that would decide it:
 
-> The exact queueing and delivery infrastructure remains intentionally open.
+> The moment a channel exists that can **fail independently** — email, push —
+> Option 1 becomes necessary.
 
----
+Web push is that channel. It fails for reasons the application does not control
+and cannot fix synchronously: a device is offline, a provider is degraded, a
+token died three weeks ago and nobody has been back since. So the queue is real.
 
-## What this repository actually has
+There is still no broker. Postgres is already the durable source of truth,
+already available in every execution, and already understood by everyone working
+here. A broker would be infrastructure bought before its first requirement.
 
-Nothing.
-
-> Kizunia has no background job/queue infrastructure — no Kafka, no RabbitMQ, no Temporal, no
-> generic job framework, no worker fleet.
-
-Every piece of scheduled or background work is a plain, synchronous application service invoked by
-an ordinary authenticated HTTP request
-([`workflows/internal-jobs.md`](../../workflows/internal-jobs.md)). The deployment target may be
-Vercel's Hobby tier, which supports Vercel's own Cron Jobs but not arbitrary external schedulers.
-
-So "queue" in this architecture is a **seam**, not a component. Writing this document as though a
-broker existed would produce a design that cannot be built here.
-
----
-
-## Blocking: what is the queue in Phase 1?
-
-**Open item A-3.** Two coherent answers, neither chosen:
-
-### Option 1 — A persisted table plus a sweep
-
-Generated notifications are rows awaiting delivery. A scheduled sweep picks them up and delivers
-them, following the existing cron convention
-([`../triggers/scheduled-evaluation.md`](../triggers/scheduled-evaluation.md)).
-
-| Gains | Costs |
-| --- | --- |
-| Real asynchrony; survives a failed delivery | A second scheduled job to operate |
-| Retry becomes possible later without redesign | Delivery latency is bounded by sweep frequency |
-| Delivery state is naturally observable | More moving parts for an in-app-only Phase 1 |
-
-### Option 2 — A conceptual seam with synchronous delivery
-
-Generation hands the notification to a delivery interface that happens to complete inline. The
-boundary exists in the code; the asynchrony does not.
-
-| Gains | Costs |
-| --- | --- |
-| Far less machinery for a Phase 1 that only writes to an inbox | Delivery failure is an evaluation failure |
-| The seam still permits a real queue later | No retry story at all |
-| Fits the repository's existing synchronous posture | Latency of delivery is inside the cron request |
-
-### What makes this genuinely open
-
-For in-app delivery, "delivering" largely means the record being visible in the inbox — at which
-point Option 2 is close to sufficient and Option 1 is close to ceremony.
-
-The moment a channel exists that can **fail independently** — email, push — Option 1 becomes
-necessary. The decision is really about whether to pay for that now or at the point of need, and
-whether the seam in Option 2 is genuinely sufficient to avoid a rewrite later.
-
-That judgement needs the answer to one question that has not been asked: **what does `delivered`
-mean for an in-app notification?**
+**The full working model is in [`../jobs/README.md`](../jobs/README.md).** This
+document covers only what the queue means for delivery.
 
 ---
 
 ## What `delivered` means
 
-Deliberately left open
-([`history/notification-record.md`](../../../project/feature-specification/notification/history/notification-record.md)),
-but constrained: `delivered = true` consumes the `(user, competition, intent)` triple and prevents
-that competition from being surfaced again for that intent
-([ND-H-03](../../../project/feature-specification/notification/decisions/history.md#nd-h-03--delivered-consumes-the-triple-undelivered-does-not)).
+The question the earlier version of this document said had to be answered first.
 
-So whatever "delivered" is defined as, it must mean **the user is reasonably presumed to have been
-told**. Marking a record delivered at generation time would satisfy the type system and quietly
-break the product rule.
+It has two answers, because it has two channels, and conflating them was the
+trap:
+
+| Channel | Delivered when | Why |
+| --- | --- | --- |
+| `IN_APP` | The row is committed | For an inbox, the record being visible *is* the delivery. There is no transport, no acknowledgement, and no later event to wait for |
+| `WEB_PUSH` | Never claimed | The provider **accepting** a message is the strongest statement available. That is `SENT` |
+
+This is what makes
+[ND-H-03](../../../project/feature-specification/notification/decisions/history.md#nd-h-03--delivered-consumes-the-triple-undelivered-does-not)
+coherent. `delivered = true` consumes the `(user, subject, intent)` triple and
+means *the user is reasonably presumed to have been told*. An inbox entry they
+can open satisfies that — whether or not a push ever succeeds, and whether or
+not they own a device that could receive one.
+
+Marking the in-app row delivered at generation time is therefore not the
+shortcut this document once warned against. For that channel, generation and
+delivery are genuinely the same moment. Push is separate, retried separately,
+and never gates the inbox.
+
+Full vocabulary:
+[ND-D-03](../../../project/feature-specification/notification/decisions/delivery.md#nd-d-03--delivery-state-vocabulary).
 
 ---
 
 ## Idempotency
 
-Whichever option is chosen, the queue is on a path that can re-run: Vercel may re-invoke a cron
-request whose response indicated failure
-([`../cross-cutting/failure-and-idempotency.md`](../cross-cutting/failure-and-idempotency.md)).
+The concern this document raised was right, and it is handled at the database
+rather than in application logic:
 
-Two things must hold:
+> - a partially completed sweep, re-run, must not duplicate notifications;
+> - a delivery attempted twice must not count as two occurrences.
 
-- a partially completed sweep, re-run, must not duplicate notifications;
-- a delivery attempted twice must not count as two occurrences.
+**The first is a uniqueness constraint.** `notification` is unique on
+`(userId, intent, occurrenceKey)`, and a violation is treated as success — it
+means the work already happened, which is what the caller wanted. A read-then-
+write existence check would not hold: two concurrent executions both read "no
+record" and both insert.
 
-This is a design requirement for A-3, not a detail to settle afterwards.
+The occurrence key is computed by the *scheduler* and carried in the job's
+payload, never recomputed by a worker
+([ND-D-07](../../../project/feature-specification/notification/decisions/delivery.md#nd-d-07--occurrence-identity-is-decided-by-the-scheduler-never-by-the-worker)).
+A worker deriving its own key would produce a different one the moment a retry
+crossed UTC midnight, and the constraint would never see a collision.
+
+**The second is bounded, not eliminated.** A worker that succeeds at the
+provider and crashes before recording will send again. That is unsolvable across
+a provider boundary without distributed transactions, so it is accepted openly
+([ND-D-05](../../../project/feature-specification/notification/decisions/delivery.md#nd-d-05--at-least-once-never-exactly-once))
+and mitigated at the client: every push carries a collapse identity equal to the
+notification id, so the operating system replaces the earlier banner rather than
+stacking a second one.
+
+The *notification* is never duplicated. The *banner* might be, briefly, and the
+user sees one either way.
+
+---
+
+## What the split bought
+
+Concretely, and each of these is now a passing test rather than an intention:
+
+- a push failure retries the push, and never re-runs recommendation generation;
+- a push failure never removes or alters the inbox record;
+- a dead token is deactivated on first proof and never retried;
+- a user with three browsers gets one notification and three independent
+  delivery records;
+- a user who disables an intent after generation keeps the inbox entry and does
+  not get the push;
+- a worker that dies mid-delivery leaves work another worker picks up.
+
+---
+
+## What a second channel would cost
+
+Email, when it arrives, is an adapter behind the existing `PushProvider`-shaped
+boundary plus a `NotificationChannel` enum value. It does not touch generation,
+the pipeline, any intent, or this queue.
+
+That was the point of building the seam, and it is the property to check before
+accepting any change here.

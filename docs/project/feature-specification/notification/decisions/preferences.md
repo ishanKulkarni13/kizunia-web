@@ -2,7 +2,7 @@
 
 > **Status:** Live
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-17
 
 Rulings covering the competition preference profile, preference weights, and user notification
 preferences. Explanatory treatment lives in [`preferences/`](../preferences/README.md).
@@ -258,3 +258,45 @@ direct read than a dedicated column would give — acceptable at Phase 1's read 
 [`preference-storage.md`](../../../../architecture/notifications/persistence/preference-storage.md)).
 
 **See:** `next/prisma/schema.prisma`, `next/src/modules/preferences/`.
+
+---
+
+## ND-P-16 — Per-intent defaults, not one global default
+
+**Status:** Accepted — refines [ND-P-15](#nd-p-15--notification-and-competition-preference-persistence)
+
+The default for a user with no stored row is a property **of the intent**, not of the model:
+
+| Intent | Default | Why |
+| --- | --- | --- |
+| `TOP_RELEVANT_COMPETITION` | Disabled | Algorithmic discovery, worth nothing until the user has a preference profile. Opt-in |
+| `REGISTRATION_CLOSING` | Disabled | Same posture: it acts on computed relevance the user has not yet asked for |
+| `FEATURE_ANNOUNCEMENT` | **Enabled** | Editorial, low-volume, and about the product the user chose to use |
+
+The defaults live in one exhaustively-keyed table, so adding an intent without deciding its default
+is a compile error rather than an accidental inheritance of whatever the previous default was.
+
+**Rationale:** ND-P-15 recorded "no row means disabled" for the intents that existed, and for
+recommendation-driven intents that posture is right — inferring what someone wants and then messaging
+them about it should require consent. An announcement is a different thing: it is infrequent,
+human-authored, and about the platform itself. Defaulting it off produces a channel nobody receives
+until they discover a setting they had no reason to look for, which is functionally the same as not
+building it. The user can still turn it off, and the toggle is in the same place as every other.
+
+---
+
+## ND-P-17 — The deadline maximum stays a system bound for now
+
+**Status:** Accepted — defers [ND-P-13](#nd-p-13--registration_closing-exposes-a-user-configurable-maximum)
+
+The `REGISTRATION_CLOSING` summary is bounded by a **configured** maximum rather than a per-user one.
+The selection rules of ND-I-13 are implemented in full; only the user-facing control is deferred.
+
+**Rationale:** ND-P-13 stands as a product intention and is not withdrawn. Implementing it now means
+adding a second, differently-shaped column to a model whose whole design is one boolean per intent —
+and doing so before anyone has seen a single aggregated notification and formed an opinion about how
+many is too many. Deferring costs an additive column later; building it now risks shaping the
+preference model around a guess.
+
+**Consequence:** the bound is one named constant. Turning it into a preference is a migration and a
+read, not a redesign of selection.

@@ -2,65 +2,109 @@
 
 ## Purpose
 
-Decides **whether** something should become a notification. This is a different question from
-what is relevant to a user, which the recommendation engine already answers, and from how a
-notification reaches someone, which nothing in the codebase answers yet.
+Decides **whether** something should become a notification, turns that decision into a durable
+record, and gets it to the user.
 
 ```text
 Recommendation Engine  →  WHAT is relevant          modules/recommendations
-Notification Policy    →  WHETHER it should notify  this module
-Notification Delivery  →  HOW it is delivered       not built
+Notification Policy    →  WHETHER it should notify  this module, policy/
+Notification Delivery  →  HOW it reaches someone    this module, delivery/
 ```
 
-The separation is the point — see
-[`docs/architecture/notifications/principles.md`](../../../../docs/architecture/notifications/principles.md)
-principle 3 ("The recommendation system must not own notification delivery. The notification
-system must not own the competition relevance algorithm") and
-[`phase-relationship.md`](../../../../docs/project/feature-specification/recommendation/phase-relationship.md).
+The first boundary is the load-bearing one — see
+[`principles.md`](../../../../docs/architecture/notifications/principles.md) principle 3: *"The
+recommendation system must not own notification delivery. The notification system must not own the
+competition relevance algorithm."* Relevance has exactly one owner, and this module consumes it
+rather than forming an opinion of its own.
 
-Placement as a sibling of `competitions` rather than a folder inside it follows
-[`module-boundaries.md`](../../../../docs/architecture/notifications/module-boundaries.md),
-and resolves open item A-10.
-
-## Folder Structure
+## Folder structure
 
 ```text
 notifications/
-├── README.md
-├── index.ts                                     public API (policy + types — NOT backend/)
-├── policy/
-│   ├── types.ts                                 the decision contract
-│   ├── top-relevant-competition.policy.ts       PURE — no I/O, no Prisma, no clock
-│   └── top-relevant-competition.policy.test.ts
-└── backend/
-    └── notification-policy.service.ts           orchestration only
+├── config/notification-config.ts     every tuning number, with its reasoning
+├── policy/                           PURE: should this become a notification?
+├── content/                          PURE: what does it say, and where does it point?
+├── scheduling/occurrence.ts          PURE: which occasion is this, and when?
+├── jobs/                             the durable work queue and its runner
+│   ├── work-queue.port.ts            the seam a broker would slot into
+│   ├── postgres-work-queue.ts        the only raw SQL in the module
+│   └── handlers/                     one per job kind, plus the registry
+├── delivery/                         channels, providers, attempts
+│   ├── push-provider.port.ts         the seam a second provider would slot into
+│   ├── fcm-push-provider.ts          the ONLY firebase-admin import
+│   └── fake-push-provider.ts         tests, and any unconfigured environment
+├── backend/                          services, repositories, controllers
+├── frontend/                         hooks and components for the inbox
+├── api/, schemas/, types/, errors/, observability/
+└── README.md
 ```
 
-`policy/` ÷ `backend/` mirrors `recommendations/`'s `engine/` ÷ `backend/` split: every rule
-lives in a pure function over already-fetched inputs, so the whole decision unit-tests without a
-database, and the service above it only fetches and delegates.
+`policy/` ÷ `backend/` mirrors `recommendations/`'s `engine/` ÷ `backend/` split, and the same rule
+extends to `content/` and `scheduling/`: every rule lives in a pure function over already-fetched
+inputs, so the whole decision unit-tests without a database.
+
+`index.ts` exports pure types and policy only. `backend/`, `jobs/` and `delivery/` are deliberately
+not re-exported — they pull in Prisma and `next/server`, and would break a client bundle. Server
+consumers deep-import.
 
 ## Scope
 
-Currently one intent: `TOP_RELEVANT_COMPETITION`. Enabled preference plus at least one
-recommendation yields exactly one competition — the highest-ranked
-([ND-I-06](../../../../docs/project/feature-specification/notification/decisions/intents.md)).
-Anything else is a suppressed decision carrying a reason.
+Four intents: `TOP_RELEVANT_COMPETITION`, `REGISTRATION_CLOSING`, `FEATURE_ANNOUNCEMENT`, and
+`ADMIN_COMPETITION_SUGGESTION` — an operational notice to whoever holds
+`REVIEW_COMPETITION_SUGGESTIONS` when a competition suggestion has waited in the review queue long
+enough to be worth telling them about
+([`policy/admin-suggestion-review.policy.ts`](policy/admin-suggestion-review.policy.ts)). It is the
+only intent whose audience is not "any user" — see
+[`policy/intent-audience.ts`](policy/intent-audience.ts) for how that is expressed without a second
+notion of "recipient" anywhere else in the module. Two channels: the in-app inbox, and web push
+through FCM.
 
-Deliberately **not** here, and not stubbed or placeholdered either: delivery, channels, queues,
-workers, cron/scheduling, notification history and deduplication, aggregation, and every intent
-other than the one above. `docs/.../phase-1/boundaries.md` is explicit that an unspecified intent
-must not appear in code "even as a placeholder".
+Deliberately **not** here: email, WhatsApp, mobile push, audience targeting, per-channel
+preferences, a template engine, quiet hours, digests, entitlements, and Kafka. The architecture
+accommodates each; that is not a reason to build any of them
+([`phase-2/boundaries.md`](../../../../docs/project/feature-specification/notification/phase-2/boundaries.md)).
 
-Deduplication deserves a specific note, since
-[ND-H-03](../../../../docs/project/feature-specification/notification/decisions/history.md)
-does specify a `(user, competition, intent)` scope: there is no notification-history abstraction
-to consume yet, and dedup belongs at *candidate filtering* rather than in this policy — so adding
-it later will not reshape the decision contract.
+## Things worth knowing before changing this
+
+**Time is frozen by the scheduler, not read by the worker.** The occurrence key and any evaluation
+window are computed once and carried in the job payload. A worker that computes its own would
+generate a second notification whenever a retry crossed UTC midnight.
+
+**Attempts are consumed at claim time.** A worker that crashes mid-job must still burn an attempt,
+or its expired lease re-claims it forever.
+
+**A unique-constraint violation is usually success.** "Already scheduled" and "already generated"
+are the states the caller wanted. But catch them *narrowly* — a blanket catch turns a real data
+problem into a silent no-op.
+
+**In-app delivery completes at persistence.** For an inbox the row being visible *is* the delivery;
+push is separate, retried separately, and never gates the inbox.
+
+**Push is at-least-once, and says so.** A worker that succeeds at the provider and crashes before
+recording will send again. Every push carries a collapse identity equal to the notification id, so
+the OS replaces the earlier banner rather than stacking a second — the duplicate is mitigated, not
+denied.
+
+**Raw SQL must bind timestamps explicitly as UTC.** Prisma's columns are `timestamp`; the driver
+binds `Date` as `timestamptz`, and Postgres converts using the *session* zone. On a non-UTC server
+that silently claims jobs hours early. `utc()` in `postgres-work-queue.ts` exists for this.
 
 ## Adding an intent
 
-Add a sibling file under `policy/` and a sibling method on `NotificationPolicyService`. The types
-in `policy/types.ts` are intent-agnostic and stay shared. There is intentionally no registry,
-dispatch table or `NotificationPolicy` interface — one implementation does not need one, and
-inventing the abstraction before the second case is how it ends up fitting neither.
+A policy file under `policy/`, a renderer in `content/`, an enum value, a default in
+`DEFAULT_ENABLED`, and a handler. The types are intent-agnostic and stay shared; there is
+deliberately no registry or `NotificationPolicy` interface for policies — one dispatch table, for
+job kinds, is enough indirection for a subsystem this size.
+
+## Adding a channel
+
+One adapter behind the existing provider port, and a `NotificationChannel` value. It must not touch
+generation, the pipeline, or any intent. If it does, the boundary has been violated somewhere.
+
+## Documentation
+
+- Product rules and rulings:
+  [`docs/project/feature-specification/notification/`](../../../../docs/project/feature-specification/notification/README.md)
+- Architecture: [`docs/architecture/notifications/`](../../../../docs/architecture/notifications/README.md)
+- Current state, remaining setup, known issues:
+  [`IMPLEMENTATION-STATUS.md`](../../../../docs/architecture/notifications/IMPLEMENTATION-STATUS.md)

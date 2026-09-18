@@ -2,7 +2,7 @@
 
 > **Status:** Live
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-17
 
 Rulings covering the notification types themselves. Full per-intent behavior is written out in
 [`intents/`](../intents/README.md).
@@ -71,6 +71,11 @@ so it can later be invoked by other mechanisms without duplicating business logi
 
 **Rationale:** Triggers change far more often than rules. Admin-initiated runs, event-driven
 evaluation and backfills must all reuse the same logic.
+
+**Amended:** the hour is now configuration rather than literally midnight, and the run is one
+global run rather than per-user local time — see
+[ND-I-23](#nd-i-23--the-daily-evaluation-is-one-global-run-at-a-configured-hour). The cadence and
+the trigger/logic separation this ruling establishes are unchanged.
 
 **See:** [`scheduled-evaluation.md`](../../../../architecture/notifications/triggers/scheduled-evaluation.md).
 
@@ -178,9 +183,9 @@ implementing dynamic timing is future work, tracked in
 **Amended:** originally 24 hours before the deadline. Changed to 2 days to simplify the scheduling
 story (see below) while the notification delivery system itself remains unbuilt.
 
-**Open:** a scheduled job cannot fire at an arbitrary instant, so the evaluation window that
-approximates T-2d is still an open decision, though a coarser target narrows it considerably — see
-[`open-decisions.md`](../open-decisions.md).
+**Resolved:** a scheduled job cannot fire at an arbitrary instant, so the evaluation window that
+approximates T-2d is a band one sweep-interval wide — see
+[ND-I-19](#nd-i-19--the-deadline-evaluation-window-is-a-daily-band-not-an-instant).
 
 ---
 
@@ -331,3 +336,142 @@ additional clients later, including an Expo/mobile application.
 exists and then expensive. Keeping generation independent of delivery (see
 [`generation-vs-delivery.md`](../../../../architecture/notifications/delivery/generation-vs-delivery.md))
 costs almost nothing now.
+
+---
+
+## ND-I-19 — The deadline evaluation window is a daily band, not an instant
+
+**Status:** Accepted — resolves open item A-1
+
+`REGISTRATION_CLOSING` targets 2 days before the deadline
+([ND-I-10](#nd-i-10--registration_closing-targets-2-days-before-the-deadline)). A scheduled job
+cannot fire at an arbitrary instant for every competition, so the target is approximated by a
+**band one sweep-interval wide**, anchored on the scheduler's evaluation time:
+
+```text
+window = [ anchor + offset,  anchor + offset + sweepInterval )
+```
+
+With the current daily sweep and a 2-day offset, that is "deadlines falling between 2 and 3 days
+from now". Both the offset and the band width are configuration, not constants in the logic.
+
+The anchor is stamped by the scheduler and carried in the job payload
+([ND-D-07](delivery.md#nd-d-07--occurrence-identity-is-decided-by-the-scheduler-never-by-the-worker)),
+so a retried job re-evaluates the **same** window rather than a shifted one.
+
+**Rationale:** a band exactly one sweep-interval wide is the only shape that covers every deadline
+exactly once — narrower leaves gaps where a deadline is never caught, wider double-counts and
+relies entirely on deduplication to stay correct. Deriving the width from the sweep interval rather
+than hard-coding "2 to 3 days" means changing the cadence does not silently break coverage.
+
+---
+
+## ND-I-20 — Deadline relevance is recomputed per user, not stored
+
+**Status:** Accepted — resolves open item A-4
+
+`REGISTRATION_CLOSING` determines "relevant to the user" by running the existing recommendation
+engine for that user at evaluation time, then **intersecting** its ranked output with the
+competitions whose deadlines fall in the window. Bookmarked competitions in the window are unioned
+in, and competitions the user marked as registered are excluded
+([ND-I-11](#nd-i-11--eligibility-is-relevant-or-bookmarked-excluding-marked-as-registered)).
+
+```text
+per user:  engine run once  ->  ranked set
+           ∩ competitions with deadlines in window
+           ∪ bookmarks with deadlines in window
+           − marked as registered
+           -> rank, take top N, aggregate
+```
+
+A-4 named the real cost problem: evaluating "all near-deadline competitions against all eligible
+users" inside one invocation. Evaluating **per user** dissolves it. One engine run per enabled user
+is the same cost shape the discovery sweep already has, each user is an independent unit of work,
+and the whole sweep is therefore bounded and resumable.
+
+**Alternative rejected:** persisting relevance results for the deadline intent to read later. That
+introduces staleness, a second source of truth for relevance, and a storage model whose
+invalidation rules nobody has designed — to avoid a cost that the per-user framing removes anyway.
+
+**Rationale:** relevance has exactly one owner, the recommendation engine
+([principle 3](../../../../architecture/notifications/principles.md)). Recomputing from it keeps
+that true. Caching it would make the notification system the second place relevance lives, which is
+the boundary this subsystem exists to protect.
+
+---
+
+## ND-I-21 — `FEATURE_ANNOUNCEMENT` is an admin-authored, scheduled broadcast
+
+**Status:** Accepted
+
+An authorized administrator may author a platform announcement carrying a title, a message and an
+optional link, and schedule when it is delivered.
+
+| Element | Value |
+| --- | --- |
+| **Kind** | Platform / editorial |
+| **Purpose** | Tell users about something new on Kizunia |
+| **Trigger** | Admin authorship plus a scheduled delivery time |
+| **Timing** | The author's chosen time. Immediate delivery is a special case, not the model |
+| **Recipients** | Every user with the intent enabled |
+| **Selection** | None. There is no ranking or relevance |
+| **Aggregation** | None. One announcement is one notification |
+| **Dedup scope** | One notification per user per announcement |
+| **User preference** | On / Off |
+
+Three things this intent deliberately is **not**: it has no audience segmentation, no targeting
+rules, and no campaign or variant model. Targeting is a broadcast to everyone who has the intent
+enabled, and nothing else.
+
+**Rationale:** this is the first intent whose subject is not a competition, which is exactly what
+principle 1 asked the architecture to absorb without structural change — it is worth having for
+that reason alone. Keeping targeting to a flat broadcast is what stops it from becoming the
+marketing-campaign platform the non-goals explicitly exclude. Segmentation can be added later as a
+recipient rule; it cannot be removed later once products depend on it.
+
+---
+
+## ND-I-22 — An announcement is scheduled, and scheduling is the general case
+
+**Status:** Accepted
+
+An announcement moves through authorship, scheduling, fan-out and delivery as distinct states. Its
+delivery time is a property of the announcement, not an assumption of the system.
+
+```text
+draft -> scheduled -> publishing -> published
+```
+
+"Send it now" is expressed as a schedule time of now. There is no separate immediate path.
+
+Fan-out across the user base is **resumable**: it proceeds in bounded pages and records its own
+progress, so an interrupted run continues from where it stopped rather than restarting or
+double-sending.
+
+**Rationale:** an announcement is the one notification a human is watching the clock for, and the
+one most likely to be written hours before it should appear. Building the immediate case first and
+retrofitting scheduling would mean two paths through fan-out, only one of which would be well
+tested.
+
+---
+
+## ND-I-23 — The daily evaluation is one global run at a configured hour
+
+**Status:** Accepted — resolves open item A-6
+
+Scheduled evaluation runs **once globally**, at a configured UTC hour, for every eligible user. It
+is not run per user at their local midnight.
+
+[ND-I-04](#nd-i-04--daily-midnight-evaluation-with-the-trigger-separated-from-the-logic) said
+"daily at midnight"; the hour is now configuration, defaulting to early afternoon UTC rather than
+midnight. Midnight is the worst available time to deliver a notification a person is meant to act
+on, and ND-I-04's substance was the cadence and the trigger/logic separation, not the hour.
+
+**Rationale:** Kizunia stores no user timezone, so per-user local scheduling would require
+collecting one, and a scheduler that fires 24 times a day to serve timezone cohorts multiplies
+invocations for a notification whose value is not hour-sensitive. Per-user timing is a genuine
+future improvement — and it is exactly the kind the timing model already accommodates, since every
+timing class reduces to one scheduled instant per unit of work.
+
+**Open, deliberately:** nothing here prevents per-user timing later. When a timezone exists on the
+user record, the change is to how one instant is computed, not to how work is scheduled or run.

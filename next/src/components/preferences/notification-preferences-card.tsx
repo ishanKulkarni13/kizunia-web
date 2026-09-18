@@ -13,25 +13,50 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/http";
+import type { NotificationIntent } from "@/generated/prisma";
 import { NotificationPreferenceApi } from "@/modules/preferences/api/notification-preference-api";
+import {
+  NOTIFICATION_INTENT_COPY,
+  NOTIFICATION_INTENT_ORDER,
+} from "@/modules/preferences/notification-intent-copy";
 
-const TOP_RELEVANT_COMPETITION = "TOP_RELEVANT_COMPETITION" as const;
+type PreferenceState = Partial<Record<NotificationIntent, boolean>>;
 
 export function NotificationPreferencesCard() {
-  const [enabled, setEnabled] = useState(false);
+  const [preferences, setPreferences] = useState<PreferenceState>({});
+  /**
+   * Which intents to render, from the API rather than from the enum.
+   *
+   * Not every intent applies to every account — an operational one is addressed
+   * to whoever holds a capability — and the server is the only side that knows
+   * which. Rendering `NOTIFICATION_INTENT_ORDER` directly would show a reviewer
+   * setting to everyone; rendering the intersection shows it to reviewers and
+   * keeps the deliberate ordering for those who do see it.
+   */
+  const [visibleIntents, setVisibleIntents] = useState<readonly NotificationIntent[]>(
+    [],
+  );
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingIntent, setSavingIntent] = useState<NotificationIntent | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
 
     NotificationPreferenceApi.list()
-      .then((preferences) => {
+      .then((entries) => {
         if (cancelled) return;
-        const entry = preferences.find(
-          (p) => p.intent === TOP_RELEVANT_COMPETITION,
+        setPreferences(
+          Object.fromEntries(
+            entries.map((entry) => [entry.intent, entry.enabled]),
+          ),
         );
-        setEnabled(entry?.enabled ?? false);
+
+        const returned = new Set(entries.map((entry) => entry.intent));
+        setVisibleIntents(
+          NOTIFICATION_INTENT_ORDER.filter((intent) => returned.has(intent)),
+        );
       })
       .catch(() => {
         if (!cancelled) toast.error("Failed to load notification preferences.");
@@ -45,21 +70,25 @@ export function NotificationPreferencesCard() {
     };
   }, []);
 
-  async function handleToggle(next: boolean) {
-    const previous = enabled;
-    setEnabled(next);
-    setSaving(true);
+  /**
+   * Optimistic, with rollback. A toggle that visibly lags the tap reads as
+   * broken; a toggle that silently stays on after a failed save is worse, so
+   * the failure path restores the previous value rather than leaving the
+   * optimistic one.
+   */
+  async function handleToggle(intent: NotificationIntent, next: boolean) {
+    const previous = preferences[intent] ?? false;
+    setPreferences((current) => ({ ...current, [intent]: next }));
+    setSavingIntent(intent);
 
     try {
-      await NotificationPreferenceApi.update(TOP_RELEVANT_COMPETITION, next);
+      await NotificationPreferenceApi.update(intent, next);
       toast.success("Notification preference saved.");
     } catch (error) {
-      setEnabled(previous);
-      toast.error(
-        error instanceof ApiError ? error.message : "Failed to save.",
-      );
+      setPreferences((current) => ({ ...current, [intent]: previous }));
+      toast.error(error instanceof ApiError ? error.message : "Failed to save.");
     } finally {
-      setSaving(false);
+      setSavingIntent(null);
     }
   }
 
@@ -68,28 +97,42 @@ export function NotificationPreferencesCard() {
       <CardHeader>
         <CardTitle>Notification Preferences</CardTitle>
         <CardDescription>
-          Choose which notifications Kizunia sends you.
+          Choose which notifications Kizunia sends you. These control what you
+          are told about — not which competitions Kizunia considers relevant,
+          which is set under Competition Preferences.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         {loading ? (
-          <Skeleton className="h-10 w-full" />
+          <>
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </>
         ) : (
-          <div className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
-            <div className="space-y-0.5">
-              <p className="text-sm font-medium">Competition Recommendations</p>
-              <p className="text-sm text-muted-foreground">
-                Get notified when Kizunia finds competitions that match your
-                interests.
-              </p>
-            </div>
-            <Switch
-              checked={enabled}
-              disabled={saving}
-              onCheckedChange={handleToggle}
-              aria-label="Toggle competition recommendation notifications"
-            />
-          </div>
+          visibleIntents.map((intent) => {
+            const copy = NOTIFICATION_INTENT_COPY[intent];
+
+            return (
+              <div
+                key={intent}
+                className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3"
+              >
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{copy.label}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {copy.description}
+                  </p>
+                </div>
+                <Switch
+                  checked={preferences[intent] ?? false}
+                  disabled={savingIntent !== null}
+                  onCheckedChange={(next) => handleToggle(intent, next)}
+                  aria-label={`Toggle ${copy.label.toLowerCase()}`}
+                />
+              </div>
+            );
+          })
         )}
       </CardContent>
     </Card>

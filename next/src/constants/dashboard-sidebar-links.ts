@@ -1,5 +1,6 @@
 import {
   BellIcon,
+  BellRingIcon,
   FileCodeIcon,
   FileUser,
   SlidersHorizontalIcon,
@@ -92,6 +93,11 @@ export const SideBarNavMain: SidebarNavSection[] = [
         title: "Assets",
         url: "/admin/assets",
       },
+      {
+        id: "admin-notification-announcements",
+        title: "Announcements",
+        url: "/admin/notification-announcements",
+      },
     ],
   },
   { // portfolio
@@ -134,10 +140,16 @@ export const SideBarNavMain: SidebarNavSection[] = [
  */
 export const SideBarNavSecondary: SidebarNavSection[] = [
   {
-    id: "notification-preferences",
+    id: "notifications-inbox",
     title: "Notifications",
-    url: "/user/notification-preferences",
+    url: "/user/notifications",
     icon: BellIcon,
+  },
+  {
+    id: "notification-preferences",
+    title: "Notification Preferences",
+    url: "/user/notification-preferences",
+    icon: BellRingIcon,
   },
   {
     id: "competition-preferences",

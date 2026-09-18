@@ -23,6 +23,10 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Kizunia",
   description: "Building cool stuff",
+  // Required for web push on iOS: Safari delivers notifications only to a site
+  // that has been installed to the home screen, and it will not offer to
+  // install one without a manifest.
+  manifest: "/manifest.json",
 };
 
 export default function RootLayout({

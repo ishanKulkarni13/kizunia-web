@@ -156,7 +156,7 @@ export const ADMIN_NOTICE_CONFIG = {
    */
   suggestionNoticeDelaySeconds: envInt(
     "NOTIFICATION_ADMIN_SUGGESTION_DELAY_SECONDS",
-    0 * MINUTE_SECONDS,
+    30 * MINUTE_SECONDS,
   ),
 
   /**

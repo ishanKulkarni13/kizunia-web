@@ -14,6 +14,9 @@ If you are resuming: read this file, then
 That is enough. Nothing in the implementation depends on a conversation you were
 not part of.
 
+Trying to run this locally rather than read about it — see
+[`DEVELOPER-TESTING.md`](DEVELOPER-TESTING.md).
+
 ---
 
 ## The shape of the thing, in one page
@@ -221,11 +224,13 @@ than as a send that never happened. Everything else runs normally.
 
 ### Tests completed
 
-**358 unit, 241 integration — all passing.** Typecheck clean, production build clean, lint exactly
-at the pre-existing baseline (3384 problems before and after; zero added).
+**361 unit, 244 integration — all passing.** Typecheck clean, production build clean, lint exactly
+at the pre-existing baseline (3384 problems before and after; zero added, verified again after the
+fix below).
 
 | File | Covers |
 | --- | --- |
+| `delivery/push-provider.factory.test.ts` | **New.** `getPushProvider()` falls back to the fake when unconfigured; resolves a real, constructible `FcmPushProvider` when credentials are present (the regression test for the bug fixed below); caches across calls |
 | `jobs/backoff.test.ts` | Curve, cap, additive-upward jitter, spread across simultaneous failures |
 | `jobs/postgres-work-queue.integration.test.ts` | **Cases 1, 2, 3** — lease recovery, disjoint concurrent claims, duplicate enqueue |
 | `jobs/job-runner.integration.test.ts` | **Case 4** — handler throws; plus classification, payload rejection, fault isolation, continuation, budget |
@@ -238,10 +243,10 @@ at the pre-existing baseline (3384 problems before and after; zero added).
 | `policy/intent-audience.test.ts` | Visibility with and without the required action |
 | `authorization/platform/roles-with-action.test.ts` | Inverse lookup against the real permission set — reviewer roles, a baseline action, an action nobody holds |
 | `backend/notification-generation.integration.test.ts` | **Case 7** — atomicity; idempotency, aggregation, one in-app delivery |
-| `delivery/delivery.integration.test.ts` | **Cases 5, 6, 8, 9, 10** — retry without touching the inbox, token invalidation, duplicate-push collapse, disabled-after-generation, multi-device |
+| `delivery/delivery.integration.test.ts` | **Cases 5, 6, 8, 9, 10** — retry without touching the inbox, token invalidation, duplicate-push collapse, disabled-after-generation, multi-device. **New:** the same disabled-after-generation and real-send cases run again against an actual `ADMIN_COMPETITION_SUGGESTION` draft (built by `renderAdminSuggestionReview`, not a hand-rolled shape), closing the gap where every prior case here used a `TOP_RELEVANT_COMPETITION` draft and reasoned "delivery is intent-agnostic" without ever proving it for this intent's own draft |
 | `backend/notification-pipeline.integration.test.ts` | Preferences → engine → policy → notification → inbox, end to end; silence cases; cross-user isolation; paging |
 | `backend/announcement.integration.test.ts` | Authorization by role, scheduling, resumable fan-out, opt-out handling, cancellation |
-| `backend/admin-suggestion-notice.integration.test.ts` | The 16 cases below, end to end against a real database |
+| `backend/admin-suggestion-notice.integration.test.ts` | The 16 cases below, end to end against a real database. **New:** "creates a settled WEB_PUSH delivery for a reviewer with an active push subscription" — the first test of this intent to ever create a `PushSubscription` and assert a `WEB_PUSH` delivery row is created and settled by the real discovery → job → handler wiring, rather than deferring push entirely to the generic delivery suite |
 | `preferences/backend/notification-preference.integration.test.ts` | Audience filtering — reviewer-only intent hidden from a member, shown and default-on for an admin, write refused outside the actor's audience |
 
 All ten failure cases from the original brief are covered by a named test. The admin suggestion
@@ -254,7 +259,7 @@ notice's own dedicated file additionally covers:
 | Multiple admins → correct fan-out | "reaches every reviewer, and nobody without the review permission" |
 | Worker crash → recoverable | "a worker that crashes mid-job loses nothing" |
 | Job retry | "retries a transient failure and eventually succeeds, without duplicating the notification" |
-| Provider failure | Delegated to `delivery.integration.test.ts` (cases 5/6/8/10) — delivery is intent-agnostic; this file asserts only that the delivery job for this intent exists |
+| Provider failure | Delegated to `delivery.integration.test.ts` (cases 5/6/8/10, now including cases run against this intent's own draft); this file's own "creates a settled WEB_PUSH delivery" test additionally proves the real discovery → job → handler wiring settles a push row for this intent |
 | Disabled / invalid recipient | "skips a reviewer who has switched the intent off"; "does not notify the submitter about their own suggestion" |
 | Concurrent workers | "two concurrent drains never claim the same notice job" |
 | Scheduler runs twice | Same as duplicate-evaluation, above |
@@ -263,6 +268,56 @@ notice's own dedicated file additionally covers:
 | End-to-end suggestion → notification → delivery/inbox | "notifies once a suggestion has waited long enough" (asserts the notification, its target, its in-app delivery row, and the queued push job) |
 | Suppressed rather than failed when handled inside the grace window | "suppresses the notice ... when the suggestion was reviewed"; "... withdrawn"; "... resubmitted" |
 | Hard-deleted suggestion fails permanently, without retry | "fails the job permanently, without retry, when the suggestion has been hard-deleted" |
+
+### Fixed: `getPushProvider()` never actually constructed the FCM provider
+
+**Symptom:** every intent generated correctly and delivered to the in-app inbox, but no browser ever
+received a Kizunia push, in an environment where `FIREBASE_PROJECT_ID`/`FIREBASE_CLIENT_EMAIL`/
+`FIREBASE_PRIVATE_KEY` were fully and correctly configured, and where Firebase Console's own
+test-message tool successfully pushed to the same browser (which only proves the browser, VAPID key
+and FCM project are fine — it never touches Kizunia's own server).
+
+**Root cause:** `push-provider.factory.ts`'s `getPushProvider()` loaded the FCM adapter with a lazy
+`require("./fcm-push-provider")`. That file is TypeScript/ESM, part of the same module graph Next.js
+compiles for its server runtime — and `require()`-ing an ESM sibling from inside it did not reliably
+return the module's named export. Every `DELIVER_NOTIFICATION` job — for every intent, not only
+`ADMIN_COMPETITION_SUGGESTION` — threw `TypeError: FcmPushProvider is not a constructor`, retried
+under the job runner's own backoff, and eventually exhausted its attempts. Confirmed live against
+this environment's actual `notification_job` rows before any fix was applied: every `PENDING`
+`DELIVER_NOTIFICATION` job carried exactly that `lastError`. In-app delivery was completely
+unaffected because it never touches the provider — which is exactly why the symptom looked like an
+`ADMIN_COMPETITION_SUGGESTION`-specific bug at first: it was the only intent anyone had actually
+looked at the inbox for.
+
+This was **not** an architectural gap. Nothing in generation or delivery has ever branched on
+intent for the push channel (confirmed by reading every stage of the pipeline before touching any
+code) — the failure was a single provider-loading bug shared by all four intents equally.
+
+**Fix:** `getPushProvider()` now loads the adapter with a dynamic `import()` instead of `require()`,
+and is itself now `async` (its one call site, `deliver-notification.handler.ts`, was already inside
+an async handler, so this was a one-line change at the call site too). `import()` does not have this
+interop failure mode.
+
+**Verified live**, against the real `kizunia-dev` Firebase project, not a fake: after the fix, every
+previously-stuck `DELIVER_NOTIFICATION` job (spanning `FEATURE_ANNOUNCEMENT` and
+`ADMIN_COMPETITION_SUGGESTION` notifications already sitting in the local database) was drained
+successfully, each producing a real FCM `providerMessageId`
+(`projects/kizunia-dev/messages/<uuid>`) and a `WEB_PUSH` delivery row at `SENT`.
+
+**Regression coverage:** `delivery/push-provider.factory.test.ts` (new, unit tier — no database, no
+network) asserts `getPushProvider()` resolves a real, constructible `FcmPushProvider` when
+credentials are present. Confirmed to actually catch the regression: reverting the fix and re-running
+just this test reproduces a module-resolution failure at the exact line the bug lived on.
+
+**Also fixed in the same pass:** `ADMIN_NOTICE_CONFIG.suggestionNoticeDelaySeconds`
+(`config/notification-config.ts`) was coded with a default of `0`, while its own doc-comment, this
+document, and the product decision it implements all state the default is 30 minutes. Restored to
+`30 * MINUTE_SECONDS`. For local testing, override with
+`NOTIFICATION_ADMIN_SUGGESTION_DELAY_SECONDS` (now documented in `.env.example`, along with the
+previously-undocumented `NOTIFICATION_ADMIN_SUGGESTION_LOOKBACK_SECONDS` and
+`NOTIFICATION_ADMIN_SUGGESTION_DISCOVERY_LIMIT`, all of which were already read by `envInt(...)` but
+never listed there) rather than editing the shipped default — see
+[`DEVELOPER-TESTING.md`](DEVELOPER-TESTING.md) §11.
 
 ### Known issues
 
@@ -288,9 +343,13 @@ Worth a look by whoever owns those two areas, separately from notifications.
 
 ### Next recommended action
 
-Configure Firebase and verify a real push on an HTTPS origin with the site closed. Everything
-behind that boundary is implemented and tested against the fake provider, so this is the one thing
-that cannot be checked locally.
+Firebase is now configured in local development and a real push has been verified end to end
+against the `kizunia-dev` project (see "Fixed: `getPushProvider()` never actually constructed the
+FCM provider" below). What remains untested by this session, because it requires a physically
+present browser: confirming the OS-level notification actually renders with the site closed, and
+iOS/Safari's PWA-install requirement. See
+[`DEVELOPER-TESTING.md`](DEVELOPER-TESTING.md) §5 for the isolated Firebase-only test and §6 for the
+full Kizunia end-to-end flow.
 
 ---
 
@@ -323,6 +382,16 @@ what the preferences card renders. Both were handled in the same change as the m
 
 **Two migration folders, not one.** `ALTER TYPE ... ADD VALUE` and any statement referencing the new
 value cannot safely share a transaction, and Prisma wraps each migration in one.
+
+**A lazy-loaded module needs `import()`, not `require()`.** `push-provider.factory.ts` used
+`require("./fcm-push-provider")` to defer loading `firebase-admin` until it's actually needed. Under
+Next.js's server runtime that sibling file is part of the same ESM graph, and `require()`-ing it did
+not reliably yield its named export — `new FcmPushProvider(...)` threw "is not a constructor", for
+every intent, and the only visible symptom was that pushes silently never arrived while everything
+else (including the in-app inbox) worked normally. No test caught it, because every existing delivery
+test injects a `FakePushProvider` directly and never goes through `getPushProvider()` itself. `import()`
+does not have this failure mode, and the factory is `async` now for exactly that reason. See "Fixed:
+`getPushProvider()`..." above, and `delivery/push-provider.factory.test.ts` for the regression test.
 
 **Two indexes Prisma cannot express** live as hand-written SQL, following the precedent of the
 weight `CHECK` in the preference migration: a **partial unique index** on in-app deliveries

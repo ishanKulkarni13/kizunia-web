@@ -8,6 +8,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  NotificationDeliveryStatus,
   NotificationIntent,
   NotificationTargetType,
   PushSubscriptionStatus,
@@ -16,6 +17,7 @@ import prisma from "@/lib/prisma";
 import { cleanupNotificationTestData } from "@/testing/notification-cleanup";
 
 import { NotificationGenerationService } from "../backend/notification-generation.service";
+import { renderAdminSuggestionReview } from "../content/renderers";
 import type { NotificationDraft } from "../content/notification-draft";
 import { DeliveryService } from "./delivery.service";
 import {
@@ -94,6 +96,25 @@ async function generateFor(userId: string): Promise<string> {
 /** Configured and really sending — the path that produces SENT, not SKIPPED. */
 function liveProvider(script?: FakeOutcomeScript) {
   return new FakePushProvider({ canDeliver: true, script });
+}
+
+function adminSuggestionDraftFor(userId: string): NotificationDraft {
+  return renderAdminSuggestionReview(userId, unique("suggestion-occ"), {
+    id: unique("suggestion"),
+    title: "A suggested competition",
+    submittedBy: "A Member",
+    submittedAt: NOW,
+  });
+}
+
+async function generateAdminSuggestionFor(userId: string): Promise<string> {
+  const outcome = await NotificationGenerationService.generate(
+    adminSuggestionDraftFor(userId),
+    NOW,
+  );
+
+  if (!outcome.created) throw new Error("expected a fresh notification");
+  return outcome.notificationId;
 }
 
 const cleanup = () => cleanupNotificationTestData(PREFIX);
@@ -531,5 +552,78 @@ describe("DeliveryService", () => {
     // SKIPPED, not FAILED: a deliberate decision recorded as an error makes
     // failure metrics unreadable (ND-D-13).
     expect(delivery?.status ?? "SKIPPED").toBe("SKIPPED");
+  });
+});
+
+/**
+ * Every case above uses a `TOP_RELEVANT_COMPETITION` draft and reasons that
+ * delivery is intent-agnostic to conclude the same behavior holds for
+ * `ADMIN_COMPETITION_SUGGESTION`. That reasoning is correct about the code
+ * (nothing in `DeliveryService`/`DeliveryRepository` branches on intent), but
+ * nothing had ever run an actual `ADMIN_COMPETITION_SUGGESTION` draft — built
+ * by its real renderer — through delivery. These two cases close that gap.
+ */
+describe("DeliveryService — ADMIN_COMPETITION_SUGGESTION", () => {
+  it("sends a real push for this intent's actual draft shape, not just a structurally similar one", async () => {
+    const reviewer = await createUser("admin-suggestion-sent");
+    await addSubscription(reviewer.id, unique("token"));
+    const notificationId = await generateAdminSuggestionFor(reviewer.id);
+
+    const provider = liveProvider();
+    const summary = await DeliveryService.deliver({
+      notificationId,
+      provider,
+      now: NOW,
+      random: noJitter,
+    });
+
+    expect(summary.accepted).toBe(1);
+    expect(provider.callCount).toBe(1);
+
+    const delivery = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { notificationId, channel: "WEB_PUSH" },
+    });
+    expect(delivery.status).toBe(NotificationDeliveryStatus.SENT);
+  });
+
+  it("skips the push, and leaves the in-app delivery alone, when the reviewer disabled the intent after generation", async () => {
+    const reviewer = await createUser("admin-suggestion-disabled-later");
+    await addSubscription(reviewer.id, unique("token"));
+    const notificationId = await generateAdminSuggestionFor(reviewer.id);
+
+    // `createUser` seeds a TOP_RELEVANT_COMPETITION preference row; this
+    // intent needs its own, since `isEnabledForUser` looks up by intent.
+    await prisma.notificationPreference.upsert({
+      where: {
+        userId_intent: {
+          userId: reviewer.id,
+          intent: NotificationIntent.ADMIN_COMPETITION_SUGGESTION,
+        },
+      },
+      create: {
+        userId: reviewer.id,
+        intent: NotificationIntent.ADMIN_COMPETITION_SUGGESTION,
+        enabled: false,
+      },
+      update: { enabled: false },
+    });
+
+    const provider = liveProvider();
+    const summary = await DeliveryService.deliver({
+      notificationId,
+      provider,
+      now: NOW,
+      random: noJitter,
+    });
+
+    expect(provider.callCount).toBe(0);
+    expect(summary.settled).toBe(true);
+
+    // The in-app delivery, created synchronously at generation, is untouched
+    // by a preference change that only affects the push (ND-D-01, ND-D-12).
+    const inApp = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { notificationId, channel: "IN_APP" },
+    });
+    expect(inApp.status).toBe("DELIVERED");
   });
 });

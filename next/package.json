@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:all": "pnpm test && pnpm test:integration"
+    "test:all": "pnpm test && pnpm test:integration",
+    "notifications:tick": "tsx scripts/notifications-tick.ts",
+    "notifications:diagnose": "tsx scripts/notifications-diagnose.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

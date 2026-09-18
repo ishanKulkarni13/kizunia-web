@@ -20,6 +20,10 @@ It is the technical counterpart to the product specification at
 which describes **what** Notifications does and why. Behavioral rules are stated there and
 referenced here; they are not restated.
 
+Trying to run the whole thing locally — generate a notification, push it, see a browser
+notification — rather than read about its design? Start at
+[`DEVELOPER-TESTING.md`](DEVELOPER-TESTING.md) instead of this reading order.
+
 ---
 
 ## The premise
@@ -104,7 +108,7 @@ Verified against the repository, not assumed:
 
 ## Status
 
-**Implemented**, end to end: three intents, two channels, a durable work queue with lease-based
+**Implemented**, end to end: four intents, two channels, a durable work queue with lease-based
 crash recovery, bounded retry, an inbox, and admin announcements.
 
 Every blocking decision this document previously listed has been resolved and recorded as a ruling.

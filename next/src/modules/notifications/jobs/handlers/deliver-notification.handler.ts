@@ -28,7 +28,7 @@ export const deliverNotificationHandler: JobHandler<
 > = async ({ payload, now }) => {
   const summary = await DeliveryService.deliver({
     notificationId: payload.notificationId,
-    provider: getPushProvider(),
+    provider: await getPushProvider(),
     now,
   });
 

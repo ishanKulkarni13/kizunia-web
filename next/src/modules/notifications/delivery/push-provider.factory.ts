@@ -76,8 +76,22 @@ let cached: PushProvider | null = null;
  *
  * Cached because constructing the real one initialises a Firebase app, which is
  * both expensive and unhappy about being done twice in the same process.
+ *
+ * Async because loading `fcm-push-provider` is a dynamic `import()`, not a
+ * `require()`. This module ships as ESM under Next.js's server runtime, and a
+ * `require()` of a same-graph ESM module returns the module record itself
+ * rather than its named export in that environment — `FcmPushProvider`
+ * resolved to something that was not a constructor, so this function threw
+ * `TypeError: FcmPushProvider is not a constructor` before
+ * `DeliveryService.deliver()` ever ran. Every `DELIVER_NOTIFICATION` job
+ * caught that, retried under the job runner's own backoff, and eventually
+ * exhausted its attempts — for every intent, with no `WEB_PUSH`
+ * `NotificationDelivery` row ever created, because the throw happened before
+ * delivery's own code got a chance to create one. `import()` is the
+ * interop-safe way to load a module lazily and is what every other lazy load
+ * in this codebase already uses.
  */
-export function getPushProvider(): PushProvider {
+export async function getPushProvider(): Promise<PushProvider> {
   if (cached) return cached;
 
   const config = readFirebaseConfig();
@@ -95,9 +109,7 @@ export function getPushProvider(): PushProvider {
   // Imported lazily so `firebase-admin` is never loaded — or even resolved — in
   // an environment that has no credentials for it. It is a heavy dependency
   // with native-ish initialisation, and the fake path should not pay for it.
-  //
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { FcmPushProvider } = require("./fcm-push-provider") as typeof import("./fcm-push-provider");
+  const { FcmPushProvider } = await import("./fcm-push-provider");
 
   cached = new FcmPushProvider(config);
   return cached;

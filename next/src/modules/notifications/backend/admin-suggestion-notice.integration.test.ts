@@ -21,6 +21,7 @@ import { PlatformRole } from "@/authorization/platform/roles";
 import { cleanupNotificationTestData } from "@/testing/notification-cleanup";
 
 import { ADMIN_NOTICE_CONFIG, SCHEDULE_CONFIG } from "../config/notification-config";
+import { resetPushProviderCache } from "../delivery/push-provider.factory";
 import { notificationJobHandlers } from "../jobs/handlers";
 import { JobRunner } from "../jobs/job-runner";
 import { PostgresWorkQueue } from "../jobs/postgres-work-queue";
@@ -731,5 +732,80 @@ describe("admin suggestion notice — crash recovery and concurrency", () => {
         },
       }),
     ).toBe(1);
+  });
+});
+
+describe("admin suggestion notice — push delivery", () => {
+  it("creates a settled WEB_PUSH delivery for a reviewer with an active push subscription", async () => {
+    // The gap this closes: every other test in this file stops at "the
+    // DELIVER_NOTIFICATION job exists" and explicitly defers push itself to
+    // delivery.integration.test.ts — which never runs an actual
+    // ADMIN_COMPETITION_SUGGESTION notification with a real subscription
+    // through this intent's own discovery -> job -> handler wiring. This test
+    // does: a reviewer with an ACTIVE PushSubscription, driven through the
+    // real scheduler and the real job runner, must end up with a WEB_PUSH
+    // delivery row that is settled (not left PENDING forever) — regardless of
+    // whether the developer running the suite happens to have real Firebase
+    // credentials configured, which is why the environment is pinned to
+    // "unconfigured" for the duration of this one assertion.
+    const anchor = new Date();
+    const submitter = await createActor(PlatformRole.USER, "submitter-push");
+    const reviewer = await createActor(PlatformRole.ADMIN, "reviewer-push");
+
+    await prisma.pushSubscription.create({
+      data: {
+        userId: reviewer.id,
+        token: unique("push-token"),
+        userAgent: "vitest",
+      },
+    });
+
+    await createSubmittedSuggestion({
+      suffix: "push",
+      submittedById: submitter.id,
+      ageSeconds: DELAY_SECONDS + 60,
+      anchor,
+    });
+
+    await runDiscovery(anchor);
+
+    const savedFirebaseEnv = {
+      FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
+      FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
+      FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY,
+    };
+    delete process.env.FIREBASE_PROJECT_ID;
+    delete process.env.FIREBASE_CLIENT_EMAIL;
+    delete process.env.FIREBASE_PRIVATE_KEY;
+    resetPushProviderCache();
+
+    try {
+      await drain();
+    } finally {
+      for (const [key, value] of Object.entries(savedFirebaseEnv)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      resetPushProviderCache();
+    }
+
+    const notification = await prisma.notification.findFirstOrThrow({
+      where: {
+        userId: reviewer.id,
+        intent: NotificationIntent.ADMIN_COMPETITION_SUGGESTION,
+      },
+    });
+
+    const pushDelivery = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { notificationId: notification.id, channel: "WEB_PUSH" },
+    });
+
+    // Unconfigured provider -> SKIPPED with a stated reason, never left
+    // PENDING and never silently absent (delivery.service.ts's
+    // skipUndeliverable path).
+    expect(pushDelivery.status).toBe("SKIPPED");
+    expect(pushDelivery.failureReason).toBe(
+      "No push provider is configured in this environment",
+    );
   });
 });

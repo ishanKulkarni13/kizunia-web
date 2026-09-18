@@ -38,6 +38,9 @@ model User {
   links                           Link[]
   notificationPreferences         NotificationPreference[]
   competitionPreferences          CompetitionPreference[]
+  notifications                   Notification[]
+  pushSubscriptions               PushSubscription[]
+  featureAnnouncementsCreated     FeatureAnnouncement[]     @relation("featureAnnouncementCreatedBy")
   portfolio                       Portfolio?
   projectsCreated                 Project[]                 @relation("projectCreatedBy")
   projectsUpdated                 Project[]                 @relation("projectUpdatedBy")
@@ -242,11 +245,19 @@ model UserBadge {
   @@map("user_badge")
 }
 
+/// One notification type. Adding a value here is additive; it also forces a
+/// default in DEFAULT_ENABLED (modules/preferences) because that record is
+/// keyed exhaustively, which is deliberate — an intent shipped without a
+/// considered default is a silent product decision.
 enum NotificationIntent {
   TOP_RELEVANT_COMPETITION
-  // Add future intents (e.g. REGISTRATION_CLOSING) here only when they are
-  // actually built — a new value plus an additive migration, never a
-  // restructure of this model.
+  REGISTRATION_CLOSING
+  FEATURE_ANNOUNCEMENT
+
+  /// Operational, and the only intent whose audience is not "any user": it
+  /// reaches the people the platform authorization model says review
+  /// competition suggestions. See `policy/intent-audience.ts`.
+  ADMIN_COMPETITION_SUGGESTION
 }
 
 model NotificationPreference {
@@ -296,6 +307,283 @@ model CompetitionPreference {
   @@unique([userId, dimension, value])
   @@index([userId])
   @@map("competition_preference")
+}
+
+/// One thing a user is told, once.
+///
+/// Channel-independent: the same row backs the inbox and every push that
+/// refers to it. `title`/`body`/`payload` are a SNAPSHOT taken at generation
+/// time, not a view over live competition rows — a competition edited or
+/// deleted later must not rewrite history, and the inbox must render without
+/// re-reading every subject it mentions.
+model Notification {
+  id     String             @id @default(cuid())
+  userId String
+  intent NotificationIntent
+
+  /// Idempotency key for "this user, this intent, this occasion" — e.g.
+  /// `top:2026-09-17`, `closing:2026-09-17`, `announcement:<id>`. Always
+  /// stamped by the scheduler and carried in the job payload, never derived
+  /// from a worker's clock (ND-D-07): a retry that crosses UTC midnight would
+  /// otherwise compute a different key and generate a second notification for
+  /// the same occasion.
+  occurrenceKey String
+
+  title String
+  body  String
+
+  /// Site-relative path only, enforced by a CHECK constraint in the migration
+  /// as well as by validation. Storing an absolute URL here would both couple
+  /// the record to one client and make an open redirect one forgotten
+  /// validation away.
+  actionPath String?
+
+  /// Structured render snapshot, so a future non-web client can present this
+  /// notification without re-deriving it. See clients-and-channels.md.
+  payload Json?
+
+  createdAt DateTime @default(now())
+
+  /// Seen in the inbox. Independent of every delivery's status, and of
+  /// respondedAt (ND-H-10).
+  readAt DateTime?
+
+  /// Clicked through to the action. Independent of readAt.
+  respondedAt DateTime?
+
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targets    NotificationTarget[]
+  deliveries NotificationDelivery[]
+
+  @@unique([userId, intent, occurrenceKey])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, readAt])
+  @@map("notification")
+}
+
+/// What one notification is about. A child collection rather than a column or
+/// a JSON array, because an aggregated notification covers several subjects
+/// and deduplication has to be an index scan rather than a scan of every
+/// notification the user has (ND-H-11).
+model NotificationTarget {
+  id             String @id @default(cuid())
+  notificationId String
+
+  /// Denormalized from `notification.userId`, deliberately NOT a foreign key.
+  /// It exists solely so "has this user already been told about competition X
+  /// at this version?" needs no join. User deletion still reaches these rows
+  /// through Notification's cascade.
+  userId String
+
+  targetType NotificationTargetType
+  targetId   String
+
+  /// Identity of the *occasion*, not of the entity — the registration deadline
+  /// as epoch milliseconds, for the deadline intent. A moved deadline is a new
+  /// occasion and may notify again; an unchanged one is a duplicate and is
+  /// suppressed (ND-H-12). Null for subjects that cannot recur.
+  targetVersion String?
+
+  rank      Int
+  createdAt DateTime @default(now())
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, targetType, targetId])
+  @@index([userId, targetType, targetId, targetVersion])
+  @@index([targetType, targetId])
+  @@map("notification_target")
+}
+
+/// One (notification, channel, destination) delivery, with its own state and
+/// its own retries.
+///
+/// IN_APP rows are created already DELIVERED: for an inbox, the row being
+/// committed and visible IS the delivery, and there is no later event to wait
+/// for (ND-D-04). WEB_PUSH SENT means the provider ACCEPTED the message —
+/// there is no "the user saw it" signal on the web, and DELIVERED is reserved
+/// for a channel that can genuinely report one.
+model NotificationDelivery {
+  id             String                     @id @default(cuid())
+  notificationId String
+  channel        NotificationChannel
+  status         NotificationDeliveryStatus @default(PENDING)
+  attempts       Int                        @default(0)
+  maxAttempts    Int
+  lastAttemptAt  DateTime?
+  nextAttemptAt  DateTime?
+
+  /// Why this delivery is in a terminal or skipped state, in words. Read by
+  /// humans debugging "why did this not arrive", not by code.
+  failureReason String?
+
+  provider           PushProviderId?
+  providerMessageId  String?
+  pushSubscriptionId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  notification     Notification                  @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  pushSubscription PushSubscription?             @relation(fields: [pushSubscriptionId], references: [id], onDelete: SetNull)
+  attemptLog       NotificationDeliveryAttempt[]
+
+  /// NOTE: Postgres treats NULLs as distinct, so this does NOT constrain
+  /// IN_APP rows, whose pushSubscriptionId is null. A hand-written PARTIAL
+  /// unique index in the migration covers that case; Prisma cannot express
+  /// one, so in-app rows are created-and-catch-P2002, never upserted.
+  @@unique([notificationId, channel, pushSubscriptionId])
+  @@index([status, nextAttemptAt])
+  @@index([notificationId])
+  @@map("notification_delivery")
+}
+
+/// Per-attempt audit trail. The answer to "was it attempted, how many times,
+/// and what did the provider say", which no single status column can carry.
+model NotificationDeliveryAttempt {
+  id            String @id @default(cuid())
+  deliveryId    String
+  attemptNumber Int
+
+  startedAt        DateTime                     @default(now())
+  finishedAt       DateTime?
+  outcome          NotificationDeliveryOutcome?
+  errorCode        String?
+  providerResponse Json?
+
+  delivery NotificationDelivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@unique([deliveryId, attemptNumber])
+  @@index([deliveryId])
+  @@map("notification_delivery_attempt")
+}
+
+/// A browser's push registration.
+///
+/// `token` is globally unique because a token identifies a BROWSER, not a
+/// person: the same browser signing in as a different user must move this
+/// row's userId, never insert a second row, or a legitimate re-registration
+/// is rejected by the unique constraint.
+model PushSubscription {
+  id       String         @id @default(cuid())
+  userId   String
+  provider PushProviderId @default(FCM)
+  token    String         @unique
+
+  userAgent String?
+  status    PushSubscriptionStatus @default(ACTIVE)
+
+  /// Reset to 0 on any accepted send. At the configured ceiling the row is
+  /// marked INVALID defensively — a token can be dead in a way the provider
+  /// never reports cleanly (ND-D-09).
+  consecutiveFailures Int @default(0)
+
+  lastSeenAt    DateTime  @default(now())
+  lastSuccessAt DateTime?
+  invalidatedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+
+  @@index([userId, status])
+  @@map("push_subscription")
+}
+
+/// The durable work queue. Postgres is the broker; the WorkQueue port in
+/// modules/notifications/jobs is the seam a real broker would slot into
+/// (ND-D-02, ND-D-10).
+///
+/// Claiming is a single UPDATE ... FOR UPDATE SKIP LOCKED that takes a lease.
+/// `attempts` increments ON CLAIM, not on completion: a worker that crashes
+/// mid-job must still burn an attempt, or an expired lease re-claims it
+/// forever.
+model NotificationJob {
+  id   String              @id @default(cuid())
+  kind NotificationJobKind
+
+  /// `<kind>:<scope>:<occurrence>`. Unique, so a scheduler that runs twice is
+  /// a no-op — the uniqueness violation means "already scheduled", which is
+  /// the desired end state (ND-D-06).
+  dedupeKey String @unique
+
+  status NotificationJobStatus @default(PENDING)
+
+  /// The one timing primitive. Instant and near-real-time work sets it to now
+  /// and is bounded by sweep cadence; scheduled work sets the next configured
+  /// hour; relative work sets deadline minus offset; an announcement sets its
+  /// own delivery time. On claim it is pushed to the lease expiry, so one
+  /// index serves both "due" and "lease expired".
+  runAt DateTime
+
+  attempts    Int @default(0)
+  maxAttempts Int
+
+  /// Carries the frozen decision inputs — occurrence key, window bounds,
+  /// evaluation anchor, fan-out cursor. A retry must reproduce the same
+  /// decision, so nothing here is derived from the worker's clock (ND-D-07).
+  payload Json
+
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  lastError      String?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+
+  @@index([status, runAt])
+  @@index([status, completedAt])
+  @@map("notification_job")
+}
+
+/// An admin-authored platform announcement. The first notification subject
+/// that is not a competition (ND-I-21).
+model FeatureAnnouncement {
+  id    String @id @default(cuid())
+  title String
+  body  String
+
+  /// https:// absolute, or a site-relative path. Optional — an announcement
+  /// with nothing to link to is legitimate. Validated on the way in; this is
+  /// the one place notification content is authored by a human.
+  url String?
+
+  createdById String?
+
+  /// Delivery time is a property of the announcement. "Send now" is a schedule
+  /// time of now; there is no separate immediate path (ND-I-22).
+  scheduledFor DateTime
+
+  status      FeatureAnnouncementStatus @default(DRAFT)
+  publishedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy User? @relation("featureAnnouncementCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([status, scheduledFor])
+  @@map("feature_announcement")
+}
+
+/// Last-run marker for one registered internal task.
+///
+/// Exists because the deployment target allows very few cron entries, so a
+/// single tick endpoint dispatches every scheduled task and each needs its own
+/// cadence. Durable rather than in-memory because every Vercel invocation is a
+/// fresh process.
+model InternalJobRun {
+  taskId     String    @id
+  lastRunAt  DateTime?
+  lastStatus String?
+  lastError  String?
+  runCount   Int       @default(0)
+  updatedAt  DateTime  @updatedAt
+
+  @@map("internal_job_run")
 }
 
 model Competition {
@@ -1241,3 +1529,76 @@ enum PlaceResolutionStatus {
   NOT_FOUND
 }
 
+/// What a notification is about. Deliberately not a Prisma relation: targetId
+/// is polymorphic, and a deleted competition must not cascade a user's
+/// notification history away. The notification's own snapshot renders the
+/// inbox, so a dangling target degrades to a non-clickable row, never a crash.
+enum NotificationTargetType {
+  COMPETITION
+  ANNOUNCEMENT
+  COMPETITION_SUGGESTION
+}
+
+/// How a notification reaches a user. A client is not a channel: one client
+/// may support several channels, and one channel may serve several clients.
+enum NotificationChannel {
+  IN_APP
+  WEB_PUSH
+}
+
+/// See ND-D-03. SENT and DELIVERED are different claims and must not be
+/// conflated — for web push, SENT (the provider accepted it) is the strongest
+/// statement available.
+enum NotificationDeliveryStatus {
+  PENDING
+  PROCESSING
+  SENT
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
+/// The provider-agnostic classification of one attempt. Push adapters map
+/// their vendor error codes onto these four; nothing above the adapter ever
+/// sees a vendor error string. An unrecognized code maps to RETRYABLE — fail
+/// soft on the unknown case rather than silently dropping notifications.
+enum NotificationDeliveryOutcome {
+  ACCEPTED
+  INVALID_TOKEN
+  RETRYABLE
+  PERMANENT
+}
+
+enum PushProviderId {
+  FCM
+}
+
+enum PushSubscriptionStatus {
+  ACTIVE
+  INVALID
+  REVOKED
+}
+
+enum NotificationJobKind {
+  EVALUATE_TOP_RELEVANT_COMPETITION
+  EVALUATE_REGISTRATION_CLOSING
+  FANOUT_ANNOUNCEMENT
+  DELIVER_NOTIFICATION
+  NOTIFY_ADMINS_OF_SUGGESTION
+}
+
+enum NotificationJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum FeatureAnnouncementStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHING
+  PUBLISHED
+  CANCELLED
+}

@@ -52,6 +52,8 @@ export type McpFailureOutcome =
   | "not_found"
   /** A domain rule rejected the request (duplicate slug, conflict, …). */
   | "rejected"
+  /** The caller exceeded a rate-limit policy's budget. */
+  | "rate_limited"
   /** Anything unexpected. The underlying error is logged alongside. */
   | "internal";
 

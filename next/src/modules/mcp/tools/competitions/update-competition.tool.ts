@@ -1,3 +1,5 @@
+import { RateLimitPolicyId } from "@/lib/rate-limit";
+
 import { UpdateCompetitionUseCase } from "../../application/update-competition.usecase";
 import {
   UpdateCompetitionToolSchema,
@@ -20,6 +22,8 @@ export const updateCompetitionTool: McpTool<UpdateCompetitionToolInput> = {
     "console for that.",
 
   inputSchema: UpdateCompetitionToolSchema,
+
+  rateLimitPolicy: RateLimitPolicyId.MCP_TOOLS_WRITE,
 
   execute(context: McpRequestContext, input: UpdateCompetitionToolInput) {
     return UpdateCompetitionUseCase.execute(context, input);

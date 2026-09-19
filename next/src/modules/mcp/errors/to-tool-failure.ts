@@ -1,6 +1,6 @@
 import { ZodError } from "zod";
 
-import { isAppError } from "@/lib/errors";
+import { isAppError, RateLimitError } from "@/lib/errors";
 import { ErrorCategory } from "@/lib/errors/error-category";
 
 import { McpScopeError } from "./mcp-error";
@@ -50,6 +50,16 @@ export interface McpToolFailure {
    * wrong is what lets the model retry successfully.
    */
   readonly details?: unknown;
+
+  /**
+   * Seconds until the caller may retry, present only for a rate-limit
+   * rejection. The MCP transport has no header channel (Streamable HTTP
+   * here always answers 200 with a JSON-RPC body) — this field is the
+   * equivalent of the `Retry-After` header a REST caller would get,
+   * carried where an MCP client (and the model behind it) can actually
+   * read it.
+   */
+  readonly retryAfterSeconds?: number;
 }
 
 /**
@@ -107,6 +117,8 @@ export function toMcpToolFailure(error: unknown): McpToolFailure {
       // it cannot vouch for.
       details:
         error.category === ErrorCategory.VALIDATION ? error.details : undefined,
+      retryAfterSeconds:
+        error instanceof RateLimitError ? error.retryAfterSeconds : undefined,
     };
   }
 

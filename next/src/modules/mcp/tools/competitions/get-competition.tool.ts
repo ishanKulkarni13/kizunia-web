@@ -1,3 +1,5 @@
+import { RateLimitPolicyId } from "@/lib/rate-limit";
+
 import { GetCompetitionUseCase } from "../../application/get-competition.usecase";
 import {
   GetCompetitionSchema,
@@ -18,6 +20,8 @@ export const getCompetitionTool: McpTool<GetCompetitionInput> = {
     "to anyone; PRIVATE and ARCHIVED competitions are not returned.",
 
   inputSchema: GetCompetitionSchema,
+
+  rateLimitPolicy: RateLimitPolicyId.MCP_TOOLS_READ,
 
   execute(context: McpRequestContext, input: GetCompetitionInput) {
     return GetCompetitionUseCase.execute(context, input);

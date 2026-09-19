@@ -1,3 +1,5 @@
+import { RateLimitPolicyId } from "@/lib/rate-limit";
+
 import { SearchCompetitionsUseCase } from "../../application/search-competitions.usecase";
 import {
   SearchCompetitionsSchema,
@@ -25,6 +27,8 @@ export const searchCompetitionsTool: McpTool<SearchCompetitionsInput> = {
     "— call get_competition with a result's slug for the complete record.",
 
   inputSchema: SearchCompetitionsSchema,
+
+  rateLimitPolicy: RateLimitPolicyId.MCP_TOOLS_READ,
 
   execute(context: McpRequestContext, input: SearchCompetitionsInput) {
     return SearchCompetitionsUseCase.execute(context, input);

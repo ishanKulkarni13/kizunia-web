@@ -1,3 +1,5 @@
+import { RateLimitPolicyId } from "@/lib/rate-limit";
+
 import { CreateCompetitionUseCase } from "../../application/create-competition.usecase";
 import {
   CreateCompetitionToolSchema,
@@ -23,6 +25,8 @@ export const createCompetitionTool: McpTool<CreateCompetitionToolInput> = {
     "no separate field for where imported data came from.",
 
   inputSchema: CreateCompetitionToolSchema,
+
+  rateLimitPolicy: RateLimitPolicyId.MCP_TOOLS_WRITE,
 
   execute(context: McpRequestContext, input: CreateCompetitionToolInput) {
     return CreateCompetitionUseCase.execute(context, input);

@@ -14,9 +14,11 @@ import {
   reportMcpInternalError,
   type McpFailureOutcome,
 } from "../../observability/events";
-import { isAppError } from "@/lib/errors";
+import { isAppError, RateLimitError } from "@/lib/errors";
 import { ErrorCategory } from "@/lib/errors/error-category";
+import { RATE_LIMIT_POLICIES, rateLimitService } from "@/lib/rate-limit";
 import { MCP_TOOLS } from "../../tools/registry";
+import type { McpTool } from "../../tools/types";
 import { buildMcpRequestContext } from "../context/build-request-context";
 import {
   isJsonRpcRequest,
@@ -153,6 +155,8 @@ async function handleToolsCall(
   try {
     const context = await buildMcpRequestContext(token, requestId);
 
+    await enforceToolRateLimit(tool, context.actor.id);
+
     const input = tool.inputSchema.parse(rawArguments ?? {});
 
     const result = await tool.execute(context, input);
@@ -188,6 +192,34 @@ async function handleToolsCall(
       isError: true,
     });
   }
+}
+
+/**
+ * Enforces the tool's declared rate-limit policy before it runs.
+ *
+ * `tool.rateLimitPolicy` is a required field on `McpTool` (see
+ * `tools/types.ts`) precisely so this cannot be skipped by omission — every
+ * tool that can be registered has already made an explicit classification
+ * decision at compile time. `RATE_LIMIT_POLICIES[policy]` is looked up
+ * rather than trusted as a bare string so that a value which somehow still
+ * reaches here unrecognised (a stale build, an unsafe cast, a future
+ * non-TypeScript tool source) fails *closed* — rejected as rate-limited —
+ * rather than silently bypassing enforcement. A missing policy is an
+ * availability risk for one caller; treating it as an open bypass would be
+ * a security one, and this system never trades the latter for the former.
+ */
+async function enforceToolRateLimit(tool: McpTool, userId: string): Promise<void> {
+  const policyId = tool.rateLimitPolicy;
+
+  if (!RATE_LIMIT_POLICIES[policyId]) {
+    throw new RateLimitError({
+      code: "MCP_TOOL_RATE_LIMIT_UNCLASSIFIED",
+      message:
+        "This tool has no recognised rate-limit policy configured and cannot be called.",
+    });
+  }
+
+  await rateLimitService.enforce({ policyId, actor: { id: userId } });
 }
 
 /**
@@ -228,6 +260,8 @@ function classifyFailure(error: unknown): McpFailureOutcome {
       return "not_found";
     case ErrorCategory.CONFLICT:
       return "rejected";
+    case ErrorCategory.RATE_LIMIT:
+      return "rate_limited";
     default:
       return "internal";
   }

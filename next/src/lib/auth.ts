@@ -6,7 +6,7 @@ import { displayUsernameSchema, usernameSchema } from "./validation";
 import { nextCookies } from "better-auth/next-js";
 import { sendEmail } from "./auth/email";
 import { dash } from "@better-auth/infra";
-import { MCP_SUPPORTED_SCOPES } from "@/modules/mcp/auth/scopes";
+import { MCP_SCOPES, MCP_SUPPORTED_SCOPES } from "@/modules/mcp/auth/scopes";
 import { MCP_LOGIN_PAGE, mcpResourceUrl } from "@/modules/mcp/config";
 
 export const auth = betterAuth({
@@ -59,6 +59,15 @@ export const auth = betterAuth({
       resource: mcpResourceUrl(),
       oidcConfig: {
         loginPage: MCP_LOGIN_PAGE,
+        /**
+         * The actual accept-list `authorizeMCPOAuth` validates a requested
+         * scope against (better-auth's `mcp()` unions this with its four
+         * built-in identity scopes). `metadata.scopes_supported` below is
+         * cosmetic — discovery-document only — and does not gate
+         * authorization, so Kizunia's capability scopes must also be listed
+         * here or every request for them is rejected as `invalid_scope`.
+         */
+        scopes: [...MCP_SCOPES],
         metadata: {
           scopes_supported: [...MCP_SUPPORTED_SCOPES],
         },

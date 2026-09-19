@@ -8,6 +8,7 @@ const VALID_TABS = new Set([
   "locations",
   "technologies",
   "eligibility",
+  "types",
   "documentation",
 ]);
 
@@ -66,6 +67,7 @@ describe("FIELD_METADATA", () => {
       "registrationLink",
       "technologies",
       "eligibilities",
+      "types",
       "locations",
     ] as const;
 

@@ -385,6 +385,14 @@ model User {
   projectsCreated Project[] @relation("projectCreatedBy")
   projectsUpdated Project[] @relation("projectUpdatedBy")
 
+  // ---------------------------------------------------------------------------
+  // MCP / OAuth provider
+  // ---------------------------------------------------------------------------
+
+  oauthApplications OauthApplication[] @relation("oauthApplicationOwner")
+  oauthAccessTokens OauthAccessToken[] @relation("oauthAccessTokenUser")
+  oauthConsents     OauthConsent[]     @relation("oauthConsentUser")
+
   @@unique([email])
   @@unique([username])
   @@map("user")
@@ -1689,4 +1697,115 @@ model RateLimit {
 
   @@index([expiresAt])
   @@map("rate_limit")
+}
+
+// =============================================================================
+// MCP / OAuth 2.1 Provider
+// =============================================================================
+//
+// Backing tables for Better Auth's `mcp` plugin (which composes its
+// `oidc-provider`). Field names and types are dictated by that plugin's
+// schema definition — see
+// node_modules/better-auth/dist/plugins/oidc-provider/schema.mjs. They are
+// deliberately transcribed rather than reshaped: the plugin addresses these
+// through its own adapter using exactly these names, so renaming a column
+// here silently breaks the OAuth flow at runtime rather than at build time.
+//
+// `id` carries no `@default` — matching `User`, `Session`, `Account` and
+// `Verification` above, because Better Auth generates ids itself.
+
+/// A registered OAuth client. Created by Dynamic Client Registration
+/// (RFC 7591) when an MCP client such as ChatGPT connects for the first
+/// time, or seeded manually for a known first-party client.
+///
+/// Holding a client registration is NOT an authorization to do anything.
+/// Every tool call re-resolves the Kizunia user behind the token and runs
+/// the platform/competition policies against that user — see
+/// `src/modules/mcp/server/authenticate.ts`.
+model OauthApplication {
+  id String @id
+
+  name String
+  icon String?
+
+  /// Arbitrary client metadata supplied at registration, stored as JSON text
+  /// by the plugin.
+  metadata String?
+
+  clientId     String  @unique
+  clientSecret String?
+
+  /// Comma-separated list — the plugin splits on "," itself.
+  redirectUrls String
+
+  /// One of "web" | "native" | "user-agent-based" | "public".
+  type String
+
+  disabled Boolean? @default(false)
+
+  /// The user who registered the client, when registration happened inside a
+  /// session. Null for anonymous dynamic registration.
+  userId String?
+  user   User?   @relation("oauthApplicationOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime
+  updatedAt DateTime
+
+  accessTokens OauthAccessToken[]
+  consents     OauthConsent[]
+
+  @@index([userId])
+  @@map("oauth_application")
+}
+
+/// An issued OAuth access/refresh token pair.
+///
+/// `scopes` is the capability boundary the client was granted — it can only
+/// ever narrow what the underlying Kizunia user may do, never widen it.
+model OauthAccessToken {
+  id String @id
+
+  accessToken  String @unique
+  refreshToken String @unique
+
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+
+  clientId String
+  client   OauthApplication @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation("oauthAccessTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Space-separated scope list, as issued.
+  scopes String
+
+  createdAt DateTime
+  updatedAt DateTime
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_access_token")
+}
+
+/// A user's recorded consent for a client to hold a given set of scopes.
+model OauthConsent {
+  id String @id
+
+  clientId String
+  client   OauthApplication @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("oauthConsentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  scopes String
+
+  consentGiven Boolean
+
+  createdAt DateTime
+  updatedAt DateTime
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_consent")
 }

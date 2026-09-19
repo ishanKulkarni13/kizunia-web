@@ -210,6 +210,33 @@ enum EligibilityType {
   OTHER
 }
 
+enum CompetitionType {
+  // Format
+  HACKATHON
+  IDEATHON
+  QUIZ
+  DSA
+  COMPETITIVE_PROGRAMMING
+
+  // Business & Strategy
+  CASE_STUDY
+  BUSINESS_PLAN
+  PITCHING
+
+  // Creative & Technical
+  UI_UX
+  CTF
+  ROBOTICS
+  GAMING
+
+  // Communication & Writing
+  DEBATE
+  WRITING
+
+  // General
+  OTHER
+}
+
 // =============================================================================
 // Enums — Project
 // =============================================================================
@@ -801,6 +828,7 @@ model Competition {
   suggestions   CompetitionSuggestion[]  @relation("competitionSuggestionTarget")
   // competitionEligibilities CompetitionEligibility[]
   eligibilities CompetitionEligibility[]
+  types         CompetitionTypeRelation[]
 
   registrationPlatform RegistrationPlatform?
 
@@ -947,6 +975,17 @@ model CompetitionEligibility {
   @@id([competitionId, type])
   @@index([type])
   @@map("competition_eligibility")
+}
+
+model CompetitionTypeRelation {
+  competitionId String
+  type          CompetitionType
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, type])
+  @@index([type])
+  @@map("competition_type")
 }
 
 model CompetitionBookmark {

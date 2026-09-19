@@ -139,6 +139,23 @@ export type EligibilityTypeValue =
   | "OPEN"
   | "OTHER";
 
+export type CompetitionTypeValue =
+  | "HACKATHON"
+  | "IDEATHON"
+  | "QUIZ"
+  | "DSA"
+  | "COMPETITIVE_PROGRAMMING"
+  | "CASE_STUDY"
+  | "BUSINESS_PLAN"
+  | "PITCHING"
+  | "UI_UX"
+  | "CTF"
+  | "ROBOTICS"
+  | "GAMING"
+  | "DEBATE"
+  | "WRITING"
+  | "OTHER";
+
 // =============================================================================
 // Quick filters
 // =============================================================================
@@ -165,6 +182,33 @@ const modes: EnumMultiSpec<CompetitionModeValue> = {
     { value: "ONLINE", label: "Online" },
     { value: "OFFLINE", label: "In person" },
     { value: "HYBRID", label: "Hybrid" },
+  ],
+};
+
+const types: EnumMultiSpec<CompetitionTypeValue> = {
+  kind: "enum-multi",
+  key: "types",
+  label: "Type",
+  group: "quick",
+  weight: 15,
+  display: "checkbox",
+  description: "The fundamental nature of the competition.",
+  options: [
+    { value: "HACKATHON", label: "Hackathon" },
+    { value: "IDEATHON", label: "Ideathon" },
+    { value: "QUIZ", label: "Quiz" },
+    { value: "DSA", label: "DSA" },
+    { value: "COMPETITIVE_PROGRAMMING", label: "Competitive Programming" },
+    { value: "CASE_STUDY", label: "Case Study" },
+    { value: "BUSINESS_PLAN", label: "Business Plan" },
+    { value: "PITCHING", label: "Pitching" },
+    { value: "UI_UX", label: "UI/UX" },
+    { value: "CTF", label: "CTF" },
+    { value: "ROBOTICS", label: "Robotics" },
+    { value: "GAMING", label: "Gaming" },
+    { value: "DEBATE", label: "Debate" },
+    { value: "WRITING", label: "Writing" },
+    { value: "OTHER", label: "Other" },
   ],
 };
 
@@ -523,6 +567,7 @@ const registrationPlatforms: EnumMultiSpec<RegistrationPlatformValue> = {
 export const competitionFilterSpecs = {
   search,
   modes,
+  types,
   categories,
   technologies,
   location,

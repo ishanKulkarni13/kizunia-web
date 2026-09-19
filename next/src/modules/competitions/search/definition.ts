@@ -48,6 +48,7 @@ import {
   CertificateType,
   CompetitionMode,
   CompetitionStatus,
+  CompetitionType,
   DifficultyLevel,
   EligibilityType,
   OrganizerType,
@@ -183,6 +184,31 @@ const eligibilities = enumRelationMultiFilter<
           in: values.includes(EligibilityType.OPEN)
             ? values
             : [...values, EligibilityType.OPEN],
+        },
+      },
+    },
+  }),
+});
+
+/**
+ * Competition Types filter.
+ *
+ * Unlike eligibility, there is no wildcard value: a competition that has
+ * declared zero types simply does not match any type filter — it has not
+ * opted into any type, so the `some` clause correctly excludes it.
+ *
+ * Multiple selected values use OR semantics (HACKATHON + CTF means
+ * HACKATHON OR CTF), which is what `some: { type: { in: values } }`
+ * produces naturally.
+ */
+const types = enumRelationMultiFilter<CompetitionWhere, CompetitionType>({
+  spec: specs.types,
+  values: Object.values(CompetitionType),
+  toWhere: (values) => ({
+    types: {
+      some: {
+        type: {
+          in: values,
         },
       },
     },
@@ -414,6 +440,7 @@ export const competitionSearchDefinition = defineSearch<
     bindFilter(startDate),
     bindFilter(endDate),
     bindFilter(eligibilities),
+    bindFilter(types),
     bindFilter(registrationTypes),
     bindFilter(teamSize),
     bindFilter(organizerTypes),

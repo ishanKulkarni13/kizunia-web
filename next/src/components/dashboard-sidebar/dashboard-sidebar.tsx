@@ -16,6 +16,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import Link from "next/link";
+import { WebsiteLogo } from "../icons/WebsiteLogo";
 
 export function DashboardSidebar({
   ...props
@@ -32,7 +33,8 @@ export function DashboardSidebar({
               className="data-[slot=sidebar-menu-button]:!p-1.5"
             >
               <Link href="/">
-                <ArrowUpCircleIcon />
+                {/* <ArrowUpCircleIcon /> */}
+                <WebsiteLogo  />
                 <span className="text-base font-semibold">Kizunia</span>
               </Link>
             </SidebarMenuButton>

@@ -1,33 +1,34 @@
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 import PageWrapper from "@/components/page-wrapper";
 
 import { CompetitionSuggestionService } from "@/modules/competitions/backend/suggestion/service";
 import { SessionService } from "@/lib/auth/index";
+import { Metadata } from "next/types";
 
 function formatStatus(status: string) {
-  return status
-    .toLowerCase()
-    .replaceAll("_", " ");
+  return status.toLowerCase().replaceAll("_", " ");
 }
 
-export default async function MySuggestionsPage() {
-  const actor =  await SessionService.getStrictActor();
-  
+export const metadata: Metadata = {
+  title: "My Suggestions",
+  description: "Competitions you have suggested to Kizunia.",
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
 
-  const suggestions =
-    await CompetitionSuggestionService.findMine({
-      actor,
-    });
+export default async function MySuggestionsPage() {
+  const actor = await SessionService.getStrictActor();
+
+  const suggestions = await CompetitionSuggestionService.findMine({
+    actor,
+  });
 
   return (
     <PageWrapper
@@ -64,13 +65,10 @@ export default async function MySuggestionsPage() {
         {suggestions.length === 0 ? (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <h2 className="text-lg font-semibold">
-                No suggestions yet
-              </h2>
+              <h2 className="text-lg font-semibold">No suggestions yet</h2>
 
               <p className="mt-2 text-sm text-muted-foreground">
-                Know a competition that should be on
-                Kizunia?
+                Know a competition that should be on Kizunia?
               </p>
 
               <Button asChild className="mt-6">
@@ -90,15 +88,9 @@ export default async function MySuggestionsPage() {
                 <Card className="transition-colors hover:bg-muted/50">
                   <CardHeader>
                     <div className="flex items-start justify-between gap-4">
-                      <CardTitle>
-                        {suggestion.suggestionTitle}
-                      </CardTitle>
+                      <CardTitle>{suggestion.suggestionTitle}</CardTitle>
 
-                      <Badge>
-                        {formatStatus(
-                          suggestion.status,
-                        )}
-                      </Badge>
+                      <Badge>{formatStatus(suggestion.status)}</Badge>
                     </div>
                   </CardHeader>
 

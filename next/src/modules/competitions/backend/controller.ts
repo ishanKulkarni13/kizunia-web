@@ -308,22 +308,11 @@ export class CompetitionController {
     });
   }
 
-  static async findBySlug(request: NextRequest, slug: string) {
+  static async findPublicBySlug( {slug}:{slug: string}) {
     return Route.execute(async () => {
       const parsedSlug = SlugSchema.parse(slug);
-      const actor = await SessionService.getOptionalActor(request);
 
-      const context = await CompetitionContextResolver.resolveBySlug({
-        actor: {
-          id: actor?.id ?? null,
-          role: actor?.role ?? null,
-          banned: actor?.banned ?? null,
-        },
-        slug: parsedSlug,
-      });
-      CompetitionAuthorizer.read(context);
-
-      const competition = await CompetitionService.findBySlug(parsedSlug);
+      const competition = await CompetitionService.findPublicBySlug(parsedSlug);
 
       return ApiResponse.ok(competition);
     });

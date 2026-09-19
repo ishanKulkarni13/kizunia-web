@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "motion/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { WebsiteLogo } from "../icons/WebsiteLogo";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
 
@@ -29,6 +30,7 @@ export function SiteNav() {
             href="/"
             className="rounded-full px-3 py-1.5 text-sm font-semibold tracking-tight text-foreground"
           >
+            <WebsiteLogo className="mr-2 inline h-4 w-4" />
             Kizunia
           </Link>
 

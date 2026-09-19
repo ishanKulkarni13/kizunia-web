@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Competitions Module - Mapper
  *
  * Responsible for converting between database models and DTOs.
@@ -24,6 +24,7 @@ import {
 import { competitionLocationMapper } from "./competition-location.mapper";
 import { competitionTechnologyMapper } from "./competition-technology.mapper";
 import { competitionEligibilityMapper } from "./competition-eligibility.mapper";
+import { competitionTypeMapper } from "./competition-type.mapper";
 
 /**
  * Prisma payload used when loading Competition cards.
@@ -40,6 +41,8 @@ type CompetitionWithAssets = Prisma.CompetitionGetPayload<{
         location: true;
       };
     };
+
+    types: true;
   };
 }>;
 
@@ -80,6 +83,7 @@ export class CompetitionMapper {
       maxTeamSize: competition.maxTeamSize,
       status: competition.status,
       registrationFeeType: competition.registrationFeeType,
+      types: competition.types.map((t) => t.type),
     };
   }
 
@@ -251,6 +255,8 @@ export class CompetitionMapper {
 
       eligibilities: competitionEligibilityMapper.toDTOs(competition.eligibilities),
 
+      types: competitionTypeMapper.toDTOs(competition.types),
+
 
     };
   }
@@ -349,6 +355,8 @@ export class CompetitionMapper {
       technologies: competitionTechnologyMapper.toDTOs(competition.technologies),
 
       eligibilities: competitionEligibilityMapper.toDTOs(competition.eligibilities),
+
+      types: competitionTypeMapper.toDTOs(competition.types),
 
       role,
       permissions,

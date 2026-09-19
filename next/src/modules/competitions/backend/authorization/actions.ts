@@ -51,4 +51,12 @@ export enum CompetitionAction {
      */
     MANAGE_ELIGIBILITY = "MANAGE_ELIGIBILITY",
 
+    /**
+     * Attach/detach competition type values on this Competition.
+     * `CompetitionType` is a fixed domain enum — no global catalog
+     * counterpart. Types describe the fundamental nature of the competition
+     * (Hackathon, CTF, Quiz…) and are Competition-domain-only.
+     */
+    MANAGE_TYPES = "MANAGE_TYPES",
+
 }

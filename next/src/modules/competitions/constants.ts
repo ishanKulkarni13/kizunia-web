@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Competitions Module - Constants
  */
 // src/modules/competitions/constants.ts
@@ -7,6 +7,7 @@ import {
   CompetitionStatus,
   CompetitionVisibility,
   CompetitionMode,
+  CompetitionType,
   RegistrationPlatform,
   CertificateType,
   DifficultyLevel,
@@ -253,3 +254,28 @@ export const CERTIFICATE_OPTIONS = [
     label: "No Certificate",
   },
 ] as const;
+
+/**
+ * Labels mirror the ones in `search/ui.ts`'s `types` filter spec -
+ * kept as a second literal list, not a shared import, because that module
+ * must stay free of `@/generated/prisma` (see its module doc). The values
+ * themselves come from the one domain enum either way, so there is no
+ * second vocabulary, only the copy is duplicated.
+ */
+export const COMPETITION_TYPE_OPTIONS: { value: CompetitionType; label: string }[] = [
+  { value: CompetitionType.HACKATHON, label: "Hackathon" },
+  { value: CompetitionType.IDEATHON, label: "Ideathon" },
+  { value: CompetitionType.QUIZ, label: "Quiz" },
+  { value: CompetitionType.DSA, label: "DSA" },
+  { value: CompetitionType.COMPETITIVE_PROGRAMMING, label: "Competitive Programming" },
+  { value: CompetitionType.CASE_STUDY, label: "Case Study" },
+  { value: CompetitionType.BUSINESS_PLAN, label: "Business Plan" },
+  { value: CompetitionType.PITCHING, label: "Pitching" },
+  { value: CompetitionType.UI_UX, label: "UI/UX" },
+  { value: CompetitionType.CTF, label: "CTF" },
+  { value: CompetitionType.ROBOTICS, label: "Robotics" },
+  { value: CompetitionType.GAMING, label: "Gaming" },
+  { value: CompetitionType.DEBATE, label: "Debate" },
+  { value: CompetitionType.WRITING, label: "Writing" },
+  { value: CompetitionType.OTHER, label: "Other" },
+];

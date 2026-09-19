@@ -1,6 +1,7 @@
 import type {
   CompetitionMode,
   CompetitionStatus,
+  CompetitionType,
   RegistrationPlatform,
   RegistrationFeeType,
   Competition,
@@ -38,6 +39,12 @@ export interface CompetitionCardDTO {
   maxTeamSize: number | null;
   logoUrl: string | null;
   coverUrl: string | null;
+  /**
+   * The fundamental nature of the competition. An empty array means the
+   * competition has not been classified yet — zero types is a valid, intentional
+   * state. Frontend owns all labels, icons, and display ordering.
+   */
+  types: CompetitionType[];
 }
 
 
@@ -63,6 +70,8 @@ export type CompetitionDetailDTO = Prisma.CompetitionGetPayload<{ //Public DTO f
     };
 
     eligibilities: true;
+
+    types: true;
 
     locations: {
       include: {

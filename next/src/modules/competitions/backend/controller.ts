@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Competitions Module - Controller
  *
  * Responsible for:
@@ -56,6 +56,11 @@ import { CompetitionBookmarkService } from "./competition-bookmark.service";
 import { CompetitionRegistrationService } from "./competition-registration.service";
 import { CompetitionUserStateService } from "./competition-user-state.service";
 import { CompetitionUserStateQuerySchema } from "../schemas/competition-user-state";
+import {
+  AttachCompetitionTypeSchema,
+  CompetitionTypeParamSchema,
+} from "../schemas/competition-type";
+import { CompetitionTypeService } from "./competition-type.service";
 export class CompetitionController {
   static async create(request: NextRequest) {
     return Route.execute(async () => {
@@ -1152,6 +1157,147 @@ export class CompetitionController {
       // -----------------------------------------------------------------
 
       return ApiResponse.ok(eligibilities);
+    });
+  }
+
+  // ==========================================================================
+  // Competition Types
+  // ==========================================================================
+
+  static async listTypes(request: NextRequest, competitionId: string) {
+    return Route.execute(async () => {
+      // -----------------------------------------------------------------
+      // Authentication
+      // -----------------------------------------------------------------
+
+      const actor = await SessionService.getActor(request);
+
+      // -----------------------------------------------------------------
+      // Context
+      // -----------------------------------------------------------------
+
+      const context = await CompetitionContextResolver.resolve({
+        actor,
+        competitionId,
+      });
+
+      // -----------------------------------------------------------------
+      // Authorization
+      // -----------------------------------------------------------------
+
+      CompetitionAuthorizer.manageTypes(context);
+
+      // -----------------------------------------------------------------
+      // Business Logic
+      // -----------------------------------------------------------------
+
+      const types = await CompetitionTypeService.list(
+        context.competition.id,
+      );
+
+      // -----------------------------------------------------------------
+      // Response
+      // -----------------------------------------------------------------
+
+      return ApiResponse.ok(types);
+    });
+  }
+
+  static async attachType(request: NextRequest, competitionId: string) {
+    return Route.execute(async () => {
+      // -----------------------------------------------------------------
+      // Authentication
+      // -----------------------------------------------------------------
+
+      const actor = await SessionService.getActor(request);
+
+      // -----------------------------------------------------------------
+      // Validation
+      // -----------------------------------------------------------------
+
+      const body = await request.json();
+
+      const data = AttachCompetitionTypeSchema.parse(body);
+
+      // -----------------------------------------------------------------
+      // Context
+      // -----------------------------------------------------------------
+
+      const context = await CompetitionContextResolver.resolve({
+        actor,
+        competitionId,
+      });
+
+      // -----------------------------------------------------------------
+      // Authorization
+      // -----------------------------------------------------------------
+
+      CompetitionAuthorizer.manageTypes(context);
+
+      // -----------------------------------------------------------------
+      // Business Logic
+      // -----------------------------------------------------------------
+
+      const types = await CompetitionTypeService.attach(
+        context.competition.id,
+        data.type,
+      );
+
+      // -----------------------------------------------------------------
+      // Response
+      // -----------------------------------------------------------------
+
+      return ApiResponse.created(types);
+    });
+  }
+
+  static async detachType(
+    request: NextRequest,
+    competitionId: string,
+    type: string,
+  ) {
+    return Route.execute(async () => {
+      // -----------------------------------------------------------------
+      // Authentication
+      // -----------------------------------------------------------------
+
+      const actor = await SessionService.getActor(request);
+
+      // -----------------------------------------------------------------
+      // Validation
+      // -----------------------------------------------------------------
+
+      const data = CompetitionTypeParamSchema.parse({ type });
+
+      // -----------------------------------------------------------------
+      // Context
+      // -----------------------------------------------------------------
+
+      const context = await CompetitionContextResolver.resolve({
+        actor,
+        competitionId,
+      });
+
+      // -----------------------------------------------------------------
+      // Authorization
+      // -----------------------------------------------------------------
+
+      CompetitionAuthorizer.manageTypes(context);
+
+      // -----------------------------------------------------------------
+      // Business Logic
+      // -----------------------------------------------------------------
+
+      const types = await CompetitionTypeService.detach(
+        context.competition.id,
+        data.type,
+      );
+
+      // -----------------------------------------------------------------
+      // Response
+      // -----------------------------------------------------------------
+
+      return ApiResponse.ok(types);
     });
   }
 

@@ -1,0 +1,3 @@
+﻿/**
+ * Competitions Module - Types
+ */

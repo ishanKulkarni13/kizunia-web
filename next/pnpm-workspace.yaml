@@ -1,9 +1,13 @@
 packages:
   - .
 allowBuilds:
+  '@prisma/engines': true
   '@tsparticles/engine': false
+  prisma: true
   sharp: false
   unrs-resolver: false
+  '@prisma/client': true
+  esbuild: false
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

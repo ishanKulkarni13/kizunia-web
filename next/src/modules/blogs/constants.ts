@@ -1,0 +1,3 @@
+﻿/**
+ * Blogs Module - Constants
+ */

@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import "@mdxeditor/editor/style.css";
 import "./globals.css";
+import "./mdx.css";
+import NextTopLoader from "nextjs-toploader";
+// import "@mdxeditor/editor/style.css";
 import { ThemeProvider } from "@/providers/theme-provider";
+import { Analytics } from "@vercel/analytics/next";
+import { Toaster } from "sonner";
+import { SpeedInsights } from '@vercel/speed-insights/next';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,9 +20,53 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// export const metadata: Metadata = {
+//   title: "Kizunia",
+//   description: "Building cool stuff",
+//   icons: {
+//   icon: [
+//     {
+//       url: "/website-logo-white.svg",
+//       media: "(prefers-color-scheme: dark)",
+//     },
+//     {
+//       url: "/website-logo-black.svg",
+//       media: "(prefers-color-scheme: light)",
+//     },
+//   ],
+// },
+// };
+
 export const metadata: Metadata = {
-  title: "Kizunia",
-  description: "Building cool stuff",
+  metadataBase: new URL("https://kizunia.vercel.com"),
+
+  title: {
+    default: "Kizunia — Discover Competitions & Hackathons in India",
+    template: "%s | Kizunia",
+  },
+
+  description:
+    "Discover hackathons, coding competitions, and opportunities across India. Find competitions that match your interests, skills, and goals.",
+
+  applicationName: "Kizunia",
+
+  robots: {
+    index: true,
+    follow: true,
+  },
+
+  icons: {
+    icon: [
+      {
+        url: "/website-logo-white.svg",
+        media: "(prefers-color-scheme: dark)",
+      },
+      {
+        url: "/website-logo-black.svg",
+        media: "(prefers-color-scheme: light)",
+      },
+    ],
+  },
 };
 
 export default function RootLayout({
@@ -25,17 +76,30 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <script
+        async
+        crossOrigin="anonymous"
+        src="https://tweakcn.com/live-preview.min.js"
+      />
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-         <ThemeProvider
-            attribute="class"
-            defaultTheme="dark"
-            enableSystem
-            disableTransitionOnChange
-          >
-            {children}
-          </ThemeProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          // enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <NextTopLoader
+            color="var(--color-primary)"
+            height={4}
+            showSpinner={false}
+          />
+          <Toaster />
+        </ThemeProvider>
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );

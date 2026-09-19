@@ -1,0 +1,108 @@
+/* ==========================================================================
+   MDX Editor Typography (Temporary)
+   ========================================================================== */
+.mdxeditor {
+  /* all: revert;
+  background: transparent;
+  z-index: -1 !important; */
+}
+
+.mdxeditor-root-contenteditable {
+  /* background: green;
+  isolation: isolate;
+  z-index: -0 !important; */
+
+}
+.mdxeditor-root-contenteditable h1 {
+  all: revert;
+  /* background: red; */
+}
+
+.mdxeditor-root-contenteditable h2 {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable h3 {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable h4 {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable h5 {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable h6 {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable p {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable ul {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable ol {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable li {
+  all: revert;
+}
+
+/* .mdxeditor-root-contenteditable blockquote {
+  all: revert;
+  z-index: 0;
+} */
+
+.ͼ1 .cm-gutters {
+  z-index: 0;
+}
+
+.mdxeditor-root-contenteditable hr {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable pre {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable code {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable table {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable thead {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable tbody {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable tr {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable th {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable td {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable img {
+  all: revert;
+}
+
+.mdxeditor-root-contenteditable a {
+  all: revert;
+}

@@ -1,0 +1,1692 @@
+// Kizunia Web — Prisma Schema
+//
+// Architecture: PostgreSQL + Prisma ORM
+// Auth: Better Auth (User, Session, Account, Verification)
+//
+// Conventions:
+// - Better Auth tables must remain compatible — do not rename their fields.
+// - Badge is generic — not limited to verification.
+// - CompetitionStatus contains lifecycle values only. Moderation belongs to a future Proposal model.
+// - Major entities support soft delete via deletedAt.
+// - Audit fields (createdById, updatedById) use SetNull so history survives user deletion.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// Enums — User
+// =============================================================================
+
+enum UserVisibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+// =============================================================================
+// Enums — Competition
+// =============================================================================
+enum SuggestionStatus {
+  DRAFT
+  UNDER_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+enum CompetitionMode {
+  ONLINE
+  OFFLINE
+  HYBRID
+}
+
+// =============================================================================
+// Enums — Location
+// =============================================================================
+
+// How precisely a Location pins down a real-world place.
+// Locations are intentionally allowed to be broad — a competition may only
+// publish "India" while another publishes an exact auditorium.
+//
+// UNKNOWN covers free-text entry with no structured fields. Search must not
+// treat those as city matches: claiming precision we do not have would mislead
+// users more than admitting the location is vague.
+enum LocationPrecision {
+  UNKNOWN
+  COUNTRY
+  STATE
+  CITY
+  VENUE
+}
+
+// Where a Location's structured data came from.
+// MANUAL is the resilience fallback and must always remain supported:
+// an outage of any external provider can never block competition editing.
+enum LocationProvider {
+  MANUAL
+  GOOGLE
+}
+
+// How a Location relates to a SearchArea it is discoverable through.
+//
+// EXACT is the place the admin actually selected; WITHIN is a larger entity
+// that provider data verified the location sits inside. Search matches both —
+// selecting "VIT Pune" and selecting "Pune" should each find a competition at
+// VIT Pune. The distinction exists to explain *why* a result matched.
+enum SearchAreaRelation {
+  EXACT
+  WITHIN
+}
+
+// Which piece of provider evidence produced a SearchArea link.
+//
+// Ordered by strength: a selected place is unambiguous, containing places and
+// address descriptors carry stable provider ids, and address components are the
+// last resort precisely because they usually do not.
+enum SearchAreaSource {
+  SELECTED_PLACE
+  CONTAINING_PLACE
+  ADDRESS_DESCRIPTOR
+  ADDRESS_COMPONENT
+}
+
+enum CompetitionVisibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+  ARCHIVED
+}
+
+// Lifecycle-only status. Moderation workflow (draft, submitted, pending review,
+// approved) belongs to a future Proposal model — not the Competition itself.
+enum CompetitionStatus {
+  UPCOMING
+  REGISTRATION_OPEN
+  REGISTRATION_CLOSED
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+// Competitions support multiple member roles beyond simple maintainers.
+enum CompetitionMemberRole {
+  OWNER
+  ORGANIZER
+  MAINTAINER
+}
+
+enum RegistrationPlatform {
+  KIZUNIA
+
+  UNSTOP
+  DEVPOST
+  DEVFOLIO
+  DORAHACKS
+  HACK2SKILL
+  HACKEREARTH
+  TAIKAI
+  LUMA
+
+  GOOGLE_FORM
+  TYPEFORM
+
+  CUSTOM
+  OFFLINE
+  OTHER
+}
+
+enum RegistrationType {
+  INDIVIDUAL
+  TEAM
+  BOTH
+}
+
+enum RegistrationFeeType {
+  FREE
+  PAID
+  CONDITIONAL
+}
+
+enum OrganizerType {
+  COLLEGE
+  COMPANY
+  COMMUNITY
+  GOVERNMENT
+  NON_PROFIT
+  STARTUP
+  INDIVIDUAL
+  OPEN_SOURCE
+}
+
+enum DifficultyLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  OPEN
+}
+
+enum CertificateType {
+  NONE
+  PARTICIPATION
+  WINNER
+}
+
+enum EligibilityType {
+  // Education
+  SCHOOL
+  UNDERGRADUATE
+  POSTGRADUATE
+  PHD
+
+  // Experience
+  FRESHER
+  PROFESSIONAL
+
+  // Academic Stream
+  ENGINEERING
+  MANAGEMENT
+  DESIGN
+  SCIENCE
+  COMMERCE
+  ARTS
+  MEDICAL
+  LAW
+
+  // General
+  OPEN
+  OTHER
+}
+
+// =============================================================================
+// Enums — Project
+// =============================================================================
+
+enum ProjectVisibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum ProjectStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum ProjectRole {
+  OWNER
+  MAINTAINER
+  CONTRIBUTOR
+}
+
+enum AssetProvider {
+  CLOUDINARY
+}
+
+// Asset lifecycle — exactly four states. There is deliberately no "uploading"
+// state: an Asset row is only ever created once upload + finalization have
+// already succeeded (see docs/architecture/domain/assets/lifecycle.md).
+enum AssetStatus {
+  ACTIVE
+  DETACHED
+  DELETING
+  DELETED
+}
+
+// What kind of thing an Asset is. Deliberately coarse — classifies the asset,
+// not what it's used for (that's AssetPurpose).
+enum AssetCategory {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+// UploadIntent lifecycle. Separate from AssetStatus — an intent represents an
+// authorized upload attempt, not an Asset.
+enum UploadIntentStatus {
+  PENDING
+  CONSUMED
+  EXPIRED
+}
+
+// Named reason an upload exists. The Asset Application Layer resolves an
+// UploadPolicy from this purpose before authorizing anything — see
+// docs/architecture/domain/assets/policies.md. This list mirrors the entity
+// relations that already reference Asset in this schema.
+enum AssetPurpose {
+  USER_AVATAR
+  USER_COVER
+  PROJECT_LOGO
+  PROJECT_COVER
+  COMPETITION_LOGO
+  COMPETITION_BANNER
+  COMPETITION_COVER
+  COMPETITION_SUGGESTION_GALLERY
+  PORTFOLIO_RESUME
+  PORTFOLIO_EDUCATION_LOGO
+  PORTFOLIO_EXPERIENCE_LOGO
+  PORTFOLIO_ACHIEVEMENT_ASSET
+  PORTFOLIO_CERTIFICATION_ASSET
+  // @deprecated Superseded by PROJECT_TESTIMONIAL_IMAGE / PORTFOLIO_TESTIMONIAL_IMAGE.
+  // Kept only because Postgres enum values cannot be safely dropped; never
+  // issued by application code going forward.
+  TESTIMONIAL_IMAGE
+  PROJECT_TESTIMONIAL_IMAGE
+  PORTFOLIO_TESTIMONIAL_IMAGE
+  BADGE_ICON
+  TECHNOLOGY_ICON
+}
+
+enum LinkType {
+  WEBSITE
+  REGISTRATION
+  GITHUB
+  GITLAB
+  DEMO
+  DOCUMENTATION
+  FIGMA
+  DEVPOST
+  DEVFOLIO
+  UNSTOP
+  LINKEDIN
+  TWITTER
+  INSTAGRAM
+  DISCORD
+  YOUTUBE
+  PORTFOLIO
+  OTHER
+}
+
+//portfolio
+enum PortfolioVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+// =============================================================================
+// Better Auth Models — DO NOT MODIFY unless absolutely necessary
+// =============================================================================
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  role          String?
+  banned        Boolean?  @default(false)
+  banReason     String?
+  banExpires    DateTime?
+  sessions      Session[]
+  accounts      Account[]
+
+  username        String?
+  displayUsername String?
+
+  // --- Kizunia Custom Fields ---
+
+  // Profile
+  // headline       String?
+  // bio            String?
+  // college        String?
+  // degree         String?
+  // graduationYear Int?
+  // location       String?
+  avatarAssetId String?
+  avatarAsset   Asset?  @relation("userAvatar", fields: [avatarAssetId], references: [id], onDelete: SetNull)
+
+  coverAssetId String?
+  coverAsset   Asset?  @relation("userCover", fields: [coverAssetId], references: [id], onDelete: SetNull)
+
+  // Audit/history only — assets this user has uploaded. Not ownership; an
+  // uploaded Asset may be shared and attached by other authorized actors.
+  uploadedAssets Asset[] @relation("assetUploadedBy")
+
+  uploadIntents UploadIntent[] @relation("uploadIntentActor")
+
+  // System
+  visibility UserVisibility @default(PUBLIC)
+  status     UserStatus     @default(ACTIVE)
+
+  // Relationships
+  links                           Link[]
+  interests                       UserCategory[]
+  notificationPref                NotificationPreference?
+  badges                          UserBadge[]
+  competitionMembers              CompetitionMember[]
+  competitionBookmarks            CompetitionBookmark[]
+  competitionRegistrations        CompetitionRegistration[]
+  portfolio                       Portfolio?
+  // ---------------------------------------------------------------------------
+  // Competition Suggestions
+  // ---------------------------------------------------------------------------
+  competitionSuggestionsSubmitted CompetitionSuggestion[] @relation("competitionSuggestionSubmittedBy")
+  competitionSuggestionsReviewed  CompetitionSuggestion[] @relation("competitionSuggestionReviewedBy")
+  projectMembers                  ProjectMember[]
+
+  // Audit — entities created or last updated by this user
+  competitionsCreated Competition[] @relation("competitionCreatedBy")
+  competitionsUpdated Competition[] @relation("competitionUpdatedBy")
+
+  projectsCreated Project[] @relation("projectCreatedBy")
+  projectsUpdated Project[] @relation("projectUpdatedBy")
+
+  @@unique([email])
+  @@unique([username])
+  @@map("user")
+}
+
+model Session {
+  id             String   @id
+  expiresAt      DateTime
+  token          String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  ipAddress      String?
+  userAgent      String?
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  impersonatedBy String?
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// =============================================================================
+// Shared Models — Link, Asset, Technology, Category, Badge
+// =============================================================================
+
+// External links (GitHub, LinkedIn, Portfolio, etc.)
+// Uses optional foreign keys instead of polymorphic relations for Prisma compatibility.
+model Link {
+  id    String   @id @default(cuid())
+  url   String
+  title String
+  type  LinkType
+  order Int      @default(0)
+
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  competitionId String?
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  projectId     String?
+  project       Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
+  competitionSuggestion   CompetitionSuggestion? @relation(fields: [competitionSuggestionId], references: [id])
+  competitionSuggestionId String?
+
+  portfolioId String?
+
+  portfolio Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([competitionId])
+  @@index([portfolioId])
+  @@index([projectId])
+  @@index([competitionSuggestionId])
+  @@map("link")
+}
+
+// Identity Asset (avatars, banners, logos). Stored via Cloudinary.
+// Content Asset (screenshots, diagrams) lives in documentation or external links.
+model Asset {
+  id String @id @default(cuid())
+
+  provider AssetProvider
+
+  publicId String @unique
+
+  secureUrl String
+
+  format String?
+
+  mimeType String?
+
+  width Int?
+
+  height Int?
+
+  bytes            Int?
+  checksum         String?
+  originalFilename String?
+
+  // Lifecycle — see docs/architecture/domain/assets/lifecycle.md. Backfilled
+  // to ACTIVE for every pre-existing row (they are all real, referenced
+  // images uploaded before this field existed).
+  status AssetStatus @default(ACTIVE)
+
+  // What kind of thing this Asset is. Backfilled to IMAGE for every
+  // pre-existing row — every Asset created before this field existed came
+  // through the image-only Cloudinary upload path.
+  category AssetCategory @default(IMAGE)
+
+  // Audit/history only — who uploaded this Asset. Deliberately NOT an
+  // ownership field: an Asset may be shared, and this must never be used to
+  // authorize attaching it elsewhere (see overview.md / security.md).
+  uploadedById String?
+  uploadedBy   User?   @relation("assetUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  // Set when the Asset transitions ACTIVE -> DETACHED. Lets periodic cleanup
+  // find "detached long enough ago" rows without scanning every DETACHED row.
+  detachedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  badgeIcons      Badge[]      @relation("badgeIcon")
+  technologyIcons Technology[] @relation("technologyIcon")
+
+  // User
+  userAvatar User[] @relation("userAvatar")
+  userCover  User[] @relation("userCover")
+
+  // Competition
+  competitionLogo   Competition[] @relation("competitionLogo")
+  competitionBanner Competition[] @relation("competitionBanner")
+  competitionCover  Competition[] @relation("competitionCover")
+
+  // Suggestion
+  suggestionAssets CompetitionSuggestionAsset[]
+
+  // Project
+  projectLogo  Project[] @relation("projectLogo")
+  projectCover Project[] @relation("projectCover")
+
+  //portfolio
+  portfolioResume Portfolio[] @relation("portfolioResume")
+
+  educationInstitutionLogos PortfolioEducation[] @relation("educationInstitutionLogo")
+
+  experienceCompanyLogos PortfolioExperience[] @relation("experienceCompanyLogo")
+
+  achievementAssets PortfolioAchievement[] @relation("achievementAsset")
+
+  certificationAssets PortfolioCertification[] @relation("certificationAsset")
+
+  testimonialImages Testimonial[] @relation("testimonialImage")
+
+  @@index([status])
+  @@index([status, detachedAt])
+  // Supports the admin list's default `ORDER BY createdAt DESC` (usually
+  // status-filtered) and AssetRepository.findActiveBefore's
+  // `status = ACTIVE AND createdAt <= cutoff`, which previously had no
+  // supporting index beyond the bare status one above.
+  @@index([status, createdAt])
+  @@index([uploadedById])
+  @@map("asset")
+}
+
+// A short-lived, single-use record of one authorized upload attempt.
+//
+// UploadIntent is deliberately NOT part of Asset lifecycle (there is no
+// "UPLOADING" Asset state) — see docs/architecture/domain/assets/lifecycle.md
+// and upload.md. Its authorization parameters (actor, purpose, category,
+// target entity, provider correlation, policy snapshot) are fixed at
+// creation and never mutated; only `status` and `resultAssetId` change, as
+// part of finalization or expiry.
+model UploadIntent {
+  id String @id @default(cuid())
+
+  actorId String
+  actor   User   @relation("uploadIntentActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  purpose  AssetPurpose
+  category AssetCategory
+
+  // What this upload is for, when known at intent-creation time. Nullable
+  // because some purposes (e.g. a brand-new project's logo) may not have a
+  // target entity yet.
+  targetEntityType String?
+  targetEntityId   String?
+
+  // The value handed to the storage provider so its result can be matched
+  // back to exactly this intent. Server-generated — never client-supplied.
+  providerCorrelationId String @unique
+
+  declaredMimeType String
+  declaredSize     Int
+
+  status UploadIntentStatus @default(PENDING)
+
+  // Set only once finalization succeeds. Audit trail from intent to result.
+  resultAssetId String?
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([actorId, status])
+  @@index([expiresAt])
+  @@map("upload_intent")
+}
+
+// Technology is a centralized, context-free taxonomy entity. What the
+// relationship to a Technology *means* is determined entirely by the
+// consumer (Project = actually used, Competition = relevant, Portfolio =
+// intentionally presented) — Technology itself carries no consumer-specific
+// concept. See docs/architecture/domain/technology.md.
+enum TechnologyType {
+  LANGUAGE
+  FRAMEWORK
+  LIBRARY
+  DATABASE
+  RUNTIME
+  TOOL
+  PLATFORM
+  SERVICE
+  OTHER
+}
+
+// Global taxonomy pool of technologies. Shared across Projects, Competitions,
+// Portfolios (and, in future, Blogs). Soft-deletable — see deletedAt below.
+model Technology {
+  id          String         @id @default(cuid())
+  name        String         @unique
+  slug        String         @unique
+  type        TechnologyType
+  description String?
+  iconAssetId String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  // Soft delete. A deleted Technology is excluded from all normal
+  // reads/selectors/pickers for every actor (including platform admins in
+  // normal consumer flows) — it remains visible only in the dedicated
+  // Technology admin management surface, where it can be restored. Existing
+  // ProjectTechnology/CompetitionTechnology/PortfolioTechnology rows are
+  // never cascade-deleted when this is set.
+  deletedAt DateTime?
+
+  iconAsset    Asset?                   @relation("technologyIcon", fields: [iconAssetId], references: [id], onDelete: SetNull)
+  competitions CompetitionTechnology[]
+  projects     ProjectTechnology[]
+  portfolios   PortfolioTechnology[]
+
+  @@index([deletedAt])
+  @@map("technology")
+}
+
+// Global pool of categories/interests. Shared across Users, Competitions, Projects.
+model Category {
+  id   String @id @default(cuid())
+  name String @unique
+  slug String @unique
+
+  users        UserCategory[]
+  competitions CompetitionCategory[]
+  projects     ProjectCategory[]
+
+  @@map("category")
+}
+
+// Generic badge system. Not limited to verification — supports user badges,
+// project badges, and future entity badges (teams, competitions).
+model Badge {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  iconAssetId String?
+
+  iconAsset Asset? @relation("badgeIcon", fields: [iconAssetId], references: [id], onDelete: SetNull)
+
+  users    UserBadge[]
+  projects ProjectBadge[]
+
+  @@map("badge")
+}
+
+// =============================================================================
+// User Domain — Join Tables
+// =============================================================================
+
+model UserCategory {
+  userId     String
+  categoryId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([userId, categoryId])
+  @@map("user_category")
+}
+
+model UserBadge {
+  userId   String
+  badgeId  String
+  issuedAt DateTime @default(now())
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge    Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, badgeId])
+  @@map("user_badge")
+}
+
+model NotificationPreference {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailNotifications Boolean  @default(true)
+  pushNotifications  Boolean  @default(false)
+  preferences        Json?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("notification_preference")
+}
+
+// =============================================================================
+// Competition Domain (HD/CD)
+// =============================================================================
+
+model Competition {
+  id               String  @id @default(cuid())
+  title            String
+  slug             String  @unique
+  shortDescription String?
+
+  organizer             String?
+  mode                  CompetitionMode?
+  minTeamSize           Int?
+  maxTeamSize           Int?
+  registrationLink      String?
+  website               String?
+  startDate             DateTime?
+  endDate               DateTime?
+  registrationDeadline  DateTime?
+  // When registration opens. Null means there is no automatic
+  // registration-opening transition — NOT that registration is always open.
+  registrationStartDate DateTime?
+  prizePool             String?
+  logoAssetId           String?
+  logoAsset             Asset?           @relation("competitionLogo", fields: [logoAssetId], references: [id], onDelete: SetNull)
+
+  bannerAssetId String?
+  bannerAsset   Asset?  @relation("competitionBanner", fields: [bannerAssetId], references: [id], onDelete: SetNull)
+
+  coverAssetId String?
+  coverAsset   Asset?  @relation("competitionCover", fields: [coverAssetId], references: [id], onDelete: SetNull)
+
+  // documentation String? @db.Text
+  contentId String?  @unique
+  content   Content? @relation("CompetitionContent", fields: [contentId], references: [id], onDelete: SetNull)
+
+  visibility                     CompetitionVisibility @default(PRIVATE)
+  // Lifecycle-only. Moderation status belongs to a future Proposal model.
+  status                         CompetitionStatus?
+  // When `status` last changed, by any path (manual or automatic). Null
+  // means the status has never been observed to change since this column
+  // was introduced — it is not backfilled from history that doesn't exist.
+  statusUpdatedAt                DateTime?
+  // Opt-out from automatic lifecycle management (cron sweep + admin bulk
+  // reconciliation + date-edit reconciliation). Manual status changes via
+  // the admin dropdown/bulk action always remain allowed regardless of this
+  // flag — it disables automation only, never explicit admin intent.
+  automaticStatusUpdatesDisabled Boolean               @default(false)
+
+  // Audit — tracks who created and last updated this competition.
+  // Uses SetNull so audit history survives user deletion.
+  createdById String?
+  createdBy   User?   @relation("competitionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedById String?
+  updatedBy   User?   @relation("competitionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  // Soft delete — rows are never permanently removed from major entities.
+  deletedAt DateTime?
+
+  categories   CompetitionCategory[]
+  technologies CompetitionTechnology[]
+  members       CompetitionMember[]
+  bookmarks     CompetitionBookmark[]
+  registrations CompetitionRegistration[]
+  projects      CompetitionProject[]
+  // Zero locations is valid — it means no location is known yet, not that the
+  // competition is online. Participation mode lives on `mode`.
+  locations    CompetitionLocation[]
+
+  links Link[]
+  // ---------------------------------------------------------------------------
+  // Suggestions
+  // ---------------------------------------------------------------------------
+
+  suggestions   CompetitionSuggestion[]  @relation("competitionSuggestionTarget")
+  // competitionEligibilities CompetitionEligibility[]
+  eligibilities CompetitionEligibility[]
+
+  registrationPlatform RegistrationPlatform?
+
+  registrationType RegistrationType?
+
+  registrationFeeType RegistrationFeeType?
+
+  registrationFee String?
+
+  organizerType OrganizerType?
+
+  difficulty DifficultyLevel?
+
+  certificateType CertificateType?
+
+  @@index([status])
+  @@index([visibility])
+  @@index([deletedAt])
+  @@index([startDate])
+  @@index([registrationDeadline])
+  @@index([registrationStartDate])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("competition")
+}
+
+model CompetitionSuggestion {
+  id String @id @default(cuid())
+
+  suggestionTitle String
+
+  suggestionContentId String?  @unique
+  suggestionContent   Content? @relation("CompetitionSuggestionContent", fields: [suggestionContentId], references: [id], onDelete: SetNull)
+
+  // ===========================================================================
+  // Workflow
+  // ===========================================================================
+
+  status SuggestionStatus @default(DRAFT)
+
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+
+  reviewNotes     String? @db.Text
+  rejectionReason String? @db.Text
+
+  // ===========================================================================
+  // Relationships
+  // ===========================================================================
+
+  // NULL => New Competition
+  // NOT NULL => Edit Existing Competition
+  competitionId String?
+  competition   Competition? @relation("competitionSuggestionTarget", fields: [competitionId], references: [id], onDelete: SetNull)
+
+  submittedById String
+  submittedBy   User   @relation("competitionSuggestionSubmittedBy", fields: [submittedById], references: [id], onDelete: Cascade)
+
+  reviewedById String?
+  reviewedBy   User?   @relation("competitionSuggestionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  // ===========================================================================
+  // Audit
+  // ===========================================================================
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // ===========================================================================
+  // Relations
+  // ===========================================================================
+
+  links Link[]
+
+  assets CompetitionSuggestionAsset[]
+
+  @@index([status])
+  @@index([submittedById])
+  @@index([reviewedById])
+  @@index([competitionId])
+  @@index([createdAt])
+  @@map("competition_suggestion")
+}
+
+model CompetitionSuggestionAsset {
+  suggestionId String
+  assetId      String
+
+  suggestion CompetitionSuggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  order Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@id([suggestionId, assetId])
+  @@index([suggestionId, order])
+  @@index([assetId])
+  @@map("competition_suggestion_asset")
+}
+
+// Competition members with role-based access. Replaces the old CompetitionMaintainer
+// model to support multiple roles (owner, organizer, maintainer).
+model CompetitionMember {
+  competitionId String
+  userId        String
+  role          CompetitionMemberRole @default(MAINTAINER)
+  assignedAt    DateTime              @default(now())
+  competition   Competition           @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  user          User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, userId])
+  @@map("competition_member")
+}
+
+model CompetitionCategory {
+  competitionId String
+  categoryId    String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, categoryId])
+  @@map("competition_category")
+}
+
+model CompetitionTechnology {
+  competitionId String
+  technologyId  String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  technology    Technology  @relation(fields: [technologyId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, technologyId])
+  @@map("competition_technology")
+}
+
+model CompetitionEligibility {
+  competitionId String
+  type          EligibilityType
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, type])
+  @@index([type])
+  @@map("competition_eligibility")
+}
+
+model CompetitionBookmark {
+  competitionId String
+  userId        String
+  createdAt     DateTime    @default(now())
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, userId])
+  // The composite PK is indexed (competitionId, userId) left-to-right, so it
+  // cannot serve "all bookmarks for user X, newest first" — the query a
+  // bookmarks list page runs. This index exists for that read path.
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("competition_bookmark")
+}
+
+/// A user's own record that they registered for this competition on the
+/// organizer's external platform.
+///
+/// SELF-DECLARED AND UNVERIFIED. Kizunia is a discovery platform, not the
+/// organizer, and has no channel to confirm any of this. Nothing here may
+/// ever be presented as organizer-confirmed. There is deliberately no
+/// `source`, no `verifiedAt` and no status enum — each would imply a
+/// verification pipeline that does not exist and is not planned.
+///
+/// Fully independent of CompetitionBookmark. All four combinations of
+/// (bookmarked, registered) are legal and neither write ever touches the
+/// other table.
+///
+/// Never removed by lifecycle. A row here survives every CompetitionStatus,
+/// including COMPLETED and CANCELLED — "I registered for that" stays true
+/// after the event ends. Past-vs-upcoming is derived at read time from the
+/// competition's dates, never by deleting rows.
+model CompetitionRegistration {
+  competitionId String
+  userId        String
+
+  /// When the user told us. NOT when they actually registered with the
+  /// organizer — we cannot know that.
+  markedAt DateTime @default(now())
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, userId])
+  @@index([userId, markedAt(sort: Desc)])
+  @@map("competition_registration")
+}
+
+// =============================================================================
+// Location Domain
+// =============================================================================
+
+/// A real-world place, stored at whatever precision is actually known.
+///
+/// Locations are deliberately NOT deduplicated across competitions. Two
+/// competitions in Pune each own a private Location row, so editing one can
+/// never silently rewrite another competition's data. The cost of duplicate
+/// rows is far lower than the cost of fuzzy place matching.
+model Location {
+  id String @id @default(cuid())
+
+  /// Human-readable name shown in the UI, e.g. "Pune, Maharashtra, India".
+  /// This is the only field an admin is ever required to supply.
+  displayName String
+
+  precision LocationPrecision @default(UNKNOWN)
+
+  country     String?
+  /// ISO 3166-1 alpha-2, uppercase.
+  countryCode String? @db.VarChar(2)
+  state       String?
+  stateCode   String?
+  city        String?
+  postalCode  String?
+
+  /// Decimal rather than Float so stored coordinates round-trip exactly.
+  /// 6 decimal places is roughly 0.11 m at the equator.
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+
+  /// IANA timezone identifier, e.g. "Asia/Kolkata".
+  timezone String?
+
+  provider           LocationProvider @default(MANUAL)
+  /// Opaque id from the external provider. Kept for re-enrichment only —
+  /// never required to read a Location back.
+  providerLocationId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  competitions CompetitionLocation[]
+
+  /// The places this location is discoverable through. Populated once, at
+  /// ingestion, from provider evidence — never derived at query time.
+  searchAreas LocationSearchArea[]
+
+  @@index([countryCode])
+  @@index([city])
+  @@index([state])
+  @@index([provider, providerLocationId])
+  /// Serves the bounding-box half of a radius search: the latitude range is an
+  /// index range scan and longitude is filtered inside the index rather than by
+  /// fetching the row. A plain composite btree, deliberately — it is expressible
+  /// in this schema, so the file and the database cannot drift, which a
+  /// functional GiST index (cube/earthdistance) would not be.
+  ///
+  /// Unnecessary at today's row count and added anyway: it is free now and a
+  /// migration on a large table later.
+  @@index([latitude, longitude])
+  @@map("location")
+}
+
+/// A specific geographic entity a user can select as a search boundary.
+///
+/// A SearchArea is an *entity*, never a name. "Nashik City" and "Nashik
+/// District" share a word but have different boundaries and different search
+/// semantics, so they are two rows — distinguished by `identityKey`, which is
+/// derived from provider identity wherever one exists.
+///
+/// Unlike Location (which is competition-owned and never shared), SearchAreas
+/// are deliberately reused: every competition in Pune links to the same Pune
+/// row, which is what makes "everything in Pune" a single indexed lookup.
+model SearchArea {
+  id String @id @default(cuid())
+
+  displayName String
+
+  /// The provider's own type string, stored verbatim — "locality",
+  /// "administrative_area_level_2", "sublocality_level_1", "university".
+  ///
+  /// Display and disambiguation only; nothing branches on it. Deliberately not
+  /// a Kizunia enum, because any fixed set would encode one country's
+  /// administrative hierarchy as though it were universal.
+  providerKind String?
+
+  /// Parent context for pickers, e.g. "Maharashtra, India", so a user can tell
+  /// two same-named entities apart. Display only.
+  contextLabel String?
+
+  provider           LocationProvider?
+  providerLocationId String?
+
+  /// Deterministic identity, and the dedup key:
+  ///   google:place:{placeId}                        preferred, whenever available
+  ///   component:{providerKind}:{name}:{parent ctx}  fallback only
+  ///
+  /// Never the display name alone. That would collapse Nashik City and Nashik
+  /// District into one entity and merge unrelated places that share a name.
+  identityKey String @unique
+
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  locations LocationSearchArea[]
+
+  @@index([displayName])
+  @@map("search_area")
+}
+
+/// Verified containment: this location is discoverable through this area.
+///
+/// Containment is materialized here at ingestion rather than traversed at query
+/// time. That is what makes a parent search reach its children (they each point
+/// at the parent) while making upward or sideways expansion impossible — a
+/// Kondhwa location simply has no Bibwewadi row, so it can never surface there.
+model LocationSearchArea {
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  searchAreaId String
+  searchArea   SearchArea @relation(fields: [searchAreaId], references: [id], onDelete: Cascade)
+
+  relation SearchAreaRelation
+
+  /// Which provider evidence produced this link. Kept so "why is this
+  /// competition discoverable through Bibwewadi?" is answerable later.
+  source SearchAreaSource
+
+  createdAt DateTime @default(now())
+
+  @@id([locationId, searchAreaId])
+  @@index([searchAreaId])
+  @@map("location_search_area")
+}
+
+/// How one competition uses one location.
+///
+/// Carries its own identity rather than a composite key because the same place
+/// can legitimately host two stages of one competition (a Pune qualifier and a
+/// Pune final), and because label/venue/dates describe the *usage*, not the place.
+model CompetitionLocation {
+  id String @id @default(cuid())
+
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  /// Free-form context for this stop, e.g. "Qualifier", "Final",
+  /// "Opening Ceremony". Deliberately not an enum — competition structures vary
+  /// too widely to enumerate, and nothing in the system branches on this value.
+  label String?
+
+  venueName String?
+  address   String?
+
+  /// Dates for this location specifically. May differ from the competition's
+  /// overall window, e.g. a regional qualifier inside a three-month event.
+  startDate DateTime?
+  endDate   DateTime?
+
+  /// Admin-defined display order. Database row order is never relied upon.
+  order Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([competitionId, order])
+  @@index([locationId])
+  @@map("competition_location")
+}
+
+// =============================================================================
+// Project Domain
+// =============================================================================
+
+model Project {
+  id               String @id @default(cuid())
+  title            String
+  slug             String @unique
+  shortDescription String
+
+  contentId String?  @unique
+  content   Content? @relation("ProjectContent", fields: [contentId], references: [id], onDelete: SetNull)
+
+  visibility ProjectVisibility @default(PUBLIC)
+  status     ProjectStatus     @default(DRAFT)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  members      ProjectMember[]
+  categories   ProjectCategory[]
+  technologies ProjectTechnology[]
+  badges       ProjectBadge[]
+  competitions CompetitionProject[]
+
+  links       Link[]
+  logoAssetId String?
+  logoAsset   Asset?  @relation("projectLogo", fields: [logoAssetId], references: [id], onDelete: SetNull)
+
+  coverAssetId String?
+  coverAsset   Asset?  @relation("projectCover", fields: [coverAssetId], references: [id], onDelete: SetNull)
+
+  startDate DateTime?
+
+  endDate DateTime?
+
+  createdById String?
+  createdBy   User?   @relation("projectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  updatedById String?
+  updatedBy   User?   @relation("projectUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  deletedAt    DateTime?
+  portfolios   PortfolioProject[]
+  testimonials Testimonial[]      @relation("projectTestimonials")
+
+  @@index([slug])
+  @@index([status])
+  @@index([visibility])
+  @@index([deletedAt])
+  @@index([createdById])
+  @@index([updatedById])
+  @@map("project")
+}
+
+model ProjectMember {
+  projectId String
+  userId    String
+  role      ProjectRole @default(CONTRIBUTOR)
+  joinedAt  DateTime    @default(now())
+  project   Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@map("project_member")
+}
+
+model ProjectCategory {
+  projectId  String
+  categoryId String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, categoryId])
+  @@map("project_category")
+}
+
+model ProjectTechnology {
+  projectId    String
+  technologyId String
+  displayOrder Int        @default(0)
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  technology   Technology @relation(fields: [technologyId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, technologyId])
+  @@index([projectId, displayOrder])
+  @@map("project_technology")
+}
+
+model ProjectBadge {
+  projectId String
+  badgeId   String
+  issuedAt  DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, badgeId])
+  @@map("project_badge")
+}
+
+// Many-to-many: a project can be submitted to multiple competitions.
+model CompetitionProject {
+  competitionId String
+  projectId     String
+  submittedAt   DateTime    @default(now())
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, projectId])
+  @@map("competition_project")
+}
+
+model PortfolioProject {
+  portfolioId String
+  projectId   String
+
+  featured Boolean @default(false)
+
+  /// @deprecated Unused. No DTO exposes it, no API writes it, and no product
+  /// behaviour depends on it. The only remaining reader is the public
+  /// portfolio query's `hidden: false` filter, kept solely to preserve
+  /// pre-existing behaviour. Planned for removal in a future schema cleanup —
+  /// do not assign it new semantics.
+  hidden Boolean @default(false)
+
+  displayOrder Int @default(100)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@id([portfolioId, projectId])
+  @@index([portfolioId, displayOrder])
+  @@map("portfolio_project")
+}
+
+//portfolio
+model Portfolio {
+  id String @id @default(cuid())
+
+  displayName String
+  userId      String @unique
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  headline String?
+  bio      String? @db.Text
+
+  phone              String?
+  publicContactEmail String?
+  location           String?
+
+  visibility PortfolioVisibility @default(PUBLIC)
+
+  settings PortfolioSettings?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  links Link[]
+
+  technologies PortfolioTechnology[]
+
+  education PortfolioEducation[]
+
+  experience PortfolioExperience[]
+
+  achievements PortfolioAchievement[]
+
+  certifications PortfolioCertification[]
+
+  testimonials Testimonial[] @relation("portfolioTestimonials")
+
+  resumeAssetId String?
+
+  resumeAsset Asset?             @relation("portfolioResume", fields: [resumeAssetId], references: [id], onDelete: SetNull)
+  projects    PortfolioProject[]
+
+  @@index([userId])
+  @@index([visibility])
+  @@index([deletedAt])
+  @@map("portfolio")
+}
+
+model PortfolioSettings {
+  id String @id @default(cuid())
+
+  theme String @default("default")
+
+  accentColor String @default("blue")
+
+  sectionOrder String[] // Stores the order of sections in the portfolio in array [ "about","projects","experience","education","skills","testimonials","contact"]
+
+  hiddenSections String[] // array of section names that are hidden in the portfolio
+
+  // timelineConfig Json?
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  portfolioId String @unique
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@map("portfolio_settings")
+}
+
+model PortfolioTechnology {
+  portfolioId String
+
+  technologyId String
+
+  startedUsingAt DateTime?
+
+  description String? @db.Text
+
+  displayOrder Int @default(0)
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  technology Technology @relation(fields: [technologyId], references: [id], onDelete: Cascade)
+
+  @@id([portfolioId, technologyId])
+  @@map("portfolio_technology")
+}
+
+model PortfolioEducation {
+  id String @id @default(cuid())
+
+  portfolioId String
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  institution String
+
+  degree String?
+
+  fieldOfStudy String?
+
+  grade String?
+
+  description String? @db.Text
+
+  startDate DateTime?
+
+  endDate DateTime?
+
+  currentlyStudying Boolean @default(false)
+
+  institutionLogoAssetId String?
+
+  // institutionLogoAsset Asset? @relation(fields: [institutionLogoAssetId], references: [id], onDelete: SetNull)
+  institutionLogoAsset Asset? @relation("educationInstitutionLogo", fields: [institutionLogoAssetId], references: [id], onDelete: SetNull)
+
+  displayOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@map("portfolio_education")
+}
+
+model PortfolioExperience {
+  id String @id @default(cuid())
+
+  portfolioId String
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  company String
+
+  position String
+
+  employmentType String?
+
+  location String?
+
+  description String? @db.Text
+
+  startDate DateTime?
+
+  endDate DateTime?
+
+  currentlyWorking Boolean @default(false)
+
+  companyLogoAssetId String?
+
+  companyLogoAsset Asset? @relation("experienceCompanyLogo", fields: [companyLogoAssetId], references: [id], onDelete: SetNull)
+
+  displayOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@map("portfolio_experience")
+}
+
+model PortfolioAchievement {
+  id String @id @default(cuid())
+
+  portfolioId String
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  title String
+
+  description String? @db.Text
+
+  achievedAt DateTime?
+
+  assetId String?
+
+  asset Asset? @relation("achievementAsset", fields: [assetId], references: [id], onDelete: SetNull)
+
+  displayOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@map("portfolio_achievement")
+}
+
+model PortfolioCertification {
+  id String @id @default(cuid())
+
+  portfolioId String
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  title String
+
+  issuer String
+
+  issueDate DateTime?
+
+  expiryDate DateTime?
+
+  credentialId String?
+
+  credentialUrl String?
+
+  assetId String?
+
+  displayOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  asset     Asset?   @relation("certificationAsset", fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@map("portfolio_certification")
+}
+
+// A Testimonial belongs to exactly one parent: either a Project or a
+// Portfolio, never both, never neither. This is currently an
+// APPLICATION-LEVEL invariant only, enforced by ProjectTestimonialService /
+// PortfolioTestimonialService (each writes only its own FK and always
+// leaves the other null) — there is intentionally no database CHECK
+// constraint yet. A DB-level XOR constraint is deferred to a future
+// migration; do not assume the database enforces this today.
+model Testimonial {
+  id String @id @default(cuid())
+
+  name String
+
+  position String?
+
+  company      String?
+  displayOrder Int     @default(100)
+
+  message String @db.Text
+
+  rating Int?
+
+  imageAssetId String?
+
+  imageAsset Asset? @relation("testimonialImage", fields: [imageAssetId], references: [id], onDelete: SetNull)
+
+  portfolioId String?
+
+  portfolio Portfolio? @relation("portfolioTestimonials", fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  projectId String?
+
+  project Project? @relation("projectTestimonials", fields: [projectId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([portfolioId])
+  @@index([imageAssetId])
+  @@map("testimonial")
+}
+
+// content
+
+model Content {
+  id String @id @default(cuid())
+
+  content String @db.Text
+
+  version Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  competition           Competition?           @relation("CompetitionContent")
+  project               Project?               @relation("ProjectContent")
+  // team      Team?      @relation("TeamContent")
+  // blog      Blog?      @relation("BlogContent")
+  competitionSuggestion CompetitionSuggestion? @relation("CompetitionSuggestionContent")
+}
+
+// =============================================================================
+// Location Support — caches and limits
+// =============================================================================
+
+/// Cached resolution of a provider place into the identities it searches by.
+///
+/// A cache, never a source of truth: truncating it costs one extra provider
+/// call per place and changes no behaviour. It exists because resolving a
+/// selected place is a billed request, and a public search page would otherwise
+/// pay it on every visit.
+///
+/// Identity keys are cached rather than the SearchArea rows they matched. That
+/// distinction matters: a place with no competitions yet caches successfully
+/// with keys that match nothing, and starts returning results the moment a
+/// competition is ingested there — with no invalidation step. Caching matched
+/// ids instead would freeze that emptiness in place.
+/// Why a cached resolution exists.
+///
+/// The two states are not degrees of the same thing. RESOLVED with no identity
+/// keys means "this place is real and nothing is stored under it" — a correct
+/// answer that starts returning results once something is ingested there.
+/// NOT_FOUND means the provider refused the id outright, and is cached only so
+/// a permanently dead id stops costing a billed lookup on every request.
+///
+/// Transient failures are deliberately absent: caching one would freeze an
+/// outage into a permanent wrong answer.
+enum PlaceResolutionStatus {
+  RESOLVED
+  NOT_FOUND
+}
+
+model PlaceResolution {
+  /// Provider place id, e.g. a Google place id.
+  placeId String @id
+
+  /// Whether this row records a successful resolution or a permanent miss.
+  status PlaceResolutionStatus @default(RESOLVED)
+
+  /// Identities representing the selected place *itself*, never its ancestors.
+  /// May legitimately be empty for a place nothing is stored under, and is
+  /// always empty when `status` is NOT_FOUND.
+  identityKeys String[]
+
+  displayName  String?
+  contextLabel String?
+
+  /// The place's own coordinates, as the provider reported them.
+  ///
+  /// This is the *anchor* a radius search measures from, and it is deliberately
+  /// stored here rather than read from SearchArea: address-component areas —
+  /// which is how every city, state and country acquires an identity — never
+  /// carry coordinates, so SearchArea is null for exactly the places people
+  /// search for most.
+  ///
+  /// Costs no new provider call. The Google identity field mask already
+  /// requests `location`, and the provider already maps it; resolution simply
+  /// discarded it before these columns existed.
+  ///
+  /// Nullable, because a row cached before this migration has none and because
+  /// a provider may omit them. A null anchor must never be silently rendered as
+  /// "nothing is here" — see RADIUS_ANCHOR_UNAVAILABLE.
+  ///
+  /// Decimal rather than Float so stored coordinates round-trip exactly,
+  /// matching Location and SearchArea.
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+
+  /// Which extraction ruleset produced these keys. A mismatch is treated as a
+  /// miss, so changing extraction logically invalidates every row at once
+  /// rather than leaving keys that no longer match what ingestion writes.
+  extractionVersion Int
+
+  resolvedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([resolvedAt])
+  @@map("place_resolution")
+}
+
+/// Fixed-window request counter, keyed by caller and route.
+///
+/// Stored in Postgres rather than memory because the limiter has to hold across
+/// instances — an in-memory counter silently stops limiting the moment the app
+/// runs in more than one process, which is exactly when it matters.
+model RateLimit {
+  /// `{scope}:{identifier}:{windowStart}` — the window is part of the key, so
+  /// expiry is a delete rather than a reset and two windows never collide.
+  key String @id
+
+  count Int @default(0)
+
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@map("rate_limit")
+}

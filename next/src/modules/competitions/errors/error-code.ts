@@ -51,6 +51,8 @@ export const CompetitionErrorCode = {
 
     ELIGIBILITY_NOT_FOUND: "COMPETITION_ELIGIBILITY_NOT_FOUND",
 
+    TYPE_NOT_FOUND: "COMPETITION_TYPE_NOT_FOUND",
+
 } as const;
 
 export type CompetitionErrorCode =

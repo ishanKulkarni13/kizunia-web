@@ -4,6 +4,7 @@ import type { CompetitionEditDTOWithPermissions } from "../types/edit-dto";
 import type { CompetitionLocationDTO } from "../types/competition-location.dto";
 import type { CompetitionTechnologyDTO } from "../types/competition-technology.dto";
 import type { CompetitionEligibilityDTO } from "../types/competition-eligibility.dto";
+import type { CompetitionTypeDTO } from "../types/competition-type.dto";
 import { CompetitionApi } from "../api/competition-api";
 import { UpdateCompetitionSchema } from "../schemas/update-competition";
 import { CompetitionErrorCode } from "../errors/error-code";
@@ -83,6 +84,12 @@ interface CompetitionEditorStore {
    * already persisted it. Same reasoning as `setLocations`/`setTechnologies`.
    */
   setEligibilities(eligibilities: CompetitionEligibilityDTO[]): void;
+
+  /**
+   * Replaces the type list after a types endpoint has already persisted it.
+   * Same reasoning as `setLocations`/`setTechnologies`/`setEligibilities`.
+   */
+  setTypes(types: CompetitionTypeDTO[]): void;
 
   /**
    * Merges a freshly-persisted asset slot (logo/banner/cover) into both
@@ -231,6 +238,27 @@ export const useCompetitionEditorStore = create<CompetitionEditorStore>(
             ? {
                 ...state.original,
                 eligibilities,
+              }
+            : state.original,
+        };
+      }),
+
+    setTypes: (types) =>
+      set((state) => {
+        if (!state.competition) {
+          return state;
+        }
+
+        return {
+          competition: {
+            ...state.competition,
+            types,
+          },
+
+          original: state.original
+            ? {
+                ...state.original,
+                types,
               }
             : state.original,
         };

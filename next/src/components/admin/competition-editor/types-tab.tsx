@@ -189,7 +189,7 @@ export function TypesTab() {
         </div>
       )}
 
-      <TabCompletenessFooter tab="eligibility" />
+      <TabCompletenessFooter tab="types" />
     </div>
   );
 }

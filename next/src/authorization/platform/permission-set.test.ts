@@ -29,3 +29,37 @@ describe("PlatformPermissionSet - MANAGE_MEDIA", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * Pins the actual semantics the /admin route-group layout guard relies on
+ * (see app/(dashboard)/admin/layout.tsx): the guard checks
+ * ACCESS_ADMIN_DASHBOARD, and this asserts that grant matches exactly who
+ * should be let into the admin page shell.
+ */
+describe("PlatformPermissionSet - ACCESS_ADMIN_DASHBOARD", () => {
+  it("is granted to ADMIN and SUPER_ADMIN", () => {
+    expect(
+      PlatformPermissionSet[PlatformRole.ADMIN].has(
+        PlatformAction.ACCESS_ADMIN_DASHBOARD,
+      ),
+    ).toBe(true);
+    expect(
+      PlatformPermissionSet[PlatformRole.SUPER_ADMIN].has(
+        PlatformAction.ACCESS_ADMIN_DASHBOARD,
+      ),
+    ).toBe(true);
+  });
+
+  it("is NOT granted to USER or MODERATOR", () => {
+    expect(
+      PlatformPermissionSet[PlatformRole.USER].has(
+        PlatformAction.ACCESS_ADMIN_DASHBOARD,
+      ),
+    ).toBe(false);
+    expect(
+      PlatformPermissionSet[PlatformRole.MODERATOR].has(
+        PlatformAction.ACCESS_ADMIN_DASHBOARD,
+      ),
+    ).toBe(false);
+  });
+});

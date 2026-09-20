@@ -3,7 +3,6 @@ import { TriangleAlertIcon } from "lucide-react";
 
 import { PlatformAction } from "@/authorization/platform/actions";
 import { PlatformAuthorizer } from "@/authorization/platform/authorizer";
-import type { StrictAuthorizationActor } from "@/authorization";
 import PageWrapper from "@/components/page-wrapper";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,7 +14,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { SessionService } from "@/lib/auth/session";
-import { AppError, AuthenticationError } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
 import {
   activeFilterCount,
   buildSearchHref,
@@ -57,24 +56,10 @@ export default async function AdminCompetitionsLifecyclePage({
 }: Props) {
   const params = await searchParams;
 
-  const actor = await SessionService.getActor();
-
-  if (!actor || !actor.role || !!actor.banned || !actor.id) {
-    throw new AuthenticationError({
-      code: "UNAUTHORIZED",
-      message: "You are not authorized to access this page.",
-      status: 401,
-    });
-  }
-
-  const strictActor: StrictAuthorizationActor = {
-    id: actor.id,
-    role: actor.role,
-    banned: actor.banned ?? true,
-  };
+  const actor = await SessionService.getStrictActor();
 
   PlatformAuthorizer.can(
-    { actor: strictActor },
+    { actor },
     PlatformAction.MANAGE_COMPETITION_LIFECYCLE,
   );
 

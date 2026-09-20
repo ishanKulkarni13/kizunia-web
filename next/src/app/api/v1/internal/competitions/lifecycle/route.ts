@@ -11,7 +11,9 @@
  * Not a user-facing endpoint: it is not part of Kizunia's session-based
  * authorization model, so it is protected by a shared secret instead.
  * Requires the INTERNAL_LIFECYCLE_SECRET environment variable to be set;
- * fails closed (401) if it is missing or does not match. A separate secret
+ * fails closed (401) if it is missing or does not match, compared via the
+ * constant-time `secretEquals` helper (see `src/lib/security/timing-safe-equal.ts`)
+ * so response timing cannot leak the secret byte-by-byte. A separate secret
  * from `INTERNAL_RECONCILE_SECRET` so the two internal jobs' credentials can
  * be rotated independently.
  *
@@ -32,13 +34,18 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { CompetitionLifecycleService } from "@/modules/competitions/backend/lifecycle.service";
+import { secretEquals } from "@/lib/security/timing-safe-equal";
 
 export async function POST(request: NextRequest) {
   const expectedSecret = process.env.INTERNAL_LIFECYCLE_SECRET;
 
   const providedSecret = request.headers.get("x-internal-secret");
 
-  if (!expectedSecret || providedSecret !== expectedSecret) {
+  if (
+    !expectedSecret ||
+    providedSecret === null ||
+    !secretEquals(providedSecret, expectedSecret)
+  ) {
     return NextResponse.json(
       { success: false, error: { code: "UNAUTHORIZED", message: "Unauthorized." } },
       { status: 401 },

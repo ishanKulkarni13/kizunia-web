@@ -1,9 +1,7 @@
 import { PlatformAction } from "@/authorization/platform/actions";
 import { PlatformAuthorizer } from "@/authorization/platform/authorizer";
-import type { StrictAuthorizationActor } from "@/authorization";
 import PageWrapper from "@/components/page-wrapper";
 import { SessionService } from "@/lib/auth/session";
-import { AuthenticationError } from "@/lib/errors";
 
 import { TechnologyService } from "@/modules/technologies/backend/service";
 
@@ -24,26 +22,12 @@ const PATHNAME = "/admin/technologies";
  * `TechnologyApi.search` directly, seeded with this page's initial fetch.
  */
 export default async function AdminTechnologiesPage() {
-  const actor = await SessionService.getActor();
+  const actor = await SessionService.getStrictActor();
 
-  if (!actor || !actor.role || !!actor.banned || !actor.id) {
-    throw new AuthenticationError({
-      code: "UNAUTHORIZED",
-      message: "You are not authorized to access this page.",
-      status: 401,
-    });
-  }
-
-  const strictActor: StrictAuthorizationActor = {
-    id: actor.id,
-    role: actor.role,
-    banned: actor.banned ?? true,
-  };
-
-  PlatformAuthorizer.can({ actor: strictActor }, PlatformAction.MANAGE_TECHNOLOGIES);
+  PlatformAuthorizer.can({ actor }, PlatformAction.MANAGE_TECHNOLOGIES);
 
   const [searchResult, summary] = await Promise.all([
-    TechnologyService.search(strictActor, { limit: "100" }),
+    TechnologyService.search(actor, { limit: "100" }),
     TechnologyService.getAdminSummary(),
   ]);
 

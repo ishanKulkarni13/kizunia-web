@@ -24,11 +24,16 @@ import { AssetPurpose } from "@/generated/prisma";
 import { assertAssetReferenceAllowed } from "@/modules/assets/backend/reference-policy";
 import { assetService } from "@/modules/assets/backend/service";
 
-import { PortfolioAuthorizer, PortfolioContextResolver } from "./authorization";
+import {
+  PortfolioAction,
+  PortfolioAuthorizer,
+  PortfolioContextResolver,
+  PortfolioPolicy,
+} from "./authorization";
 
 import { PortfolioProfileUpdateData, PortfolioRepository } from "./repository";
 import { PortfolioEditorDto, PortfolioPublicDto } from "../dtos";
-import { PortfolioAlreadyExistsError } from "../errors";
+import { PortfolioAlreadyExistsError, PortfolioNotFoundError } from "../errors";
 import { PortfolioMapper } from "./mapper/mapper";
 import { UpdatePortfolioProfileDto } from "../dtos/input/update.dto";
 
@@ -44,6 +49,35 @@ export class PortfolioService {
   }: {
     username: string;
   }): Promise<PortfolioPublicDto> {
+    // PortfolioPolicy is the authoritative decision here. The repository's
+    // SQL pre-filter on findPublicByUsername (visibility PUBLIC / deletedAt
+    // null / owner not banned) is retained as defence-in-depth and as a
+    // data-scoping optimisation — the same pattern as
+    // publiclyListableProjectWhere for Projects — but it cannot express the
+    // public-display eligibility axis, which is a runtime value (see
+    // authorization/public-eligibility.ts). So the policy runs first, and is
+    // what actually decides.
+    const authorizationRow = await this.repository.findForAuthorizationByUsername({
+      username,
+    });
+
+    if (!authorizationRow) {
+      throw new PortfolioNotFoundError();
+    }
+
+    const context = PortfolioContextResolver.forPublicRead({
+      portfolio: authorizationRow,
+    });
+
+    // Deliberately `.can(...).allowed` rather than PortfolioAuthorizer.read:
+    // this is an unauthenticated endpoint, so every denial reason — private,
+    // owner banned, soft-deleted, or not publicly eligible — must be
+    // indistinguishable from "no such portfolio". A 403 here would leak the
+    // existence of a private or plan-gated portfolio that a 404 does not.
+    if (!PortfolioPolicy.can(context, PortfolioAction.VIEW).allowed) {
+      throw new PortfolioNotFoundError();
+    }
+
     const portfolio = await this.repository.findPublicByUsernameOrThrow({
       username,
     });
@@ -56,14 +90,6 @@ export class PortfolioService {
   }: {
     actor: StrictAuthorizationActor;
   }): Promise<PortfolioEditorDto | null> {
-    // if (!actor.id) {
-    //   throw new AuthorizationError({
-    //     code: AuthorizationCode.UNAUTHORIZED,
-    //     status: 401,
-    //     message: "Authentication is required.",
-    //   });
-    // }
-
     const portfolio = await this.repository.findEditorByUserId({
       userId: actor.id,
     });
@@ -72,11 +98,22 @@ export class PortfolioService {
       return null;
     }
 
-    PortfolioAuthorizer.read({
+    // The actor IS the owner here (looked up by their own userId), so their
+    // own ban state — already known from the session — is what
+    // PortfolioContextResolver.fromData uses for `ownerBanned`; no extra
+    // fetch of `user.banned` is needed for this owner-only path.
+    const context = PortfolioContextResolver.fromData({
       actor,
-      portfolio,
-      isOwner: portfolio.userId === actor.id,
+      portfolio: {
+        id: portfolio.id,
+        userId: portfolio.userId,
+        visibility: portfolio.visibility,
+        deletedAt: portfolio.deletedAt,
+        user: { banned: actor.banned },
+      },
     });
+
+    PortfolioAuthorizer.read(context);
 
     return PortfolioMapper.toEditorDto(portfolio);
   }
@@ -170,18 +207,12 @@ export class PortfolioService {
     actor: StrictAuthorizationActor;
     dto: UpdatePortfolioProfileDto;
   }): Promise<PortfolioEditorDto> {
-    // if (!actor.id) {
-    //   throw new AuthorizationError({
-    //     code: AuthorizationCode.UNAUTHORIZED,
-    //     status: 401,
-    //     message: "Authentication is required.",
-    //   });
-    // }
-
     const portfolio = await this.repository.findByUserIdOrThrow({
       userId: actor.id,
     });
 
+    // The actor IS the owner here (looked up by their own userId) — see the
+    // same note in findMine.
     const context = PortfolioContextResolver.fromData({
       actor,
       portfolio: {
@@ -189,6 +220,7 @@ export class PortfolioService {
         userId: portfolio.userId,
         visibility: portfolio.visibility,
         deletedAt: portfolio.deletedAt,
+        user: { banned: actor.banned },
       },
     });
 

@@ -40,6 +40,7 @@ export const CANDIDATE_INCLUDE = {
   categories: { include: { category: { select: { slug: true } } } },
   technologies: { include: { technology: { select: { slug: true } } } },
   eligibilities: { select: { type: true } },
+  types: { select: { type: true } },
   locations: {
     include: {
       location: { include: { searchAreas: { select: { searchAreaId: true } } } },

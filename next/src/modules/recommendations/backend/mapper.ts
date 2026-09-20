@@ -72,6 +72,7 @@ export class RecommendationMapper {
       maxTeamSize: row.maxTeamSize,
       logoUrl: row.logoAsset?.secureUrl ?? null,
       coverUrl: row.coverAsset?.secureUrl ?? null,
+      types: row.types.map((t) => t.type),
     };
   }
 }

@@ -47,9 +47,16 @@ model User {
   projectMembers                  ProjectMember[]
   sessions                        Session[]
   uploadIntents                   UploadIntent[]            @relation("uploadIntentActor")
-  avatarAsset                     Asset?                    @relation("userAvatar", fields: [avatarAssetId], references: [id])
-  coverAsset                      Asset?                    @relation("userCover", fields: [coverAssetId], references: [id])
+  avatarAsset                     Asset?                    @relation("userAvatar", fields: [avatarAssetId], references: [id], onDelete: SetNull)
+  coverAsset                      Asset?                    @relation("userCover", fields: [coverAssetId], references: [id], onDelete: SetNull)
   badges                          UserBadge[]
+
+  // ---------------------------------------------------------------------------
+  // MCP / OAuth provider
+  // ---------------------------------------------------------------------------
+  oauthApplications               OauthApplication[]        @relation("oauthApplicationOwner")
+  oauthAccessTokens               OauthAccessToken[]        @relation("oauthAccessTokenUser")
+  oauthConsents                   OauthConsent[]             @relation("oauthConsentUser")
 
   @@map("user")
 }
@@ -147,7 +154,7 @@ model Asset {
   detachedAt                DateTime?
   status                    AssetStatus                  @default(ACTIVE)
   uploadedById              String?
-  uploadedBy                User?                        @relation("assetUploadedBy", fields: [uploadedById], references: [id])
+  uploadedBy                User?                        @relation("assetUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
   badgeIcons                Badge[]                      @relation("badgeIcon")
   competitionBanner         Competition[]                @relation("competitionBanner")
   competitionCover          Competition[]                @relation("competitionCover")
@@ -206,7 +213,7 @@ model Technology {
   competitions CompetitionTechnology[]
   portfolios   PortfolioTechnology[]
   projects     ProjectTechnology[]
-  iconAsset    Asset?                  @relation("technologyIcon", fields: [iconAssetId], references: [id])
+  iconAsset    Asset?                  @relation("technologyIcon", fields: [iconAssetId], references: [id], onDelete: SetNull)
 
   @@index([deletedAt])
   @@map("technology")
@@ -227,7 +234,7 @@ model Badge {
   name        String         @unique
   description String?
   iconAssetId String?
-  iconAsset   Asset?         @relation("badgeIcon", fields: [iconAssetId], references: [id])
+  iconAsset   Asset?         @relation("badgeIcon", fields: [iconAssetId], references: [id], onDelete: SetNull)
   projects    ProjectBadge[]
   users       UserBadge[]
 
@@ -622,12 +629,12 @@ model Competition {
   automaticStatusUpdatesDisabled Boolean                   @default(false)
   registrationStartDate          DateTime?
   statusUpdatedAt                DateTime?
-  bannerAsset                    Asset?                    @relation("competitionBanner", fields: [bannerAssetId], references: [id])
-  content                        Content?                  @relation("CompetitionContent", fields: [contentId], references: [id])
-  coverAsset                     Asset?                    @relation("competitionCover", fields: [coverAssetId], references: [id])
-  createdBy                      User?                     @relation("competitionCreatedBy", fields: [createdById], references: [id])
-  logoAsset                      Asset?                    @relation("competitionLogo", fields: [logoAssetId], references: [id])
-  updatedBy                      User?                     @relation("competitionUpdatedBy", fields: [updatedById], references: [id])
+  bannerAsset                    Asset?                    @relation("competitionBanner", fields: [bannerAssetId], references: [id], onDelete: SetNull)
+  content                        Content?                  @relation("CompetitionContent", fields: [contentId], references: [id], onDelete: SetNull)
+  coverAsset                     Asset?                    @relation("competitionCover", fields: [coverAssetId], references: [id], onDelete: SetNull)
+  createdBy                      User?                     @relation("competitionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  logoAsset                      Asset?                    @relation("competitionLogo", fields: [logoAssetId], references: [id], onDelete: SetNull)
+  updatedBy                      User?                     @relation("competitionUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   bookmarks                      CompetitionBookmark[]
   categories                     CompetitionCategory[]
   eligibilities                  CompetitionEligibility[]
@@ -637,6 +644,7 @@ model Competition {
   registrations                  CompetitionRegistration[]
   suggestions                    CompetitionSuggestion[]   @relation("competitionSuggestionTarget")
   technologies                   CompetitionTechnology[]
+  types                          CompetitionTypeRelation[]
   links                          Link[]
 
   @@index([status])
@@ -655,8 +663,8 @@ model CompetitionSuggestion {
   status              SuggestionStatus             @default(DRAFT)
   submittedAt         DateTime?
   reviewedAt          DateTime?
-  reviewNotes         String?
-  rejectionReason     String?
+  reviewNotes         String?                      @db.Text
+  rejectionReason     String?                      @db.Text
   competitionId       String?
   submittedById       String
   reviewedById        String?
@@ -665,10 +673,10 @@ model CompetitionSuggestion {
   deletedAt           DateTime?
   suggestionContentId String?                      @unique
   suggestionTitle     String
-  competition         Competition?                 @relation("competitionSuggestionTarget", fields: [competitionId], references: [id])
-  reviewedBy          User?                        @relation("competitionSuggestionReviewedBy", fields: [reviewedById], references: [id])
+  competition         Competition?                 @relation("competitionSuggestionTarget", fields: [competitionId], references: [id], onDelete: SetNull)
+  reviewedBy          User?                        @relation("competitionSuggestionReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
   submittedBy         User                         @relation("competitionSuggestionSubmittedBy", fields: [submittedById], references: [id], onDelete: Cascade)
-  suggestionContent   Content?                     @relation("CompetitionSuggestionContent", fields: [suggestionContentId], references: [id])
+  suggestionContent   Content?                     @relation("CompetitionSuggestionContent", fields: [suggestionContentId], references: [id], onDelete: SetNull)
   assets              CompetitionSuggestionAsset[]
   links               Link[]
 
@@ -734,6 +742,17 @@ model CompetitionEligibility {
   @@id([competitionId, type])
   @@index([type])
   @@map("competition_eligibility")
+}
+
+model CompetitionTypeRelation {
+  competitionId String
+  type          CompetitionType
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@id([competitionId, type])
+  @@index([type])
+  @@map("competition_type")
 }
 
 model CompetitionBookmark {
@@ -936,11 +955,11 @@ model Project {
   competitions     CompetitionProject[]
   links            Link[]
   portfolios       PortfolioProject[]
-  content          Content?             @relation("ProjectContent", fields: [contentId], references: [id])
-  coverAsset       Asset?               @relation("projectCover", fields: [coverAssetId], references: [id])
-  createdBy        User?                @relation("projectCreatedBy", fields: [createdById], references: [id])
-  logoAsset        Asset?               @relation("projectLogo", fields: [logoAssetId], references: [id])
-  updatedBy        User?                @relation("projectUpdatedBy", fields: [updatedById], references: [id])
+  content          Content?             @relation("ProjectContent", fields: [contentId], references: [id], onDelete: SetNull)
+  coverAsset       Asset?               @relation("projectCover", fields: [coverAssetId], references: [id], onDelete: SetNull)
+  createdBy        User?                @relation("projectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  logoAsset        Asset?               @relation("projectLogo", fields: [logoAssetId], references: [id], onDelete: SetNull)
+  updatedBy        User?                @relation("projectUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   badges           ProjectBadge[]
   categories       ProjectCategory[]
   members          ProjectMember[]
@@ -1045,10 +1064,10 @@ model Portfolio {
   updatedAt          DateTime                 @updatedAt
   deletedAt          DateTime?
   resumeAssetId      String?
-  bio                String?
+  bio                String?                  @db.Text
   displayName        String
   links              Link[]
-  resumeAsset        Asset?                   @relation("portfolioResume", fields: [resumeAssetId], references: [id])
+  resumeAsset        Asset?                   @relation("portfolioResume", fields: [resumeAssetId], references: [id], onDelete: SetNull)
   user               User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   achievements       PortfolioAchievement[]
   certifications     PortfolioCertification[]
@@ -1083,7 +1102,7 @@ model PortfolioTechnology {
   portfolioId    String
   technologyId   String
   startedUsingAt DateTime?
-  description    String?
+  description    String?    @db.Text
   displayOrder   Int        @default(0)
   portfolio      Portfolio  @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
   technology     Technology @relation(fields: [technologyId], references: [id], onDelete: Cascade)
@@ -1099,7 +1118,7 @@ model PortfolioEducation {
   degree                 String?
   fieldOfStudy           String?
   grade                  String?
-  description            String?
+  description            String?   @db.Text
   startDate              DateTime?
   endDate                DateTime?
   currentlyStudying      Boolean   @default(false)
@@ -1107,7 +1126,7 @@ model PortfolioEducation {
   displayOrder           Int       @default(0)
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
-  institutionLogoAsset   Asset?    @relation("educationInstitutionLogo", fields: [institutionLogoAssetId], references: [id])
+  institutionLogoAsset   Asset?    @relation("educationInstitutionLogo", fields: [institutionLogoAssetId], references: [id], onDelete: SetNull)
   portfolio              Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
   @@map("portfolio_education")
@@ -1120,7 +1139,7 @@ model PortfolioExperience {
   position           String
   employmentType     String?
   location           String?
-  description        String?
+  description        String?   @db.Text
   startDate          DateTime?
   endDate            DateTime?
   currentlyWorking   Boolean   @default(false)
@@ -1128,7 +1147,7 @@ model PortfolioExperience {
   displayOrder       Int       @default(0)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
-  companyLogoAsset   Asset?    @relation("experienceCompanyLogo", fields: [companyLogoAssetId], references: [id])
+  companyLogoAsset   Asset?    @relation("experienceCompanyLogo", fields: [companyLogoAssetId], references: [id], onDelete: SetNull)
   portfolio          Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
   @@map("portfolio_experience")
@@ -1138,12 +1157,12 @@ model PortfolioAchievement {
   id           String    @id @default(cuid())
   portfolioId  String
   title        String
-  description  String?
+  description  String?   @db.Text
   achievedAt   DateTime?
   assetId      String?
   displayOrder Int       @default(0)
   createdAt    DateTime  @default(now())
-  asset        Asset?    @relation("achievementAsset", fields: [assetId], references: [id])
+  asset        Asset?    @relation("achievementAsset", fields: [assetId], references: [id], onDelete: SetNull)
   portfolio    Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
   @@map("portfolio_achievement")
@@ -1161,7 +1180,7 @@ model PortfolioCertification {
   assetId       String?
   displayOrder  Int       @default(0)
   createdAt     DateTime  @default(now())
-  asset         Asset?    @relation("certificationAsset", fields: [assetId], references: [id])
+  asset         Asset?    @relation("certificationAsset", fields: [assetId], references: [id], onDelete: SetNull)
   portfolio     Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
 
   @@map("portfolio_certification")
@@ -1173,14 +1192,14 @@ model Testimonial {
   position     String?
   company      String?
   displayOrder Int        @default(100)
-  message      String
+  message      String     @db.Text
   rating       Int?
   imageAssetId String?
   portfolioId  String?
   projectId    String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
-  imageAsset   Asset?     @relation("testimonialImage", fields: [imageAssetId], references: [id])
+  imageAsset   Asset?     @relation("testimonialImage", fields: [imageAssetId], references: [id], onDelete: SetNull)
   portfolio    Portfolio? @relation("portfolioTestimonials", fields: [portfolioId], references: [id], onDelete: Cascade)
   project      Project?   @relation("projectTestimonials", fields: [projectId], references: [id], onDelete: Cascade)
 
@@ -1192,7 +1211,7 @@ model Testimonial {
 
 model Content {
   id                    String                 @id @default(cuid())
-  content               String
+  content               String                 @db.Text
   version               Int                    @default(1)
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
@@ -1404,6 +1423,37 @@ enum EligibilityType {
   OTHER
 }
 
+enum CompetitionType {
+  // Format
+  HACKATHON
+  IDEATHON
+  QUIZ
+  DSA
+  COMPETITIVE_PROGRAMMING
+
+  // Business & Strategy
+  CASE_STUDY
+  BUSINESS_PLAN
+  PITCHING
+
+  // Creative & Technical
+  UI_UX
+  CTF
+  ROBOTICS
+  GAMING
+
+  // Communication & Writing
+  DEBATE
+  WRITING
+
+  // General
+  OTHER
+}
+
+// =============================================================================
+// Enums — Project
+// =============================================================================
+
 enum ProjectVisibility {
   PUBLIC
   UNLISTED
@@ -1490,6 +1540,11 @@ enum PortfolioVisibility {
   PRIVATE
 }
 
+// Technology is a centralized, context-free taxonomy entity. What the
+// relationship to a Technology *means* is determined entirely by the
+// consumer (Project = actually used, Competition = relevant, Portfolio =
+// intentionally presented) — Technology itself carries no consumer-specific
+// concept. See docs/architecture/domain/technology.md.
 enum TechnologyType {
   LANGUAGE
   FRAMEWORK
@@ -1501,6 +1556,10 @@ enum TechnologyType {
   SERVICE
   OTHER
 }
+
+// =============================================================================
+// Location Support — caches and limits
+// =============================================================================
 
 /// Cached resolution of a provider place into the identities it searches by.
 ///
@@ -1601,4 +1660,115 @@ enum FeatureAnnouncementStatus {
   PUBLISHING
   PUBLISHED
   CANCELLED
+}
+
+// =============================================================================
+// MCP / OAuth 2.1 Provider
+// =============================================================================
+//
+// Backing tables for Better Auth's `mcp` plugin (which composes its
+// `oidc-provider`). Field names and types are dictated by that plugin's
+// schema definition — see
+// node_modules/better-auth/dist/plugins/oidc-provider/schema.mjs. They are
+// deliberately transcribed rather than reshaped: the plugin addresses these
+// through its own adapter using exactly these names, so renaming a column
+// here silently breaks the OAuth flow at runtime rather than at build time.
+//
+// `id` carries no `@default` — matching `User`, `Session`, `Account` and
+// `Verification` above, because Better Auth generates ids itself.
+
+/// A registered OAuth client. Created by Dynamic Client Registration
+/// (RFC 7591) when an MCP client such as ChatGPT connects for the first
+/// time, or seeded manually for a known first-party client.
+///
+/// Holding a client registration is NOT an authorization to do anything.
+/// Every tool call re-resolves the Kizunia user behind the token and runs
+/// the platform/competition policies against that user — see
+/// `src/modules/mcp/server/authenticate.ts`.
+model OauthApplication {
+  id String @id
+
+  name String
+  icon String?
+
+  /// Arbitrary client metadata supplied at registration, stored as JSON text
+  /// by the plugin.
+  metadata String?
+
+  clientId     String  @unique
+  clientSecret String?
+
+  /// Comma-separated list — the plugin splits on "," itself.
+  redirectUrls String
+
+  /// One of "web" | "native" | "user-agent-based" | "public".
+  type String
+
+  disabled Boolean? @default(false)
+
+  /// The user who registered the client, when registration happened inside a
+  /// session. Null for anonymous dynamic registration.
+  userId String?
+  user   User?   @relation("oauthApplicationOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime
+  updatedAt DateTime
+
+  accessTokens OauthAccessToken[]
+  consents     OauthConsent[]
+
+  @@index([userId])
+  @@map("oauth_application")
+}
+
+/// An issued OAuth access/refresh token pair.
+///
+/// `scopes` is the capability boundary the client was granted — it can only
+/// ever narrow what the underlying Kizunia user may do, never widen it.
+model OauthAccessToken {
+  id String @id
+
+  accessToken  String @unique
+  refreshToken String @unique
+
+  accessTokenExpiresAt  DateTime
+  refreshTokenExpiresAt DateTime
+
+  clientId String
+  client   OauthApplication @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  userId String?
+  user   User?   @relation("oauthAccessTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Space-separated scope list, as issued.
+  scopes String
+
+  createdAt DateTime
+  updatedAt DateTime
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_access_token")
+}
+
+/// A user's recorded consent for a client to hold a given set of scopes.
+model OauthConsent {
+  id String @id
+
+  clientId String
+  client   OauthApplication @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+
+  userId String
+  user   User   @relation("oauthConsentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  scopes String
+
+  consentGiven Boolean
+
+  createdAt DateTime
+  updatedAt DateTime
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauth_consent")
 }

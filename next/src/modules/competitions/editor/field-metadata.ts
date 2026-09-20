@@ -25,6 +25,7 @@ export type EditorTab =
   | "locations"
   | "technologies"
   | "eligibility"
+  | "types"
   | "documentation";
 
 export type SummaryFieldKey =
@@ -32,6 +33,7 @@ export type SummaryFieldKey =
   | "logoAsset"
   | "technologies"
   | "eligibilities"
+  | "types"
   | "locations";
 
 export interface FieldMeta {
@@ -154,6 +156,7 @@ export const FIELD_METADATA: readonly FieldMeta[] = [
   { key: "difficulty", label: "Difficulty", tab: "general", importance: "optional", nullable: true },
   { key: "technologies", label: "Technologies", tab: "technologies", importance: "optional", nullable: true },
   { key: "eligibilities", label: "Eligibility", tab: "eligibility", importance: "optional", nullable: true },
+  { key: "types", label: "Type", tab: "types", importance: "optional", nullable: true },
   { key: "locations", label: "Locations", tab: "locations", importance: "optional", nullable: true },
 
   // ---------------------------------------------------------------------

@@ -87,6 +87,19 @@ export const RateLimitPolicyId = {
    * the one write in the system whose blast radius is every user.
    */
   ANNOUNCEMENTS_WRITE: "announcements:write",
+  /**
+   * `search_competitions` and `get_competition`. One bucket for both — same
+   * reasoning as competitions:user-state-write: independent tools,
+   * identical cost, so one bucket is the honest way to bound one MCP
+   * caller's total read volume.
+   */
+  MCP_TOOLS_READ: "mcp:tools-read",
+  /**
+   * `create_competition` and `update_competition`. Kept separate from
+   * mcp:tools-read so a read-heavy agent session can never starve its own
+   * write budget, and vice versa.
+   */
+  MCP_TOOLS_WRITE: "mcp:tools-write",
 } as const;
 
 export type RateLimitPolicyId =
@@ -341,5 +354,23 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "closed",
     description:
       "Creating, scheduling or cancelling a platform announcement. Admin-only and already authorized, so this is not a fairness limit — it is a blast-radius limit. One write here fans out to a notification for every user with the intent enabled, so an accidental loop is the one mistake in this subsystem that reaches everybody at once. 30/hour is far beyond any editorial rhythm. Fails closed for the same reason: if the limiter is unavailable, refusing an announcement costs a delay, while allowing an unbounded number costs every user's trust.",
+  },
+  [RateLimitPolicyId.MCP_TOOLS_READ]: {
+    id: RateLimitPolicyId.MCP_TOOLS_READ,
+    limit: 60,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "search_competitions and get_competition, called by an MCP client (a human's connector, or an autonomous agent acting on their behalf) — no raw request/IP reaches this deep, so this is keyed on the authenticated Kizunia user resolved from the access token. Delegates to the same public search/read paths REST already exposes; this guards against a runaway agent loop and accidental storms, not spend. Local DB cost only — fails open so an infra blip does not stop a legitimate agent from reading.",
+  },
+  [RateLimitPolicyId.MCP_TOOLS_WRITE]: {
+    id: RateLimitPolicyId.MCP_TOOLS_WRITE,
+    limit: 20,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "create_competition and update_competition, called through MCP. A tighter ceiling than mcp:tools-read: these writes mutate real competition rows attributed to a real user, and are far more consequential if a misbehaving or runaway agent loops. Fails closed, like every other write-capable MCP-adjacent policy (assets:upload-intent, auth:sign-up) — a limiter outage must not become an uncapped write window.",
   },
 } as const;

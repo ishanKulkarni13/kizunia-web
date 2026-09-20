@@ -1,4 +1,4 @@
-﻿# Competitions Module
+# Competitions Module
 
 ## Purpose
 
@@ -101,3 +101,56 @@ import { ... } from "@/modules/competitions";
 ```
 
 Other modules should **never** import internal files directly.
+
+## Competition Types
+
+`CompetitionType` describes the fundamental nature of a competition
+(Hackathon, CTF, Quiz, etc.). It is **Competition-domain-only** — there is
+no shared/global taxonomy, no external catalog to validate against, and no
+platform-level management endpoint.
+
+**Multi-valued.** A competition may carry any combination of the 15 supported
+types. Zero types is a valid, intentional state meaning the competition is
+unclassified, not that it matches every type filter.
+
+**OR filter semantics.** Selecting HACKATHON + CTF in search returns
+competitions that are either a hackathon or a CTF. A competition with zero
+types does not match a non-empty type filter.
+
+**AND across dimensions.** `?types=HACKATHON&modes=ONLINE` requires both a
+HACKATHON type AND ONLINE mode. OR applies only within a single filter
+dimension.
+
+**Persistence pattern.** Follows `CompetitionEligibility` exactly: a
+`CompetitionTypeRelation` join table with a composite primary key
+`(competitionId, type)`. Managed through dedicated `attach`/`detach`
+endpoints under `/api/v1/admin/competitions/[id]/types`.
+
+**No auto-classification.** Existing competitions with zero type rows are
+intentionally left unclassified. The migration is additive only.
+
+**Frontend owns labels, icons, and display ordering.** The backend stores
+normalized enum values (`HACKATHON`, `CTF`, …). Human-readable labels live
+in `constants.ts` (`COMPETITION_TYPE_OPTIONS`) and `search/ui.ts`.
+
+**Supported values** (all 15):
+
+| Value | Label |
+|---|---|
+| `HACKATHON` | Hackathon |
+| `IDEATHON` | Ideathon |
+| `QUIZ` | Quiz |
+| `DSA` | DSA |
+| `COMPETITIVE_PROGRAMMING` | Competitive Programming |
+| `CASE_STUDY` | Case Study |
+| `BUSINESS_PLAN` | Business Plan |
+| `PITCHING` | Pitching |
+| `UI_UX` | UI/UX |
+| `CTF` | CTF |
+| `ROBOTICS` | Robotics |
+| `GAMING` | Gaming |
+| `DEBATE` | Debate |
+| `WRITING` | Writing |
+| `OTHER` | Other |
+
+`OTHER` is not exclusive — it may coexist with any other type.

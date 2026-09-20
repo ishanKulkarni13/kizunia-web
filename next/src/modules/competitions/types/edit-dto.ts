@@ -13,6 +13,7 @@ import { CompetitionPermissionsDTO } from "../backend/authorization/dto";
 import type { CompetitionLocationDTO } from "./competition-location.dto";
 import type { CompetitionTechnologyDTO } from "./competition-technology.dto";
 import type { CompetitionEligibilityDTO } from "./competition-eligibility.dto";
+import type { CompetitionTypeDTO } from "./competition-type.dto";
 
 
 export interface CompetitionEditDTO {
@@ -149,6 +150,14 @@ export interface CompetitionEditDTO {
    * ("no eligibility declared"), not the same as `OPEN`.
    */
   eligibilities: CompetitionEligibilityDTO[];
+
+  /**
+   * The fundamental nature of the competition (Hackathon, CTF, Quiz, …).
+   * Managed through the dedicated types endpoints, not the competition PATCH.
+   * An empty array means unclassified — zero types is a valid, intentional
+   * state.
+   */
+  types: CompetitionTypeDTO[];
 
 }
 export interface CompetitionEditDTOWithPermissions extends CompetitionEditDTO {

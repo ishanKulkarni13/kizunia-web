@@ -154,6 +154,7 @@ export class CompetitionRepository {
         logoAsset: true,
         coverAsset: true,
         locations: this.locationsInclude,
+        types: true,
       },
     });
   }
@@ -246,6 +247,8 @@ export class CompetitionRepository {
 
         eligibilities: true,
 
+        types: true,
+
         locations: this.locationsInclude,
       },
     });
@@ -270,6 +273,8 @@ export class CompetitionRepository {
         };
 
         eligibilities: true;
+
+        types: true;
 
         locations: {
           include: {
@@ -364,6 +369,8 @@ export class CompetitionRepository {
         },
 
         eligibilities: true,
+
+        types: true,
 
         locations: this.locationsInclude,
       },

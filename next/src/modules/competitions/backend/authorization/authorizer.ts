@@ -92,6 +92,17 @@ export class CompetitionAuthorizer {
         );
     }
 
+    static manageTypes(
+        context: CompetitionContext,
+    ): void {
+        Authorization.assert(
+            CompetitionPolicy.can(
+                context,
+                CompetitionAction.MANAGE_TYPES,
+            ),
+        );
+    }
+
     static can(
         context: CompetitionContext,
         action: CompetitionAction,

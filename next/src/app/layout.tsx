@@ -20,13 +20,58 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// export const metadata: Metadata = {
+//   title: "Kizunia",
+//   description: "Building cool stuff",
+//   icons: {
+//   icon: [
+//     {
+//       url: "/website-logo-white.svg",
+//       media: "(prefers-color-scheme: dark)",
+//     },
+//     {
+//       url: "/website-logo-black.svg",
+//       media: "(prefers-color-scheme: light)",
+//     },
+//   ],
+// },
+// };
+
 export const metadata: Metadata = {
-  title: "Kizunia",
-  description: "Building cool stuff",
+  metadataBase: new URL("https://kizunia.vercel.com"),
+
+  title: {
+    default: "Kizunia — Discover Competitions & Hackathons in India",
+    template: "%s | Kizunia",
+  },
+
+  description:
+    "Discover hackathons, coding competitions, and opportunities across India. Find competitions that match your interests, skills, and goals.",
+
+  applicationName: "Kizunia",
+
+  robots: {
+    index: true,
+    follow: true,
+  },
+
   // Required for web push on iOS: Safari delivers notifications only to a site
   // that has been installed to the home screen, and it will not offer to
   // install one without a manifest.
   manifest: "/manifest.json",
+
+  icons: {
+    icon: [
+      {
+        url: "/website-logo-white.svg",
+        media: "(prefers-color-scheme: dark)",
+      },
+      {
+        url: "/website-logo-black.svg",
+        media: "(prefers-color-scheme: light)",
+      },
+    ],
+  },
 };
 
 export default function RootLayout({

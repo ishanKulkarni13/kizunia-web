@@ -39,6 +39,7 @@ function makeCompetition(
     categories: [],
     technologies: [],
     eligibilities: [],
+    types: [],
     role: null,
     updatedAt: new Date("2026-01-01T00:00:00.000Z"),
     permissions: {
@@ -52,6 +53,7 @@ function makeCompetition(
       canManageLinks: true,
       canManageTechnologies: true,
       canManageEligibility: true,
+      canManageTypes: true,
     },
     ...overrides,
   };

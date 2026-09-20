@@ -33,6 +33,7 @@ const CARD_INCLUDE = {
   logoAsset: true,
   coverAsset: true,
   locations: { include: { location: true } },
+  types: true,
 } satisfies Prisma.CompetitionInclude;
 
 export interface ClosingCompetition {

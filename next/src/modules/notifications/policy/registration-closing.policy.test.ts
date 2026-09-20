@@ -29,6 +29,7 @@ function card(id: string): CompetitionCardDTO {
     maxTeamSize: null,
     logoUrl: null,
     coverUrl: null,
+    types: [],
   };
 }
 

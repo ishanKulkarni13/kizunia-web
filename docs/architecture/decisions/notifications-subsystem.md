@@ -2,7 +2,12 @@
 
 ## Status
 
-Accepted — 2026-09-12. No implementation started.
+Accepted — 2026-09-12. Implemented — see
+[`architecture/notifications/IMPLEMENTATION-STATUS.md`](../notifications/IMPLEMENTATION-STATUS.md).
+
+*Update, 2026-09-20:* the four decisions cited under "What it depends on" as blocking implementation
+have since been resolved (ND-I-19/ND-P-15/ND-D-02/ND-I-20 — see `open-decisions.md`'s "Recently
+answered" table). The original text below is left as written at acceptance time.
 
 ---
 
@@ -110,6 +115,7 @@ window, the disposition of the legacy `NotificationPreference` model, what the q
 given that this repository has no queue infrastructure, and where "relevant to the user" comes from
 for the deadline intent. See
 [`open-decisions.md`](../../project/feature-specification/notification/open-decisions.md).
+*(Resolved as of the update above — see that file's "Recently answered" table.)*
 
 ---
 

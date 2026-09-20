@@ -25,11 +25,9 @@
  * owner instead, which also has the property you want: the previous user stops
  * receiving notifications on a browser they no longer control.
  */
-import prisma from "@/lib/prisma";
-import { PushSubscriptionStatus } from "@/generated/prisma";
-
 import { logNotificationEvent } from "../observability/log";
 import type { PushSubscriptionDTO } from "../types/notification.dto";
+import { PushSubscriptionRepository } from "./push-subscription.repository";
 
 export class PushSubscriptionService {
   /**
@@ -51,22 +49,11 @@ export class PushSubscriptionService {
   }): Promise<PushSubscriptionDTO> {
     const now = new Date();
 
-    const subscription = await prisma.pushSubscription.upsert({
-      where: { token: input.token },
-      create: {
-        userId: input.userId,
-        token: input.token,
-        userAgent: input.userAgent ?? null,
-      },
-      update: {
-        // Overwritten, not preserved — see the file docstring.
-        userId: input.userId,
-        userAgent: input.userAgent ?? null,
-        status: PushSubscriptionStatus.ACTIVE,
-        consecutiveFailures: 0,
-        invalidatedAt: null,
-        lastSeenAt: now,
-      },
+    const subscription = await PushSubscriptionRepository.upsertByToken({
+      userId: input.userId,
+      token: input.token,
+      userAgent: input.userAgent,
+      now,
     });
 
     logNotificationEvent("push.subscription_registered", {
@@ -78,10 +65,7 @@ export class PushSubscriptionService {
   }
 
   static async listForUser(userId: string): Promise<PushSubscriptionDTO[]> {
-    const rows = await prisma.pushSubscription.findMany({
-      where: { userId, status: { not: PushSubscriptionStatus.REVOKED } },
-      orderBy: { lastSeenAt: "desc" },
-    });
+    const rows = await PushSubscriptionRepository.findForUser(userId);
 
     return rows.map(toDTO);
   }
@@ -98,28 +82,12 @@ export class PushSubscriptionService {
    * dangling null.
    */
   static async revoke(userId: string, subscriptionId: string): Promise<boolean> {
-    const result = await prisma.pushSubscription.updateMany({
-      where: { id: subscriptionId, userId },
-      data: {
-        status: PushSubscriptionStatus.REVOKED,
-        invalidatedAt: new Date(),
-      },
-    });
-
-    return result.count > 0;
+    return PushSubscriptionRepository.revokeById(userId, subscriptionId, new Date());
   }
 
   /** Revokes by token, for a client that knows its token but not its row id. */
   static async revokeByToken(userId: string, token: string): Promise<boolean> {
-    const result = await prisma.pushSubscription.updateMany({
-      where: { token, userId },
-      data: {
-        status: PushSubscriptionStatus.REVOKED,
-        invalidatedAt: new Date(),
-      },
-    });
-
-    return result.count > 0;
+    return PushSubscriptionRepository.revokeByToken(userId, token, new Date());
   }
 }
 

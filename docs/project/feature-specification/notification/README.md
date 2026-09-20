@@ -1,6 +1,6 @@
 # Kizunia Notifications
 
-> **Status:** Specification — approved decisions, no implementation started
+> **Status:** Implemented — see [architecture/notifications/IMPLEMENTATION-STATUS.md](../../../architecture/notifications/IMPLEMENTATION-STATUS.md)
 >
 > **Version:** 1.0
 >
@@ -80,7 +80,7 @@ Suggested reading order:
 
 ## Status
 
-**Specification complete for Phase 1. No implementation started.**
+**Specification complete for Phase 1. Implemented, end to end.**
 
 The behavioral decisions recorded in [`decisions/`](decisions/README.md) are finalized and should
 not be reinterpreted without an explicit product decision. The items in

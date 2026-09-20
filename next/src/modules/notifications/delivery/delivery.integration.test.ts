@@ -19,6 +19,7 @@ import { cleanupNotificationTestData } from "@/testing/notification-cleanup";
 import { NotificationGenerationService } from "../backend/notification-generation.service";
 import { renderAdminSuggestionReview } from "../content/renderers";
 import type { NotificationDraft } from "../content/notification-draft";
+import { DeliveryRepository } from "./delivery.repository";
 import { DeliveryService } from "./delivery.service";
 import {
   FakePushProvider,
@@ -625,5 +626,108 @@ describe("DeliveryService — ADMIN_COMPETITION_SUGGESTION", () => {
       where: { notificationId, channel: "IN_APP" },
     });
     expect(inApp.status).toBe("DELIVERED");
+  });
+});
+
+describe("DeliveryRepository.pruneAttempts", () => {
+  const OLD = new Date("2026-08-01T00:00:00.000Z");
+  const HORIZON = new Date("2026-09-01T00:00:00.000Z");
+  const RECENT = new Date("2026-09-17T13:00:00.000Z");
+
+  it("removes attempts older than the horizon and keeps recent ones", async () => {
+    const user = await createUser("prune-basic");
+    await addSubscription(user.id, unique("token"));
+    const notificationId = await generateFor(user.id);
+
+    await DeliveryService.deliver({
+      notificationId,
+      provider: liveProvider(),
+      now: NOW,
+      random: noJitter,
+    });
+
+    const delivery = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { notificationId, channel: "WEB_PUSH" },
+    });
+    const [oldAttempt] = await prisma.notificationDeliveryAttempt.findMany({
+      where: { deliveryId: delivery.id },
+    });
+    if (!oldAttempt) throw new Error("expected the attempt recorded during delivery");
+
+    // Backdate the real attempt so it falls outside the horizon, and add a
+    // second, recent one on the same delivery to prove the recent survivor
+    // is not an artifact of only one row existing.
+    await prisma.notificationDeliveryAttempt.update({
+      where: { id: oldAttempt.id },
+      data: { startedAt: OLD, finishedAt: OLD },
+    });
+    const recentAttempt = await prisma.notificationDeliveryAttempt.create({
+      data: { deliveryId: delivery.id, attemptNumber: 2, startedAt: RECENT, finishedAt: RECENT },
+    });
+
+    const count = await DeliveryRepository.pruneAttempts(HORIZON, 500);
+    expect(count).toBe(1);
+
+    expect(
+      await prisma.notificationDeliveryAttempt.findUnique({ where: { id: oldAttempt.id } }),
+    ).toBeNull();
+    expect(
+      await prisma.notificationDeliveryAttempt.findUnique({ where: { id: recentAttempt.id } }),
+    ).not.toBeNull();
+  });
+
+  it("prunes an unfinished attempt by its startedAt, not its (absent) finishedAt", async () => {
+    // An attempt that started and never finished (a crash mid-send) must still
+    // age out, or a crashed attempt would accumulate forever.
+    const user = await createUser("prune-unfinished");
+    await addSubscription(user.id, unique("token"));
+    const notificationId = await generateFor(user.id);
+
+    const delivery = await DeliveryRepository.ensurePushDelivery({
+      notificationId,
+      subscriptionId: (
+        await prisma.pushSubscription.findFirstOrThrow({ where: { userId: user.id } })
+      ).id,
+      maxAttempts: 4,
+    });
+
+    const unfinished = await prisma.notificationDeliveryAttempt.create({
+      data: { deliveryId: delivery.id, attemptNumber: 1, startedAt: OLD, finishedAt: null },
+    });
+
+    const count = await DeliveryRepository.pruneAttempts(HORIZON, 500);
+    expect(count).toBe(1);
+    expect(
+      await prisma.notificationDeliveryAttempt.findUnique({ where: { id: unfinished.id } }),
+    ).toBeNull();
+  });
+
+  it("is bounded by its limit argument", async () => {
+    const user = await createUser("prune-limit");
+    await addSubscription(user.id, unique("token"));
+    const notificationId = await generateFor(user.id);
+
+    const subscription = await prisma.pushSubscription.findFirstOrThrow({
+      where: { userId: user.id },
+    });
+    const delivery = await DeliveryRepository.ensurePushDelivery({
+      notificationId,
+      subscriptionId: subscription.id,
+      maxAttempts: 4,
+    });
+
+    for (let i = 1; i <= 3; i += 1) {
+      await prisma.notificationDeliveryAttempt.create({
+        data: { deliveryId: delivery.id, attemptNumber: i, startedAt: OLD, finishedAt: OLD },
+      });
+    }
+
+    const count = await DeliveryRepository.pruneAttempts(HORIZON, 2);
+    expect(count).toBe(2);
+
+    const remaining = await prisma.notificationDeliveryAttempt.count({
+      where: { deliveryId: delivery.id },
+    });
+    expect(remaining).toBe(1);
   });
 });

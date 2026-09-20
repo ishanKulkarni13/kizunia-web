@@ -11,9 +11,10 @@ Each is recorded here with its resolution, so that a future reader who finds the
 can see which reading was adopted and why — rather than concluding the specification lost
 something.
 
-Source documents: `docs/temp/notificatio-decisions.md`,
-`docs/temp/notofication-User-stories.md`, `docs/temp/codebase-recommendation.md`.
-`docs/temp/` is a scratch directory and is **not** authoritative.
+Source documents: `docs/temp/notificatio-decisions.md` (file since removed after its content was
+fully absorbed into this decision register), `docs/temp/notofication-User-stories.md`,
+`docs/temp/codebase-recommendation.md`. `docs/temp/` is a scratch directory and is **not**
+authoritative.
 
 ---
 

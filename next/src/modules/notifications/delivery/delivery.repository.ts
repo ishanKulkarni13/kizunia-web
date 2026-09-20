@@ -279,6 +279,38 @@ export class DeliveryRepository {
       take,
     });
   }
+
+  /**
+   * Deletes delivery-attempt audit rows older than `before`, up to `limit`.
+   *
+   * Attempts are per-send forensic detail, not state: dedup reads
+   * `NotificationDelivery.status` (`NotificationRepository.findDeliveredTargetIds`),
+   * never this table. Deleting old rows only loses "what did the provider say
+   * on attempt N", never delivery or dedup correctness.
+   *
+   * Two statements rather than one `deleteMany`, matching `WorkQueue.prune`:
+   * Prisma cannot put a `LIMIT` on a delete, and an unbounded delete over a
+   * large backlog is exactly the long-running statement a prune pass must
+   * avoid.
+   *
+   * Keyed on `startedAt`, not `finishedAt` — an attempt that crashed mid-send
+   * has no `finishedAt` and must still age out.
+   */
+  static async pruneAttempts(before: Date, limit: number): Promise<number> {
+    const doomed = await prisma.notificationDeliveryAttempt.findMany({
+      where: { startedAt: { lt: before } },
+      select: { id: true },
+      take: limit,
+    });
+
+    if (doomed.length === 0) return 0;
+
+    const result = await prisma.notificationDeliveryAttempt.deleteMany({
+      where: { id: { in: doomed.map((attempt) => attempt.id) } },
+    });
+
+    return result.count;
+  }
 }
 
 function isUniqueViolation(error: unknown): boolean {

@@ -148,6 +148,6 @@ The source material contained genuine contradictions. Each is recorded with its 
 
 | Source document | Rulings derived |
 | --- | --- |
-| `docs/temp/notificatio-decisions.md` | All `ND-P`, `ND-R`, `ND-I`, `ND-H` rulings |
+| `docs/temp/notificatio-decisions.md` (file since removed after its content was fully absorbed into this decision register) | All `ND-P`, `ND-R`, `ND-I`, `ND-H` rulings |
 | `docs/temp/notofication-User-stories.md` | Scope classification for [`experience/user-stories.md`](../experience/user-stories.md); non-goals in [reconciliations.md](reconciliations.md) |
 | `docs/temp/codebase-recommendation.md` | Architectural requirements, recorded in [`architecture/notifications/`](../../../../architecture/notifications/README.md) rather than as product rulings |

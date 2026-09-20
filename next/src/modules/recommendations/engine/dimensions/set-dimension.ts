@@ -6,11 +6,11 @@
  * matched by default set-intersection (see `dimension.ts`).
  *
  * This is what keeps the engine from becoming "one class per dimension with
- * its own hand-written boilerplate" — nine of the thirteen Phase 0
+ * its own hand-written boilerplate" — ten of the fourteen Phase 0
  * dimensions (mode, registrationPlatform, registrationType,
  * registrationFeeType, organizerType, difficulty, certificateType, status,
- * plus categories/technologies/eligibilities as list-valued ones) are one
- * call to this factory each. See `registry.ts`.
+ * plus categories/technologies/eligibilities/competitionType as list-valued
+ * ones) are one call to this factory each. See `registry.ts`.
  */
 import type { RecommendationCandidate, RecommendationDimension } from "../types";
 import type { DimensionId } from "../types";

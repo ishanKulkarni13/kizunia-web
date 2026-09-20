@@ -290,6 +290,7 @@ enum CompetitionPreferenceDimension {
   categories
   technologies
   eligibilities
+  competitionType
   location
   registrationPlatform
   registrationType

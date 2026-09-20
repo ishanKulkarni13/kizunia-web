@@ -94,3 +94,49 @@ describe("listDimension", () => {
     expect(weakerMatch.strength).toBeLessThan(strongMatch.strength);
   });
 });
+
+describe("listDimension (competitionType)", () => {
+  const competitionTypeDimension = listDimension(
+    DimensionId.COMPETITION_TYPE,
+    (c) => c.competitionTypes,
+  );
+
+  it("matches when a preferred type is among the competition's attached types", () => {
+    const preference = normalizeProfile([
+      entry(DimensionId.COMPETITION_TYPE, "HACKATHON", 0.5),
+    ]).get(DimensionId.COMPETITION_TYPE)!;
+    const signal = evaluateDimension(
+      competitionTypeDimension,
+      preference,
+      buildCandidate({ competitionTypes: ["HACKATHON", "QUIZ"] }),
+    );
+
+    expect(signal.outcome).toBe("MATCH");
+  });
+
+  it("treats an unclassified competition (zero types) as MISSING, not MISMATCH", () => {
+    const preference = normalizeProfile([
+      entry(DimensionId.COMPETITION_TYPE, "HACKATHON", 0.5),
+    ]).get(DimensionId.COMPETITION_TYPE)!;
+    const signal = evaluateDimension(
+      competitionTypeDimension,
+      preference,
+      buildCandidate({ competitionTypes: [] }),
+    );
+
+    expect(signal.outcome).toBe("MISSING");
+  });
+
+  it("mismatches when the competition has types, none of which are preferred", () => {
+    const preference = normalizeProfile([
+      entry(DimensionId.COMPETITION_TYPE, "HACKATHON", 0.5),
+    ]).get(DimensionId.COMPETITION_TYPE)!;
+    const signal = evaluateDimension(
+      competitionTypeDimension,
+      preference,
+      buildCandidate({ competitionTypes: ["QUIZ"] }),
+    );
+
+    expect(signal.outcome).toBe("MISMATCH");
+  });
+});

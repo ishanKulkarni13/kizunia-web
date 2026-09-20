@@ -72,6 +72,12 @@ export const DIMENSION_DEFINITIONS: readonly DimensionDefinition[] = [
     control: enumControl(competitionFilterSpecs.eligibilities),
   },
   {
+    id: DimensionId.COMPETITION_TYPE,
+    label: "Competition type",
+    description: "The kind of competition — hackathon, quiz, case study, and so on.",
+    control: enumControl(competitionFilterSpecs.types),
+  },
+  {
     id: DimensionId.LOCATION,
     label: "Location",
     description: "Places you'd travel to for an in-person competition.",

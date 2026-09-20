@@ -27,6 +27,7 @@ export function buildCandidate(
     categorySlugs: [],
     technologySlugs: [],
     eligibilityTypes: [],
+    competitionTypes: [],
     searchAreaIds: [],
     startDate: null,
     registrationDeadline: null,

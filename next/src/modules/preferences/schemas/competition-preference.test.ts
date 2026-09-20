@@ -19,6 +19,14 @@ describe("UpdateCompetitionPreferencesSchema", () => {
     expect(result.preferences).toHaveLength(1);
   });
 
+  it("accepts a competitionType preference", () => {
+    const result = UpdateCompetitionPreferencesSchema.parse({
+      preferences: [{ dimension: DimensionId.COMPETITION_TYPE, value: "HACKATHON", weight: 0.7 }],
+    });
+
+    expect(result.preferences).toHaveLength(1);
+  });
+
   it("accepts multiple values within one dimension", () => {
     const result = UpdateCompetitionPreferencesSchema.parse({
       preferences: [

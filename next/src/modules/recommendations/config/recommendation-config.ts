@@ -25,6 +25,10 @@
  *   eligibilities           0.80  Feasibility — often genuinely disqualifying
  *                                 (a UG-only competition is not "less ideal"
  *                                 for a PG student, it is inapplicable).
+ *   competitionType         0.80  What *kind* of competition this is (a
+ *                                 hackathon vs. a quiz vs. a case study) —
+ *                                 as strong a topical signal as category,
+ *                                 not a weaker feasibility one.
  *   mode                    0.70  Feasibility, but coarser-grained than
  *                                 location or eligibility.
  *   registrationFeeType     0.60  A real constraint for many users, but only
@@ -59,6 +63,7 @@ export const SYSTEM_WEIGHTS: Readonly<Record<DimensionId, number>> = {
   [DimensionId.TECHNOLOGIES]: 0.9,
   [DimensionId.LOCATION]: 0.8,
   [DimensionId.ELIGIBILITIES]: 0.8,
+  [DimensionId.COMPETITION_TYPE]: 0.8,
   [DimensionId.MODE]: 0.7,
   [DimensionId.REGISTRATION_FEE_TYPE]: 0.6,
   [DimensionId.DIFFICULTY]: 0.5,

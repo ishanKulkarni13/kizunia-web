@@ -7,6 +7,7 @@ import { convertZodError } from "./zod";
 import { ValidationFailedError } from "./validation-failed-error";
 import { RateLimitError } from "./rate-limit-error";
 import { rateLimitErrorHeaders } from "@/lib/rate-limit/headers";
+import { logger } from "@/lib/logger";
 
 export class ErrorHandler {
   static handle(error: unknown) {
@@ -31,7 +32,7 @@ export class ErrorHandler {
       });
     }
 
-    console.error(error);
+    logger.error("http.unhandled_error", error);
 
     return NextResponse.json(
       {

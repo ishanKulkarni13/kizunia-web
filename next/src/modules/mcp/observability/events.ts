@@ -1,10 +1,12 @@
 /**
- * MCP Observability — a structured-event seam, not a logger.
+ * MCP Observability — a domain-typed event seam over the shared logger.
  *
- * Deliberately modelled on `src/lib/rate-limit/events.ts`, the existing
- * convention in this repository: a single typed emission point that a real
- * logger can be swapped in behind, rather than a second logging framework.
- * Nothing else in the MCP module should call `console.*` directly.
+ * `McpEvent`'s specific shape (a closed `McpEventName` union, the
+ * `McpFailureOutcome` classification) is precise domain modeling worth
+ * keeping. The `console`/sink-swap plumbing it used to hand-roll now lives
+ * in `lib/logger`; `setMcpEventSink`/`resetMcpEventSink` are preserved as-is
+ * so existing callers and tests keep working, and now sit in front of
+ * `lib/logger` instead of `console` directly.
  *
  * =============================================================================
  * What is never emitted
@@ -13,7 +15,10 @@
  * No access tokens, no refresh tokens, no token prefixes or fragments. No
  * request or response payloads — a competition import carries free text an
  * external agent scraped from the web, which has no business in an
- * application log.
+ * application log. `lib/logger`'s key-based redaction is a second layer here,
+ * not the primary control — this module's own field shape is the first and
+ * most important one, since `McpEvent` has no field a payload could ever be
+ * assigned to in the first place.
  *
  * `userId` and `clientId` *are* emitted, unlike the rate-limit seam's
  * deliberate omission of subject ids. The reason they differ: MCP is a
@@ -23,6 +28,8 @@
  * the same pair is already persisted on the row itself via
  * `Competition.createdById`.
  */
+
+import { logger } from "@/lib/logger";
 
 export type McpEventName =
   /** A tool ran to completion and returned a result. */
@@ -88,12 +95,10 @@ export interface McpEvent {
 
 export type McpEventSink = (event: McpEvent) => void;
 
-/**
- * The one place in this module that touches `console`. Structured JSON so
- * it is queryable in Vercel's log capture before a real aggregator exists.
- */
+/** Routes through the shared logger rather than touching `console` directly. */
 const defaultSink: McpEventSink = (event) => {
-  console.info(JSON.stringify(event));
+  const { name, ...fields } = event;
+  logger.info(name, fields);
 };
 
 let sink: McpEventSink = defaultSink;
@@ -103,7 +108,7 @@ export function setMcpEventSink(next: McpEventSink): void {
   sink = next;
 }
 
-/** Restores the default console sink. Mainly for tests to clean up. */
+/** Restores the default sink (routed through `lib/logger`). Mainly for tests to clean up. */
 export function resetMcpEventSink(): void {
   sink = defaultSink;
 }
@@ -118,14 +123,16 @@ export function emitMcpEvent(event: Omit<McpEvent, "timestamp">): void {
  *
  * This is the counterpart to `toMcpToolFailure` collapsing unknown errors
  * to an opaque message: the detail still has to exist somewhere, just not
- * in the response. Routed through `console.error` rather than the event
- * sink because an arbitrary `unknown` cannot be serialised into the typed,
- * payload-free `McpEvent` shape above without defeating its purpose.
+ * in the response. Routed through `logger.error` rather than the event sink
+ * because an arbitrary `unknown` cannot be serialised into the typed,
+ * payload-free `McpEvent` shape above without defeating its purpose —
+ * `logger.error` normalizes it instead (stack, `AppError` fields, cause
+ * chain) rather than requiring a caller to pre-shape it.
  */
 export function reportMcpInternalError(
   requestId: string,
   tool: string | undefined,
   error: unknown,
 ): void {
-  console.error("MCP internal error", { requestId, tool }, error);
+  logger.error("mcp.internal_error", error, { requestId, tool });
 }

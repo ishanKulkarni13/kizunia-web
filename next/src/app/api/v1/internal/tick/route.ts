@@ -25,9 +25,12 @@
  * idempotent on the occurrence key, claiming is exclusive, and every task is
  * guarded by its own last-run marker.
  */
+import { randomUUID } from "node:crypto";
+
 import { NextRequest, NextResponse } from "next/server";
 
 import { runDueTasks, type InternalTask } from "@/lib/internal-jobs/registry";
+import { logger, runWithLogContext } from "@/lib/logger";
 import { PostgresRateLimitStore } from "@/lib/rate-limit/postgres.store";
 import { secretEquals } from "@/lib/security/timing-safe-equal";
 import { assetReconciliationService } from "@/modules/assets/backend/reconciliation.service";
@@ -114,24 +117,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  try {
-    const summary = await runDueTasks(tasks, new Date());
+  return runWithLogContext(randomUUID(), async () => {
+    try {
+      const summary = await runDueTasks(tasks, new Date());
 
-    // A task that failed is reported in the body but does not fail the request.
-    // The platform's retry keys off the status, and re-running the whole tick
-    // to recover one task would redo the ones that succeeded — which is only
-    // safe because they are idempotent, not because it is a good idea. Each
-    // task's own retry state is the right recovery mechanism.
-    return NextResponse.json({ success: true, data: summary });
-  } catch (error) {
-    console.error("Internal tick failed", error);
+      // A task that failed is reported in the body but does not fail the request.
+      // The platform's retry keys off the status, and re-running the whole tick
+      // to recover one task would redo the ones that succeeded — which is only
+      // safe because they are idempotent, not because it is a good idea. Each
+      // task's own retry state is the right recovery mechanism.
+      return NextResponse.json({ success: true, data: summary });
+    } catch (error) {
+      logger.error("internal_jobs.tick_failed", error);
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: { code: "TICK_FAILED", message: "Scheduled tick failed." },
-      },
-      { status: 500 },
-    );
-  }
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: "TICK_FAILED", message: "Scheduled tick failed." },
+        },
+        { status: 500 },
+      );
+    }
+  });
 }

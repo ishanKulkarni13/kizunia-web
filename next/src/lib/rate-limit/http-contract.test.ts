@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { describe, expect, it } from "vitest";
 
-import { ErrorHandler } from "@/lib/errors";
+import { ErrorHandler } from "@/lib/errors/error-handler";
 import { ApiResponse } from "@/lib/http";
 import { Route } from "@/lib/http/route";
 

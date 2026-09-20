@@ -8,6 +8,7 @@ import {
 import type { NextRequest } from "next/server";
 import { AuthenticationError } from "../errors";
 import { headers } from "next/headers";
+import { setLogActorId } from "@/lib/logger";
 
 export class SessionService {
   /**
@@ -34,6 +35,14 @@ export class SessionService {
         code: "UNAUTHORIZED",
       });
     }
+
+    // Records the actor id for the request-scoped log context, now that
+    // session resolution — the one lookup this already required — has
+    // happened. This is bookkeeping for correlation, not an authorization
+    // decision: it runs on every successful session resolution, before any
+    // authorization check, and the logger has no say in whether the actor is
+    // allowed to do anything.
+    setLogActorId(session.user.id);
 
     return {
       id: session.user.id,
@@ -97,6 +106,8 @@ export class SessionService {
     if (!session?.user) {
       return null;
     }
+
+    setLogActorId(session.user.id);
 
     return {
       id: session.user.id,

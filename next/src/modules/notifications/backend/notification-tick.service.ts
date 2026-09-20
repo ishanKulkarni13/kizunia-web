@@ -39,6 +39,7 @@
  * silently suppressing operational notices would be a bad trade.
  */
 import { JOB_CONFIG, RETENTION_CONFIG, SCHEDULE_CONFIG } from "../config/notification-config";
+import { DeliveryRepository } from "../delivery/delivery.repository";
 import { notificationJobHandlers } from "../jobs/handlers";
 import { JobRunner } from "../jobs/job-runner";
 import { workQueue } from "../jobs/postgres-work-queue";
@@ -64,6 +65,7 @@ export interface NotificationTickResult {
     hasMore: boolean;
   };
   readonly pruned: number;
+  readonly prunedAttempts: number;
 }
 
 export class NotificationTickService {
@@ -112,6 +114,13 @@ export class NotificationTickService {
       RETENTION_CONFIG.pruneBatchSize,
     );
 
+    // Same housekeeping category as the job prune above, kept unguarded for
+    // the same reason: a failure here should be visible, not swallowed.
+    const prunedAttempts = await DeliveryRepository.pruneAttempts(
+      new Date(now.getTime() - RETENTION_CONFIG.deliveryAttemptSeconds * 1000),
+      RETENTION_CONFIG.pruneBatchSize,
+    );
+
     const result: NotificationTickResult = {
       scheduled: {
         enqueued: scheduled.enqueued,
@@ -128,6 +137,7 @@ export class NotificationTickService {
         hasMore: drained.hasMore,
       },
       pruned,
+      prunedAttempts,
     };
 
     logNotificationEvent("tick.complete", {
@@ -135,6 +145,7 @@ export class NotificationTickService {
       ...result.scheduled,
       ...result.drained,
       pruned,
+      prunedAttempts,
       sweepIntervalSeconds: SCHEDULE_CONFIG.sweepIntervalSeconds,
     });
 

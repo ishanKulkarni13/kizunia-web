@@ -30,6 +30,7 @@ const SYSTEM_WEIGHTS: Record<DimensionId, number> = {
   [DimensionId.TECHNOLOGIES]: 0.9,
   [DimensionId.LOCATION]: 0.8,
   [DimensionId.ELIGIBILITIES]: 0.8,
+  [DimensionId.COMPETITION_TYPE]: 0.8,
   [DimensionId.MODE]: 0.7,
   [DimensionId.REGISTRATION_FEE_TYPE]: 0.6,
   [DimensionId.DIFFICULTY]: 0.5,

@@ -29,6 +29,7 @@ added without touching the engine.
 | `certificateType` | `Competition.certificateType` |
 | `status` | `Competition.status` |
 | `teamSize` | `Competition.minTeamSize` / `maxTeamSize` (containment, not exact match) |
+| `competitionType` | `Competition.types` (via `CompetitionType`, `CompetitionTypeRelation`) |
 
 ## Deferred (temporarily) — temporal dimensions
 
@@ -46,7 +47,11 @@ entry, one system weight — see
 | Requested | Why it is unavailable |
 | --- | --- |
 | `registrationFee` | `Competition.registrationFee` is a free-text `String?` (max 50 chars), not a numeric amount with a currency. There is no parser for it and inventing one is a product/domain decision, not a Phase 0 one. |
-| `competitionType` (Hackathon / Ideathon / Quiz / DSA / CP / …) | No field, enum, or table exists anywhere in the current schema. This is explicitly future work — see `docs/architecture/notifications/...` and product discussion — and Phase 0 does not invent it. |
+
+`competitionType` (Hackathon / Ideathon / Quiz / DSA / CP / …) was listed
+here as unavailable when this document was last written; the `CompetitionType`
+enum and `CompetitionTypeRelation` table were added shortly after, and it is
+now implemented — see the table above.
 
 ## What "eligibilities has sparse data" means in practice
 

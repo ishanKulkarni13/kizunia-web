@@ -26,6 +26,7 @@ export const COMPETITION_DIMENSIONS: ReadonlyMap<
     listDimension(DimensionId.CATEGORIES, (c) => c.categorySlugs),
     listDimension(DimensionId.TECHNOLOGIES, (c) => c.technologySlugs),
     listDimension(DimensionId.ELIGIBILITIES, (c) => c.eligibilityTypes),
+    listDimension(DimensionId.COMPETITION_TYPE, (c) => c.competitionTypes),
     locationDimension,
     scalarDimension(DimensionId.REGISTRATION_PLATFORM, (c) => c.registrationPlatform),
     scalarDimension(DimensionId.REGISTRATION_TYPE, (c) => c.registrationType),

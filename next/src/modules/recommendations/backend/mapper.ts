@@ -48,6 +48,7 @@ export class RecommendationMapper {
       categorySlugs: row.categories.map((c) => c.category.slug),
       technologySlugs: row.technologies.map((t) => t.technology.slug),
       eligibilityTypes: row.eligibilities.map((e) => e.type),
+      competitionTypes: row.types.map((t) => t.type),
       searchAreaIds: [...searchAreaIds],
       startDate: row.startDate,
       registrationDeadline: row.registrationDeadline,

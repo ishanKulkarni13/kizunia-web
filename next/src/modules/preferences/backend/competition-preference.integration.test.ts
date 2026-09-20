@@ -138,6 +138,34 @@ describe("CompetitionPreferenceService", () => {
     ).rejects.toThrow();
   });
 
+  it("accepts a competitionType preference with a real enum value", async () => {
+    const user = await createTestUser("known-competition-type");
+
+    const preferences = await CompetitionPreferenceService.replaceForUser(user.id, {
+      preferences: [
+        { dimension: DimensionId.COMPETITION_TYPE, value: "HACKATHON", weight: 0.6 },
+        { dimension: DimensionId.COMPETITION_TYPE, value: "QUIZ", weight: 0.3 },
+      ],
+    });
+
+    expect(preferences).toEqual([
+      { dimension: DimensionId.COMPETITION_TYPE, value: "HACKATHON", weight: 0.6 },
+      { dimension: DimensionId.COMPETITION_TYPE, value: "QUIZ", weight: 0.3 },
+    ]);
+  });
+
+  it("rejects an invalid competitionType value", async () => {
+    const user = await createTestUser("invalid-competition-type");
+
+    await expect(
+      CompetitionPreferenceService.replaceForUser(user.id, {
+        preferences: [
+          { dimension: DimensionId.COMPETITION_TYPE, value: "NOT_A_TYPE", weight: 0.5 },
+        ],
+      }),
+    ).rejects.toThrow();
+  });
+
   it("rejects an unknown category slug", async () => {
     const user = await createTestUser("unknown-category");
 

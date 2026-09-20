@@ -49,12 +49,6 @@ only as a ranking tiebreaker. See
 [`relevance/dimensions.md`](relevance/dimensions.md) and
 [`../../../architecture/recommendation/future.md`](../../../architecture/recommendation/future.md).
 
-## Competition type
-
-`competitionType` (Hackathon / Ideathon / Quiz / DSA / CP / …) does not
-exist in the current competition domain and is not invented here. See
-[`relevance/dimensions.md`](relevance/dimensions.md).
-
 ## Configuration surface
 
 An admin configuration UI, database-stored algorithm configuration, or any

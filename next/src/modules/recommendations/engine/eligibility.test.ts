@@ -71,6 +71,28 @@ describe("evaluateEligibility", () => {
     expect(result.eligible).toBe(true);
   });
 
+  it("rejects when a hard competitionType constraint mismatches", () => {
+    const profile = normalizeProfile([entry(DimensionId.COMPETITION_TYPE, "HACKATHON", 1)]);
+    const candidate = buildCandidate({ competitionTypes: ["QUIZ"] });
+
+    const result = evaluateEligibility(profile, candidate, COMPETITION_DIMENSIONS, ALL_ENABLED);
+
+    expect(result.eligible).toBe(false);
+    expect(result.rejection).toEqual({
+      dimension: DimensionId.COMPETITION_TYPE,
+      reason: "HARD_MISMATCH",
+    });
+  });
+
+  it("passes when a hard competitionType constraint matches one of several attached types", () => {
+    const profile = normalizeProfile([entry(DimensionId.COMPETITION_TYPE, "HACKATHON", 1)]);
+    const candidate = buildCandidate({ competitionTypes: ["QUIZ", "HACKATHON"] });
+
+    const result = evaluateEligibility(profile, candidate, COMPETITION_DIMENSIONS, ALL_ENABLED);
+
+    expect(result.eligible).toBe(true);
+  });
+
   it("is eligible with no hard constraints at all", () => {
     const profile = normalizeProfile([entry(DimensionId.CATEGORIES, "ai", 0.5)]);
     const candidate = buildCandidate();

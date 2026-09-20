@@ -40,6 +40,10 @@ portfolio data, not `NotificationPreference`. See
 exist) are documented as unavailable rather than invented. See
 [`../relevance/dimensions.md`](../relevance/dimensions.md).
 
+*Update:* `competitionType` was added as a fourteenth dimension once
+`CompetitionType`/`CompetitionTypeRelation` existed in the schema.
+`registrationFee` remains deferred for the reason stated above.
+
 ## RD-06 — Temporal dimensions removed from Phase 0
 
 `startDate`/`endDate`/`registrationDeadline`/`registrationStartDate` are

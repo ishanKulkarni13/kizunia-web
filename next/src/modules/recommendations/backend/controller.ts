@@ -28,6 +28,12 @@ export class RecommendationController {
   /**
    * Generates recommendations for the CURRENT authenticated user only.
    *
+   * TEMPORARY — TESTING/DEVELOPMENT ONLY. This handler backs the
+   * testing-only `POST /api/v1/me/recommendations/competitions` route (see
+   * that file for the full removal-before-production notice) and must be
+   * removed alongside it. No production code path calls this method —
+   * production flows call `RecommendationService.generateForUser` directly.
+   *
    * `SessionService.getStrictActor` is the sole source of `userId` here —
    * the request schema has no `userId` field at all (see
    * `schemas/generate-recommendations.ts`), so there is no field a caller

@@ -3,6 +3,7 @@ import type { AuthorizationActor } from "@/authorization";
 import { InternalError } from "@/lib/errors";
 
 import type { PortfolioContext } from "./context";
+import { resolvePortfolioPublicEligibility } from "./public-eligibility";
 
 import { PortfolioRepository } from "../repository";
 
@@ -52,6 +53,24 @@ export class PortfolioContextResolver {
   }
 
   /**
+   * Context for an unauthenticated public read. The public portfolio
+   * endpoint carries no session, so the actor is anonymous: never the
+   * owner, never a platform admin, never banned. `ownerBanned` is read from
+   * `portfolio.user.banned` — the real, freshly-fetched DB value — since
+   * there is no actor to derive it from.
+   */
+  static forPublicRead({
+    portfolio,
+  }: {
+    portfolio: PortfolioContext["portfolio"];
+  }): PortfolioContext {
+    return this.fromData({
+      actor: { id: null, role: null, banned: false },
+      portfolio,
+    });
+  }
+
+  /**
    * Creates a context from already loaded entities.
    */
   static fromData({
@@ -61,14 +80,30 @@ export class PortfolioContextResolver {
     actor: AuthorizationActor;
     portfolio: PortfolioContext["portfolio"];
   }): PortfolioContext {
+    const isOwner = portfolio !== null && actor.id === portfolio.userId;
+
     return {
       actor,
 
       portfolio,
 
-      isOwner:
+      isOwner,
+
+      // Computed here, never by callers — the single place this axis enters
+      // the authorization system.
+      isPubliclyDisplayable:
         portfolio !== null &&
-        actor.id === portfolio.userId,
+        resolvePortfolioPublicEligibility({ ownerUserId: portfolio.userId }),
+
+      // When the actor IS the owner, their own ban state (already known
+      // from the session, no extra fetch) is authoritative and identical to
+      // the owner's — this is the same source of truth every other module's
+      // `.security(!actor.banned)` check already trusts. Otherwise, this
+      // requires `portfolio.user.banned` to have actually been fetched
+      // (see portfolioAuthorizationSelect / findForAuthorizationByUsername).
+      ownerBanned: isOwner
+        ? actor.banned === true
+        : portfolio?.user.banned === true,
     };
   }
 }

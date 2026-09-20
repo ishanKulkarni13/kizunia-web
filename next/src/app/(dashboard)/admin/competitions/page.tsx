@@ -3,7 +3,6 @@ import { TriangleAlertIcon } from "lucide-react";
 
 import { PlatformAction } from "@/authorization/platform/actions";
 import { PlatformAuthorizer } from "@/authorization/platform/authorizer";
-import type { StrictAuthorizationActor } from "@/authorization";
 import PageWrapper from "@/components/page-wrapper";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,7 +14,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { SessionService } from "@/lib/auth/session";
-import { AppError, AuthenticationError } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
 import {
   activeFilterCount,
   buildSearchHref,
@@ -51,24 +50,10 @@ interface Props {
 export default async function AdminCompetitionsPage({ searchParams }: Props) {
   const params = await searchParams;
 
-  const actor = await SessionService.getActor();
-
-  if (!actor || !actor.role || !!actor.banned || !actor.id) {
-    throw new AuthenticationError({
-      code: "UNAUTHORIZED",
-      message: "You are not authorized to access this page.",
-      status: 401,
-    });
-  }
-
-  const strictActor: StrictAuthorizationActor = {
-    id: actor.id,
-    role: actor.role,
-    banned: actor.banned ?? true,
-  };
+  const actor = await SessionService.getStrictActor();
 
   PlatformAuthorizer.can(
-    { actor: strictActor },
+    { actor },
     PlatformAction.VIEW_ALL_COMPETITIONS,
   );
 
@@ -80,7 +65,7 @@ export default async function AdminCompetitionsPage({ searchParams }: Props) {
   // the page, same reasoning as the public listing.
   const [searchOutcome, summary, categories, technologies] =
     await Promise.allSettled([
-      CompetitionService.searchAdmin(strictActor, params),
+      CompetitionService.searchAdmin(actor, params),
       CompetitionService.getAdminSummary(),
       TaxonomyService.listCategories({ limit: 200, includeEmpty: false, entity: "competition" }),
       TaxonomyService.listTechnologies({ limit: 200, includeEmpty: false, entity: "competition" }),

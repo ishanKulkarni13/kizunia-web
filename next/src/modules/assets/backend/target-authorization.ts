@@ -124,14 +124,11 @@ export async function authorizeUploadForPurpose({
 
       const portfolioRepository = new PortfolioRepository();
 
-      const portfolio = await portfolioRepository.findByUserIdOrThrow({
+      const portfolio = await portfolioRepository.findForAuthorizationByUserIdOrThrow({
         userId: actorId,
       });
 
-      const context = await PortfolioContextResolver.resolve({
-        actor,
-        portfolioId: portfolio.id,
-      });
+      const context = PortfolioContextResolver.fromData({ actor, portfolio });
 
       PortfolioAuthorizer.edit(context);
       return;
@@ -163,14 +160,11 @@ export async function authorizeUploadForPurpose({
 
       const portfolioRepository = new PortfolioRepository();
 
-      const portfolio = await portfolioRepository.findByUserIdOrThrow({
+      const portfolio = await portfolioRepository.findForAuthorizationByUserIdOrThrow({
         userId: actorId,
       });
 
-      const context = await PortfolioContextResolver.resolve({
-        actor,
-        portfolioId: portfolio.id,
-      });
+      const context = PortfolioContextResolver.fromData({ actor, portfolio });
 
       PortfolioAuthorizer.can(context, PortfolioAction.MANAGE_TESTIMONIALS);
       return;

@@ -2,11 +2,9 @@ import Link from "next/link";
 
 import { PlatformAction } from "@/authorization/platform/actions";
 import { PlatformAuthorizer } from "@/authorization/platform/authorizer";
-import type { StrictAuthorizationActor } from "@/authorization";
 import PageWrapper from "@/components/page-wrapper";
 import { Button } from "@/components/ui/button";
 import { SessionService } from "@/lib/auth/session";
-import { AuthenticationError } from "@/lib/errors";
 
 import { assetAdminService } from "@/modules/assets/backend/admin.service";
 
@@ -27,27 +25,13 @@ const PATHNAME = "/admin/assets";
  * Technology's convention rather than Competition Lifecycle's.
  */
 export default async function AdminAssetsPage() {
-  const actor = await SessionService.getActor();
+  const actor = await SessionService.getStrictActor();
 
-  if (!actor || !actor.role || !!actor.banned || !actor.id) {
-    throw new AuthenticationError({
-      code: "UNAUTHORIZED",
-      message: "You are not authorized to access this page.",
-      status: 401,
-    });
-  }
-
-  const strictActor: StrictAuthorizationActor = {
-    id: actor.id,
-    role: actor.role,
-    banned: actor.banned ?? true,
-  };
-
-  PlatformAuthorizer.can({ actor: strictActor }, PlatformAction.MANAGE_MEDIA);
+  PlatformAuthorizer.can({ actor }, PlatformAction.MANAGE_MEDIA);
 
   const [searchResult, summary] = await Promise.all([
-    assetAdminService.search(strictActor, { limit: "20" }),
-    assetAdminService.getSummary(strictActor),
+    assetAdminService.search(actor, { limit: "20" }),
+    assetAdminService.getSummary(actor),
   ]);
 
   return (

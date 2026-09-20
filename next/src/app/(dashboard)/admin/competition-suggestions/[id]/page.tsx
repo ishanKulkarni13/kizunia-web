@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { PlatformAction } from "@/authorization/platform/actions";
 import { PlatformAuthorizer } from "@/authorization/platform/authorizer";
-import type { StrictAuthorizationActor } from "@/authorization";
 import PageWrapper from "@/components/page-wrapper";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +12,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SessionService } from "@/lib/auth/session";
-import { AuthenticationError } from "@/lib/errors";
 
 import { CompetitionSuggestionService } from "@/modules/competitions/backend/suggestion/service";
 import { SuggestionStatusBadge } from "@/modules/competitions/components/suggestion/suggestion-status-badge";
@@ -36,29 +34,15 @@ export default async function AdminCompetitionSuggestionDetailPage({
 }: Props) {
   const { id } = await params;
 
-  const actor = await SessionService.getActor();
-
-  if (!actor || !actor.role || !!actor.banned || !actor.id) {
-    throw new AuthenticationError({
-      code: "UNAUTHORIZED",
-      message: "You are not authorized to access this page.",
-      status: 401,
-    });
-  }
-
-  const strictActor: StrictAuthorizationActor = {
-    id: actor.id,
-    role: actor.role,
-    banned: actor.banned ?? true,
-  };
+  const actor = await SessionService.getStrictActor();
 
   PlatformAuthorizer.can(
-    { actor: strictActor },
+    { actor },
     PlatformAction.VIEW_COMPETITION_SUGGESTIONS,
   );
 
   const suggestion = await CompetitionSuggestionService.findByIdForReview({
-    actor: strictActor,
+    actor,
     id,
   });
 

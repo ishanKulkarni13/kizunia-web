@@ -47,6 +47,21 @@ const portfolioAuthorizationSelect = {
   visibility: true,
 
   deletedAt: true,
+
+  // The owner's ban state is an authorization input, not presentation data:
+  // a banned owner's portfolio must not be publicly reachable (mirrors the
+  // `user.banned` filter `findPublicByUsername` already applies). Selected
+  // ONLY here — never in `portfolioEditorInclude`/`portfolioPublicDetailsInclude`
+  // — because those two feed DTOs that pass entities straight through
+  // (`PortfolioMapper.toEditorDto`), and this field must never leak into a
+  // response. Owner-context callers (findMine/updateProfile, where the actor
+  // IS the owner) derive the owner's ban state from `actor.banned` instead
+  // of this select — see PortfolioContextResolver.fromData.
+  user: {
+    select: {
+      banned: true,
+    },
+  },
 } satisfies Prisma.PortfolioSelect;
 
 const portfolioPublicDetailsInclude = {
@@ -734,6 +749,33 @@ export class PortfolioRepository {
     }
 
     return portfolio;
+  }
+
+  /**
+   * The portfolio behind a username, in the minimal shape an authorization
+   * decision needs — deliberately WITHOUT the public visibility/ban/deleted
+   * filters that `findPublicByUsername` applies.
+   *
+   * `PortfolioPolicy` must see the real row to make (and name) the
+   * decision; `findPublicByUsername`'s SQL filter stays in place on the
+   * data-fetch path as defence-in-depth and as a data-scoping optimisation,
+   * the same way `publiclyListableProjectWhere` does for Projects — it is
+   * not itself the authorization decision.
+   */
+  async findForAuthorizationByUsername({
+    username,
+  }: {
+    username: string;
+  }): Promise<PortfolioAuthorizationEntity | null> {
+    return this.db.portfolio.findFirst({
+      where: {
+        user: {
+          username,
+        },
+      },
+
+      select: portfolioAuthorizationSelect,
+    });
   }
 
   async exists({ id }: { id: string }): Promise<boolean> {

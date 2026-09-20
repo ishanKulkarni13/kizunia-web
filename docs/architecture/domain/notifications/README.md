@@ -1,6 +1,6 @@
 # Notifications Domain
 
-> **Status:** Design — no implementation started
+> **Status:** Implemented — see [architecture/notifications/IMPLEMENTATION-STATUS.md](../../notifications/IMPLEMENTATION-STATUS.md)
 >
 > **Last Updated:** 2026-09-12
 

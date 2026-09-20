@@ -2,7 +2,7 @@
 
 > **Status:** Live — updated at every checkpoint
 >
-> **Last Updated:** 2026-09-18 (admin suggestion notice added)
+> **Last Updated:** 2026-09-20 (attempt-row pruning wired up; push-subscription repository extracted)
 
 This document is the **resumable checkpoint** for the notification delivery
 implementation. It is written so that someone with no context beyond this
@@ -183,6 +183,17 @@ later) and `PushProvider` (FCM today, anything later).
         would control nothing
   - [x] Reused as-is, unmodified: the inbox API, the inbox UI (`actionPath`-driven, fully
         intent-agnostic), delivery, the push pipeline, the work queue, the job runner, the tick route
+  - [x] `backend/push-subscription.repository.ts` — extracted from `push-subscription.service.ts`,
+        matching the repository convention its siblings (`NotificationRepository`,
+        `DeliveryRepository`) already use. No behavior change; the service still owns the
+        "a token identifies a browser, not a person" business logic and the token-redacting `toDTO`
+  - [x] `delivery/delivery.repository.ts` — `pruneAttempts`, wired into `notification-tick.service.ts`
+        alongside the existing job prune. Consumes `RETENTION_CONFIG.deliveryAttemptSeconds`, which
+        was previously configured but unused. Prunes on `startedAt`, not `finishedAt`, so a
+        crashed-mid-send attempt still ages out. Confirmed safe with respect to deduplication:
+        dedup reads only `NotificationDelivery.status` via
+        `NotificationRepository.findDeliveredTargetIds`, never this table — unrelated to A-11, which
+        concerns `Notification`/`NotificationTarget`/`NotificationDelivery` only
 
 ### In progress
 
@@ -195,13 +206,6 @@ Deliberately not built. Each is recorded in
 email/WhatsApp/mobile channels, audience targeting, per-channel preferences, a template system,
 quiet hours and digests, entitlements, the per-user deadline maximum (ND-P-17), retention for
 anything that participates in deduplication (A-11), and Kafka.
-
-Two small follow-ups a future change could pick up, neither blocking:
-
-- `push-subscription.service.ts` holds its own Prisma calls rather than delegating to a repository,
-  unlike its siblings. It is a handful of queries; splitting it would be tidiness, not a fix.
-- The `notification_delivery_attempt` prune pass described in `RETENTION_CONFIG` is configured but
-  not yet wired into the tick. Job rows *are* pruned; attempt rows accumulate.
 
 ### External configuration — required in production, not required to write or test the code
 

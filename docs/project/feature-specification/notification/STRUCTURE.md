@@ -219,7 +219,7 @@ directory and is not authoritative:
 
 | Source | Contributed |
 | --- | --- |
-| `notificatio-decisions.md` | Preferences, relevance, candidate filtering, both Phase 1 intents, history, response, aggregation, architectural direction |
+| `notificatio-decisions.md` (file since removed after its content was fully absorbed into this specification) | Preferences, relevance, candidate filtering, both Phase 1 intents, history, response, aggregation, architectural direction |
 | `notofication-User-stories.md` | US-01 to US-31, the inbox surface, preference categories, future scope, explicit non-goals |
 | `codebase-recommendation.md` | Engineering requirements: bounded module, pipeline/filter-chain, replaceable algorithms, intent boundary, flags and entitlements, analytics, testing, documentation liveness |
 

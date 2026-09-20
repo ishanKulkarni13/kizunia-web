@@ -44,6 +44,50 @@ export const RateLimitPolicyId = {
   AUTH_SIGN_UP: "auth:sign-up",
   AUTH_PASSWORD_RESET_REQUEST: "auth:password-reset-request",
   /**
+   * Phase 0's manual/internal recommendation-generation testing route. Not a
+   * spend concern (one local DB read plus in-memory scoring), but a full
+   * pipeline run per request is real CPU work, so it is still bounded.
+   */
+  RECOMMENDATIONS_GENERATE: "recommendations:generate",
+  /**
+   * Notification-preference read/write for the current user. Same
+   * subject/failure-mode profile as `COMPETITIONS_USER_STATE_READ/WRITE`:
+   * local DB only, no spend, guards against a stuck retry loop rather than
+   * cost.
+   */
+  NOTIFICATION_PREFERENCES_READ: "notification-preferences:read",
+  NOTIFICATION_PREFERENCES_WRITE: "notification-preferences:write",
+  /**
+   * Competition-preference read/write for the current user. The write path
+   * validates against category/technology/search-area tables, so it is a
+   * little heavier than a bare upsert, but still local DB only.
+   */
+  COMPETITION_PREFERENCES_READ: "competition-preferences:read",
+  COMPETITION_PREFERENCES_WRITE: "competition-preferences:write",
+  /**
+   * The notification inbox and push-subscription list for the current user.
+   * Local DB reads only; bounded against a stuck client rather than cost.
+   */
+  NOTIFICATIONS_INBOX_READ: "notifications:inbox-read",
+  /**
+   * The unread-count poll behind the header bell. Separate from the inbox read
+   * because it is issued far more often and costs far less — one indexed count
+   * versus a page of rows with their targets — so sharing a bucket would let
+   * polling starve the read someone is actually waiting on.
+   */
+  NOTIFICATIONS_UNREAD_COUNT: "notifications:unread-count",
+  NOTIFICATIONS_MARK_READ: "notifications:mark-read",
+  /**
+   * Registering or revoking a browser's push token. The only user-facing
+   * notification policy that fails closed — see its description.
+   */
+  PUSH_SUBSCRIPTIONS_WRITE: "push-subscriptions:write",
+  /**
+   * Creating, scheduling or cancelling a platform announcement. Admin-only, and
+   * the one write in the system whose blast radius is every user.
+   */
+  ANNOUNCEMENTS_WRITE: "announcements:write",
+  /**
    * `search_competitions` and `get_competition`. One bucket for both — same
    * reasoning as competitions:user-state-write: independent tools,
    * identical cost, so one bucket is the honest way to bound one MCP
@@ -220,6 +264,96 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "closed",
     description:
       "Password-reset spam protection, symmetric for existent and non-existent accounts so the limiter itself never signals whether an address has an account.",
+  },
+  [RateLimitPolicyId.RECOMMENDATIONS_GENERATE]: {
+    id: RateLimitPolicyId.RECOMMENDATIONS_GENERATE,
+    limit: 30,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Authenticated internal testing route for the Phase 0 recommendation engine (the route already requires a session, so `user` is valid here). 30/min is far above manual click-testing rhythm while still stopping a stuck retry loop from repeatedly re-running the full pipeline. Local DB read plus in-memory scoring only — no external spend — so it fails open: a limiter outage should not block a developer testing the engine.",
+  },
+  [RateLimitPolicyId.NOTIFICATION_PREFERENCES_READ]: {
+    id: RateLimitPolicyId.NOTIFICATION_PREFERENCES_READ,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Reading one's own notification preferences (the route already requires a session). One indexed read, local DB cost only — fails open, a limiter outage should not stop a settings page from loading.",
+  },
+  [RateLimitPolicyId.NOTIFICATION_PREFERENCES_WRITE]: {
+    id: RateLimitPolicyId.NOTIFICATION_PREFERENCES_WRITE,
+    limit: 60,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Toggling one's own notification preferences. One indexed upsert, local DB cost only. 60/min is far above any real toggling rhythm while still stopping a stuck retry loop — fails open, a limiter outage should not block a settings change.",
+  },
+  [RateLimitPolicyId.COMPETITION_PREFERENCES_READ]: {
+    id: RateLimitPolicyId.COMPETITION_PREFERENCES_READ,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Reading one's own competition preference profile (the route already requires a session). One indexed read, local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.COMPETITION_PREFERENCES_WRITE]: {
+    id: RateLimitPolicyId.COMPETITION_PREFERENCES_WRITE,
+    limit: 30,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Replacing one's own competition preference profile. Heavier than a bare upsert — validates category/technology/search-area values before a transactional delete+recreate — so the ceiling is lower than the read/toggle policies, but still local DB cost only, so it fails open.",
+  },
+  [RateLimitPolicyId.NOTIFICATIONS_INBOX_READ]: {
+    id: RateLimitPolicyId.NOTIFICATIONS_INBOX_READ,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Reading one's own notification inbox (the route already requires a session, so `user` is valid here). One keyset-paginated indexed read plus an unread count — local DB cost only, no spend. 120/min is far above opening an inbox and paging through it, while still stopping a stuck client from looping. Fails open: a limiter outage should not leave someone unable to see what they were notified about.",
+  },
+  [RateLimitPolicyId.NOTIFICATIONS_UNREAD_COUNT]: {
+    id: RateLimitPolicyId.NOTIFICATIONS_UNREAD_COUNT,
+    limit: 240,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "The unread-count poll behind the header bell. Deliberately its own bucket, and double the inbox allowance: it is issued on a timer rather than by a click, and costs one indexed count against `(userId, readAt)` rather than a page of rows. Sharing the inbox bucket would let background polling exhaust the budget for the read a user is actually waiting on. Fails open — losing it would freeze the badge, which is worse than serving a slightly stale count.",
+  },
+  [RateLimitPolicyId.NOTIFICATIONS_MARK_READ]: {
+    id: RateLimitPolicyId.NOTIFICATIONS_MARK_READ,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Marking one's own notifications read or responded, individually or in bulk. One indexed update scoped to the caller. 120/min covers clearing a full inbox item by item with room to spare. Fails open: local DB cost only, and a limiter outage should not leave someone unable to dismiss a notification.",
+  },
+  [RateLimitPolicyId.PUSH_SUBSCRIPTIONS_WRITE]: {
+    id: RateLimitPolicyId.PUSH_SUBSCRIPTIONS_WRITE,
+    limit: 20,
+    windowSeconds: 60 * 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "Registering or revoking a browser's push token. A browser registers roughly once per session, so 20/hour is generous for legitimate use including token rotation and several devices. Fails CLOSED, unlike the other notification policies: a stuck client looping here mints registrations against a billed external provider's quota, and an exhausted FCM quota degrades delivery for every user — the same reasoning as assets:upload-intent, where a DB outage must not become uncapped third-party spend.",
+  },
+  [RateLimitPolicyId.ANNOUNCEMENTS_WRITE]: {
+    id: RateLimitPolicyId.ANNOUNCEMENTS_WRITE,
+    limit: 30,
+    windowSeconds: 60 * 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "Creating, scheduling or cancelling a platform announcement. Admin-only and already authorized, so this is not a fairness limit — it is a blast-radius limit. One write here fans out to a notification for every user with the intent enabled, so an accidental loop is the one mistake in this subsystem that reaches everybody at once. 30/hour is far beyond any editorial rhythm. Fails closed for the same reason: if the limiter is unavailable, refusing an announcement costs a delay, while allowing an unbounded number costs every user's trust.",
   },
   [RateLimitPolicyId.MCP_TOOLS_READ]: {
     id: RateLimitPolicyId.MCP_TOOLS_READ,

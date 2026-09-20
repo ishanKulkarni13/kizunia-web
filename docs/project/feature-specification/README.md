@@ -57,10 +57,25 @@ The current version of Kizunia Web consists of the following modules.
 | Teams | Collaborative groups that participate in hackathons and build projects together. |
 | Hackathons | Discovery and management of hackathon information. |
 | Portfolios | Automatically generated engineering portfolios. |
-| Notifications | Personalized hackathon and platform notifications. |
+| [Notifications](notification/README.md) | Personalized competition and platform notifications. |
 | Platform Management | Administration, moderation, verification, and platform operations. |
 
 Each module is intentionally designed to remain loosely coupled from the others while still integrating naturally throughout the platform.
+
+---
+
+# Modular Specifications
+
+Two modules are substantial enough that a single document cannot serve them. Each has its own
+directory with an index.
+
+| Module | Specification | Scope |
+| ------ | ------------- | ----- |
+| [Search & Discovery](search/README.md) | `search/` | Shared, entity-agnostic search, filtering, sorting and pagination infrastructure. |
+| [Notifications](notification/README.md) | `notification/` | Notification intents, preferences, relevance, history and delivery. Technical architecture lives in [`architecture/notifications/`](../../architecture/notifications/README.md). |
+
+A module earns a directory when its specification stops being readable as one document — not
+because longer documentation is better. The single-document form remains the default.
 
 ---
 

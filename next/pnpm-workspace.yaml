@@ -8,6 +8,8 @@ allowBuilds:
   unrs-resolver: false
   '@prisma/client': true
   esbuild: false
+  '@firebase/util': false
+  protobufjs: false
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver

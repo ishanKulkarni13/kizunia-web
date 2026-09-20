@@ -63,12 +63,41 @@ entry, only one per project. This is expected and matches Vercel's own
 documented convention; it is not a case of two features accidentally
 reusing each other's credentials.
 
+## The tick: one cron entry, many tasks
+
+The convention above is unchanged. What changed is **registration**.
+
+Vercel's Hobby plan allows **two** cron entries, triggered daily, and this
+project already used both. A third job could not get a slot — and exceeding
+the limit fails the deploy rather than failing quietly.
+
+So `vercel.json` now has one entry, `GET /api/v1/internal/tick`, which
+dispatches a registry of tasks (`next/src/lib/internal-jobs/registry.ts`). Each
+task declares a minimum interval and is guarded by a durable last-run marker
+(`internal_job_run`), so a task that wants to run every three days still runs
+every three days even when the tick fires daily — or every five minutes.
+
+That marker is in the database rather than in memory for the obvious reason:
+every invocation is a fresh process, and two concurrent ticks have to agree on
+what has already run.
+
+Three consequences worth stating:
+
+- **Cadence becomes configuration.** The same endpoint is correct invoked daily,
+  every five minutes, or by an external pinger. Nothing structural differs.
+- **A failing task does not abort the tick.** These tasks are unrelated; letting
+  the first failure stop the rest would turn one broken job into a stalled
+  platform. Failures are recorded per task and reported in the response body.
+- **Every task keeps its own route.** The dedicated endpoints below still work
+  and are still the way to run one job by hand.
+
 ## Current state of every internal/scheduled endpoint
 
 | Endpoint | Convention | Wired into `vercel.json`? |
 |---|---|---|
-| `GET /api/v1/internal/rate-limit/prune` | Standard (above) | Yes |
-| `GET /api/v1/internal/assets/reconcile` | Standard (above) | Yes |
+| `GET /api/v1/internal/tick` | Standard (above), dispatching the task registry | **Yes — the only cron entry** |
+| `GET /api/v1/internal/rate-limit/prune` | Standard (above) | No — runs as a registered task; route kept for manual runs |
+| `GET /api/v1/internal/assets/reconcile` | Standard (above) | No — runs as a registered task; route kept for manual runs |
 | `POST /api/v1/internal/competitions/lifecycle` | Older `x-internal-secret` / `INTERNAL_LIFECYCLE_SECRET` convention — predates this document | No — depends on an external scheduler this repository does not configure |
 
 The Competition Lifecycle sweep has **not** been migrated to the standard
@@ -81,7 +110,16 @@ scheduling specifically.
 
 ## Cadence
 
-Every entry above uses `0 0 */3 * *` (see the cron-semantics note in
+The tick is scheduled `0 13 * * *` — daily, early afternoon UTC, which is when
+the notification sweep wants to run (ND-I-23). Maintenance tasks keep their own
+three-day interval through the registry rather than through the schedule.
+
+On a plan with minute-level cron granularity, change that one schedule to
+something like `*/5 * * * *` and nothing else: the notification task's own
+interval guard keeps the daily evaluation daily, while delivery and retries get
+a much tighter loop.
+
+Historically, every entry used `0 0 */3 * *` (see the cron-semantics note in
 `docs/architecture/domain/assets/lifecycle.md`'s reconciliation section) —
 approximately every three days, anchored to the calendar rather than a
 strict rolling interval. This is intentional, not a placeholder: these are

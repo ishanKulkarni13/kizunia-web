@@ -4,12 +4,8 @@
     },
     "crons": [
         {
-            "path": "/api/v1/internal/rate-limit/prune",
-            "schedule": "0 0 */3 * *"
-        },
-        {
-            "path": "/api/v1/internal/assets/reconcile",
-            "schedule": "0 0 */3 * *"
+            "path": "/api/v1/internal/tick",
+            "schedule": "0 13 * * *"
         }
     ]
 }

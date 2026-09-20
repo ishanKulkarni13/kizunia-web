@@ -9,6 +9,7 @@ import { SidebarTrigger } from "./ui/sidebar";
 import { Fragment } from "react";
 import { Separator } from "./ui/separator";
 import { ThemeModeToggle } from "./ui/themeModeToggle";
+import { NotificationBell } from "@/modules/notifications/frontend/components/notification-bell";
 import Link from "next/link";
 
 interface PageWrapperProps {
@@ -55,7 +56,10 @@ export default function PageWrapper({
             </Breadcrumb>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            {/* Every dashboard page renders through this wrapper, so the bell
+                is present everywhere without each page opting in. */}
+            <NotificationBell />
             <ThemeModeToggle />
           </div>
         </div>

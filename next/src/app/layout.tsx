@@ -55,6 +55,11 @@ export const metadata: Metadata = {
     follow: true,
   },
 
+  // Required for web push on iOS: Safari delivers notifications only to a site
+  // that has been installed to the home screen, and it will not offer to
+  // install one without a manifest.
+  manifest: "/manifest.json",
+
   icons: {
     icon: [
       {

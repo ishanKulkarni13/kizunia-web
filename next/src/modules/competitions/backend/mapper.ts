@@ -257,7 +257,6 @@ export class CompetitionMapper {
 
       types: competitionTypeMapper.toDTOs(competition.types),
 
-
     };
   }
 

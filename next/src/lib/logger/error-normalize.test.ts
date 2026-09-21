@@ -82,4 +82,12 @@ describe("normalizeError", () => {
 
     expect(() => normalizeError(current)).not.toThrow();
   });
+
+  it("terminates on a circular cause reference instead of recursing forever", () => {
+    const a = new Error("a") as Error & { cause?: unknown };
+    const b = new Error("b", { cause: a });
+    a.cause = b;
+
+    expect(() => normalizeError(a)).not.toThrow();
+  });
 });

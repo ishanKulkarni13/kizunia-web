@@ -58,6 +58,18 @@ describe("logger", () => {
     expect(records[0].fields).toEqual({ password: "[REDACTED]", userId: "u1" });
   });
 
+  it("sanitizes sensitive keys nested inside a thrown non-Error value's normalized error", () => {
+    const records = captureSink();
+
+    logger.error("job.failed", { password: "hunter2", nested: { token: "t1" } });
+
+    const error = records[0].fields.error as { raw: Record<string, unknown> };
+    expect(error.raw).toEqual({
+      password: "[REDACTED]",
+      nested: { token: "[REDACTED]" },
+    });
+  });
+
   it("child() merges bindings into every subsequent call", () => {
     const records = captureSink();
 

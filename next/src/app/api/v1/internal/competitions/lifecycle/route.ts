@@ -31,6 +31,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
+import { logger } from "@/lib/logger";
 import { CompetitionLifecycleService } from "@/modules/competitions/backend/lifecycle.service";
 
 export async function POST(request: NextRequest) {
@@ -39,6 +40,8 @@ export async function POST(request: NextRequest) {
   const providedSecret = request.headers.get("x-internal-secret");
 
   if (!expectedSecret || providedSecret !== expectedSecret) {
+    logger.warn("competitions.lifecycle.sweep_unauthorized");
+
     return NextResponse.json(
       { success: false, error: { code: "UNAUTHORIZED", message: "Unauthorized." } },
       { status: 401 },
@@ -46,6 +49,12 @@ export async function POST(request: NextRequest) {
   }
 
   const summary = await CompetitionLifecycleService.runAutomaticSweep();
+
+  logger.info("competitions.lifecycle.sweep_completed", {
+    scanned: summary.scanned,
+    changed: summary.changed,
+    byTransition: summary.byTransition,
+  });
 
   return NextResponse.json({ success: true, data: summary });
 }

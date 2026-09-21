@@ -31,6 +31,7 @@
  */
 
 import type { Prisma } from "@/generated/prisma";
+import { logger } from "@/lib/logger";
 import {
   bindResolvableFilter,
   resolutionFailed,
@@ -100,7 +101,7 @@ async function restrictionFor(
       excludedLocationIds,
     });
   } catch (error) {
-    console.error("Could not compute a radius restriction.", error);
+    logger.error("competitions.search.radius_restriction_failed", error, { radiusKm });
 
     return resolutionFailed("STORAGE_UNAVAILABLE");
   }

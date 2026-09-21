@@ -8,7 +8,7 @@ import {
 import type { NextRequest } from "next/server";
 import { AuthenticationError } from "../errors";
 import { headers } from "next/headers";
-import { setLogActorId } from "@/lib/logger";
+import { logger, setLogActorId } from "@/lib/logger";
 
 export class SessionService {
   /**
@@ -29,6 +29,8 @@ export class SessionService {
     });
 
     if (!session?.user) {
+      logger.warn("auth.session_rejected");
+
       throw new AuthenticationError({
         status: 401,
         message: "User is not authenticated.",
@@ -68,6 +70,8 @@ export class SessionService {
     }
 
     if (!actor ||!actor.id || !actor.role || actor.banned === undefined) {
+      logger.warn("auth.strict_actor_incomplete");
+
       throw new AuthenticationError({
         status: 401,
         message: "User is not authenticated.",

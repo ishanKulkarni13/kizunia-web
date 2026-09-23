@@ -2,46 +2,82 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
-Billing is financially sensitive; every stage of the webhook/reconciliation pipeline is expected to
-be traceable end to end.
+Billing is financially sensitive. Every question support or an engineer will ask about a user's
+billing must be answerable from durable records, not from reproducing the bug.
 
 ---
 
+## The questions, and where each answer lives
+
+| Question | Answered by |
+| --- | --- |
+| Why does this user currently have PRO? | Effective-access explanation (below): each contributing Subscription (phase, plan, since when, per its latest `SubscriptionHistoryEntry`) and each active grant (who, why, until) |
+| Why did they lose access? | The `SubscriptionHistoryEntry` that ended the last contributing source (e.g. `ACTIVE → HALTED`, cause `provider_observed`, trigger `webhook`, event ID), or the grant's revocation/`validUntil` |
+| What happened to their Razorpay subscription? | The Subscription's history entries in order, plus `providerStatus`/`providerSnapshot` for what Razorpay last said |
+| Did Kizunia receive the webhook? | `BillingEvent` rows for that provider subscription ID (receipt time, type, duplicate count, matched secret) |
+| Was it processed? | Derived: applied if `subscription.lastAppliedObservationAt > event.receivedAt` ([`../webhooks/reliability-and-idempotency.md`](../webhooks/reliability-and-idempotency.md#was-this-event-processed)); otherwise the Subscription is still sync-due — see its sync fields |
+| Was an authoritative refetch performed? Did it fail? | Sync fields: `lastSyncedAt`, `syncAttempts`, `lastSyncFailureClass`, `syncDueAt`; structured sync log lines |
+| Was reconciliation attempted? | History entries with trigger `checkpoint`/`heartbeat`; sync log lines per `billing-sync` run; the run summary in the internal task marker |
+| Was the provider rate limit hit? | `RATE_LIMITED` counts per run, the global cooldown marker and its history in logs/metrics, `BUDGET_EXHAUSTED` operations |
+| Did subscription creation partially fail? | `BillingOperation` with kind `CREATE_SUBSCRIPTION` in `OUTCOME_UNKNOWN`; `PROVISIONING` Subscriptions without a provider ID |
+| Are there orphaned provider subscriptions? | `UNMATCHED_PROVIDER_SUBSCRIPTION` anomalies; `ABANDONED` Subscriptions; orphan-discovery watermark and run results |
+| Are there multiple non-terminal subscriptions? | `MULTIPLE_OPEN_SUBSCRIPTIONS` anomalies (evaluated on every phase change) |
+| Did we cause this change, or did it happen at Razorpay? | History `cause` (`kizunia_command` with operation and actor, vs `provider_observed`) |
+
+## Effective-access explanation
+
+The resolver has a sibling, `explainEffectiveAccess(userId, at?)`, available only to billing-admin
+tooling: it returns every entitlement source considered, whether each contributed, why not (phase,
+mode mismatch, grant expired/revoked), and the resulting tier. It uses the same predicate as the
+resolver, so the explanation cannot disagree with the decision. With `at`, it answers the question
+historically from history entries and grant audit.
+
 ## Correlation
 
-Every log line in the webhook/reconciliation path carries: the Razorpay event id
-(`x-razorpay-event-id`), the internal `BillingEvent` id, and the Kizunia `Subscription` id where
-known. This triple is enough to reconstruct one event's entire journey — received, verified,
-persisted, acknowledged, processed, and its resulting `SubscriptionHistoryEntry` — across
-[`../webhooks/reliability-and-idempotency.md`](../webhooks/reliability-and-idempotency.md)'s stages.
+Every log line in the billing paths carries the relevant identifiers: Kizunia Subscription ID, user
+ID, `BillingOperation` ID, `BillingEvent` ID and Razorpay event ID, sync run ID. Razorpay subscription
+IDs appear only in billing-module logs. From any one ID, an engineer can reach the others.
 
 ## What is logged at each stage
 
 | Stage | Logged |
 | --- | --- |
-| Receive | Event id, event type, timestamp |
-| Verify | Success/failure only — never the signature or secret |
-| Persist | New vs. duplicate (constraint-violation) outcome |
-| Acknowledge | Response latency, to watch against Razorpay's 5-second budget |
-| Process | State-mapping outcome (old phase → new phase, or "no change"/"stale, skipped") |
-| Reconciliation | Per-subscription: drift found / no drift, and the correction applied if any |
+| Webhook receive | Event ID, type, bytes, latency to 2xx (watched against Razorpay's 5 s) |
+| Verify | Success/failure and which secret matched — never the signature or secret |
+| Record | New vs duplicate; matched vs unmatched Subscription |
+| Command | Operation ID, kind, actor, budget wait, provider latency, classified outcome |
+| Sync | Subscription ID, trigger, priority, outcome class, phase/plan change or "no change", stale observations discarded |
+| Budget | Acquisitions and refusals per priority; cooldown entered/left and level |
+| Orphan discovery | Window, pages scanned, bound, unmatched, watermark |
 
 ## What must never be logged
 
-Raw webhook payloads in full (they may include customer contact details), payment instrument data,
-webhook secrets, or API credentials. Logging the event id and type is sufficient to look up the full
-persisted `BillingEvent` row when deeper investigation is genuinely needed, behind whatever access
-control protects that table — logs themselves are not the place to hold the raw payload for casual
-reading.
+Raw webhook payloads (they may contain customer contact details), payment-instrument data, webhook
+secrets, API keys, checkout signatures. Logs carry identifiers; the raw payload is looked up in
+`BillingEvent` behind billing-admin access, while it is retained.
+
+## Metrics
+
+Webhooks received/duplicate/unmatched/rejected per type; webhook 2xx latency; sync attempts by
+trigger and outcome class; due backlog size and age of the oldest due Subscription; budget
+utilization per priority; cooldown time; operations by kind and outcome, and `OUTCOME_UNKNOWN` age;
+open anomalies by type; Subscriptions by phase.
 
 ## Alerting
 
-| Condition | Why it matters |
-| --- | --- |
-| A spike in signature-verification failures | Possible probing/attack against the webhook endpoint |
-| A `BillingEvent` exhausting its processing retry budget | Reconciliation will catch it, but this is worth surfacing before reconciliation's next pass |
-| Reconciliation finding drift beyond a small expected baseline | May indicate a systemic webhook delivery problem, not isolated misses |
-| A subscription remaining `HALTED` past a configured observation window | Not an automatic action — see [`../lifecycle/payment-failure-and-recovery.md`](../lifecycle/payment-failure-and-recovery.md) — but worth surfacing to support/ops as a candidate for outreach |
-| Provider mode resolving to `disabled` in a production environment | Expected during the pre-live-credentials window ([SB-PB-03](../../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-03--disabled-is-a-fully-supported-production-state)), but worth a visible signal so it's a deliberate, known state rather than an unnoticed one |
+| Condition | Why it matters | Severity |
+| --- | --- | --- |
+| `AUTH_FAILURE` from Razorpay | All billing stops | Page |
+| Signature-verification failures above baseline | Probing, or a secret rotation gone wrong | High |
+| No webhook received for longer than expected given active subscriptions (`WEBHOOK_SILENCE`), or webhook 5xx/latency near 5 s | Razorpay disables the webhook after 24 h of failures | High |
+| Any 429, or sustained `BUDGET_EXHAUSTED` | Budget misconfigured or Razorpay limits lower than assumed | High |
+| Oldest due Subscription older than threshold, or `SYNC_OVERDUE` | Local state may be stale for paying users | High |
+| `OUTCOME_UNKNOWN` operation older than threshold | A user may have been charged without a record, or is blocked from billing actions | High |
+| `MULTIPLE_OPEN_SUBSCRIPTIONS`, `UNMATCHED_PROVIDER_SUBSCRIPTION`, `NOTES_CONFLICT` | Possible double billing or billing a person Kizunia does not know | High |
+| `UNMAPPED_PROVIDER_PLAN`, `PROVIDER_MODE_MISMATCH`, `MALFORMED` | Configuration error, or an unexpected Razorpay change | High |
+| `CANCELLATION_NOT_EFFECTIVE` | A user who cancelled is still being billed | High |
+| Drift found by checkpoint/heartbeat syncs above baseline | Systemic webhook delivery problem | Medium |
+| A subscription `HALTED` past an observation window | Support outreach candidate (not an automatic action) | Low |
+| Provider mode `disabled` in production | Expected before live credentials exist; must be a deliberate state | Low (Medium once `live` has been used) |

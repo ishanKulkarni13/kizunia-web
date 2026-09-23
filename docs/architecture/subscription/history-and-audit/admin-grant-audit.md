@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 ---
 
@@ -10,7 +10,12 @@
 
 Every `EntitlementGrant` creation, extension, and revocation, attributed to an actor:
 `{ grantId, action: created | extended | revoked, performedBy, targetUser, plan, duration/validUntil,
-reason, timestamp }`.
+reason, timestamp }`. Written in the same transaction as the grant change. `performedBy` is an admin
+for `ADMIN_GRANT` and the redeeming user (with the promotion code) for `PROMOTION`. Expiry is not an
+audited action — it is derived from `validUntil` and never written
+([SB-EA-09](../../../project/feature-specification/subscription/decisions/effective-access-and-grants.md#sb-ea-09--grant-expiry-is-derived-when-read-never-written-by-a-read)).
+A self-grant is refused before anything is written
+([SB-EA-08](../../../project/feature-specification/subscription/decisions/effective-access-and-grants.md#sb-ea-08--administrators-cannot-grant-access-to-themselves)).
 
 ## Following the notification subsystem's precedent
 
@@ -32,7 +37,7 @@ also use, without waiting for one to exist.
 ## Answering "why does this user have this access"
 
 Combined with [`subscription-history.md`](subscription-history.md) and effective-access resolution's
-own inputs, an investigator can answer, for any point in time: what the user's paid Subscription
-phase was, what grants were active, who granted them and why, and what the resulting effective
+own inputs, an investigator can answer, for any point in time: what each of the user's Subscriptions'
+phases was, what grants were active, who granted them and why, and what the resulting effective
 access was — without needing anything beyond these two tables plus the `EntitlementGrant` rows
 themselves.

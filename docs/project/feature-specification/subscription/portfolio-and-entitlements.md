@@ -45,4 +45,4 @@ authorization audit's flagged gap using a seam that already exists in the codeba
 
 ## Related rulings
 
-[`decisions/data-preservation.md`](decisions/data-preservation.md#sb-dp-02--portfolio-visibility-is-never-overridden-by-entitlement).
+[`decisions/data-preservation.md`](decisions/data-preservation.md#sb-dp-02--portfolio-visibility-is-never-overridden-by-entitlement-loss).

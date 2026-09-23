@@ -2,7 +2,7 @@
 
 > **Status:** Stable
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 Administrators can give a user plan-level access directly, without any payment and without
 Razorpay ever being involved.
@@ -27,11 +27,16 @@ resolver does not care which one produced the result. See
 
 ## What a grant looks like, from the product's side
 
-An administrator chooses a user, a plan, a duration (or no expiry), and records a reason. The grant
+An administrator chooses a user, a plan, a duration (or no expiry), and records a reason. An
+administrator can never grant access to themselves. The grant
 takes effect immediately and expires automatically at the end of its duration, with no manual
 cleanup step. While active, it contributes to the user's effective access exactly like a paid
 subscription would — including being able to *exceed* whatever the user's Razorpay subscription
 currently provides (see the [highest-wins example](entitlements-and-effective-access.md#the-highest-wins-rule)).
+
+A grant is also the right tool when support wants to give someone paid access without payment —
+never a subscription created by hand in the Razorpay Dashboard, which Kizunia will not attach to any
+account ([SB-WH-06](decisions/webhooks-and-reliability.md#sb-wh-06--events-for-unknown-subscriptions-are-persisted-and-matched-never-dropped)).
 
 ## Grants must never require Razorpay
 

@@ -2,12 +2,12 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 Entitlement resolution is consumed by the existing `AuthorizationEvaluator` chain at every seam the
 authorization audit (`kizunia-authorization-compressed-wind.md`) already identified as prepared for
 it. No new authorization system is introduced. See
-[`../principles.md`](../principles.md#entitlement-resolution-is-the-only-new-authorization-seam).
+[`../principles.md`](../principles.md).
 
 ---
 
@@ -52,6 +52,12 @@ existing pattern exactly, since background jobs do not have a session actor to r
 `AuthorizationEvaluator` at all (see `kizunia-authorization-compressed-wind.md` §8, §14). This
 function is a thin wrapper over [`effective-access-resolution.md`](effective-access-resolution.md),
 not a new authorization mechanism.
+
+The scheduler's filter must not call the per-user resolver once per user (at 100k users that is 100k
+round trips per sweep). It uses the **set-based form** of the same rule — "users whose effective
+access includes capability C at time t" — built from the one shared definition, so the batch filter
+and the per-user check cannot drift
+([`effective-access-resolution.md`](effective-access-resolution.md#one-definition-two-shapes)).
 
 ## Recommendation route
 

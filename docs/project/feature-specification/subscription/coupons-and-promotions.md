@@ -2,7 +2,7 @@
 
 > **Status:** Stable
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 V1 is deliberately small. There is no generic coupon engine, no code stacking, no per-user dynamic
 discount minting. Two mechanisms cover everything V1 needs to support, and they are not
@@ -30,6 +30,8 @@ designed for.
 
 - Percentage or flat discount
 - Applied for one billing cycle, a limited number of cycles, or the life of the subscription
+- Eligibility per code: anyone, first paid subscription only, or once per user — checked against the
+  user's own history, so a "first month" discount cannot be reused by cancelling and resubscribing
 - Attached at subscription creation time, from a small pre-provisioned catalog of discount shapes
   (Razorpay Offers can only be created from the Razorpay Dashboard, not via API — see
   [`../../../architecture/subscription/provider-boundary/razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md))
@@ -37,6 +39,8 @@ designed for.
 ## What Promotions support in V1
 
 - Free access to a specific plan for a specific duration, redeemed via a code
+- A code can be redeemed at most once per user, and never beyond its redemption limit — even from two
+  tabs at once
 - Otherwise identical in mechanism and audit expectations to an [admin grant](admin-grants.md)
 
 ## What is explicitly not being built in V1
@@ -46,7 +50,7 @@ designed for.
 | Coupon stacking | No evidence Razorpay supports it; no product need identified yet |
 | Per-user dynamic discount codes as a Razorpay-native concept | Razorpay Offers are instrument-scoped, not Kizunia-account-scoped — see [`../../../architecture/subscription/provider-boundary/razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md) |
 | A generic, extensible coupon/campaign engine | Not required by any current product need; would be speculative infrastructure |
-| Applying a discount mid-subscription without a plan change | Unconfirmed whether Razorpay even supports attaching an Offer post-creation — see [`open-decisions.md`](open-decisions.md) |
+| Applying a discount to an existing subscription (self-serve) | Razorpay supports it only from the next billing cycle; not needed in V1. Support can do it from the Razorpay Dashboard — see [SB-CP-05](decisions/coupons-and-promotions.md#sb-cp-05--an-offer-can-be-linked-to-an-active-subscription-effective-at-cycle-end) |
 
 See [`future.md`](future.md) for what a later phase might add.
 

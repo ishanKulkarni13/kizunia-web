@@ -2,7 +2,7 @@
 
 > **Status:** Live
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 ---
 
@@ -46,6 +46,31 @@ which today always returns `true` and is explicitly commented as "the seam a fut
 system will gate," already consumed by `PortfolioPolicy.canView` as a second, sequential check after
 `visibility`. Wiring effective access into this exact function requires no new schema field and no
 change to `PortfolioPolicy`'s shape — see
-[`../../../architecture/subscription/entitlements/authorization-integration.md`](../../../architecture/subscription/entitlements/authorization-integration.md#portfolio-public-eligibility).
+[`../../../../architecture/subscription/entitlements/authorization-integration.md`](../../../../architecture/subscription/entitlements/authorization-integration.md#portfolio-public-eligibility).
 This resolves the audit's flagged gap with the smallest possible change, rather than the
 schema-adding alternatives the audit itself considered.
+
+## SB-DP-04 — Billing records survive account removal
+
+**Status:** Accepted — retention period open ([B3](../open-decisions.md#b-genuinely-open-product-questions))
+
+**Decision:** Billing records — `Subscription`, `SubscriptionHistoryEntry`, `BillingOperation`,
+`BillingEvent`, charge facts, and grant audit entries — are never removed by a database cascade
+from `User`. Removing a user account:
+
+1. is refused while the user has any open Subscription
+   ([SB-UQ-02](uniqueness-and-resubscription.md#sb-uq-02--kizunia-never-creates-a-second-open-subscription-for-a-user));
+   the account-removal flow first cancels it immediately (a recorded command) and waits for the
+   cancellation to be confirmed by sync;
+2. then pseudonymizes the billing records (the user reference is replaced by an opaque, non-reversible
+   identifier) instead of deleting them;
+3. deletes raw webhook payloads older than the payload retention horizon (180 days by default) on the
+   normal schedule, keeping the event metadata.
+
+**Rationale:** The Better Auth `admin()` plugin enabled in `next/src/lib/auth.ts` exposes user
+removal, and the schema's widespread `onDelete: Cascade` would delete a user's billing rows along
+with them — while Razorpay, which knows nothing of the deletion, keeps charging the customer.
+Refusing removal while billing is open prevents charging someone who no longer has an account;
+pseudonymization keeps the financial history needed for disputes and accounting without keeping
+the person's identity attached. Unlike [SB-DP-01](#sb-dp-01--downgrade-never-deletes-projects-portfolios-or-preferences),
+this concerns account removal, not downgrade.

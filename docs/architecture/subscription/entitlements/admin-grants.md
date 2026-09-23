@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 Mechanism behind [`../../../project/feature-specification/subscription/admin-grants.md`](../../../project/feature-specification/subscription/admin-grants.md).
 
@@ -12,42 +12,53 @@ Mechanism behind [`../../../project/feature-specification/subscription/admin-gra
 
 ```text
 Admin action: grant(userId, plan, durationOrNull, reason)
-  -> EntitlementGrant created: { userId, plan, source: ADMIN_GRANT, status: ACTIVE,
-                                  validFrom: now, validUntil: now + duration or null,
-                                  grantedBy: adminId, reason }
-  -> effective access recalculates on next read; no immediate push to the user is required —
-     the change is visible the next time anything checks the user's access
+  -> refused if userId == acting admin (SB-EA-08)
+  -> one transaction:
+       EntitlementGrant { userId, plan, source: ADMIN_GRANT, status: ACTIVE,
+                          validFrom: now, validUntil: now + duration or null,
+                          grantedBy: adminId, reason }
+       GrantAuditEntry(action: created, ...)
+  -> effective access includes it on the next read
 
-Expiry (no explicit revoke): validUntil passes
-  -> effective-access resolution's own filter (`now within [validFrom, validUntil)`) simply stops
-     counting it — no separate expiry job needs to run to "notice" this
+Expiry: validUntil passes
+  -> the resolver's filter stops counting it. Nothing is written. "Expired" is a derived,
+     displayed property, never a stored status (SB-EA-09)
 
-Explicit revoke:
-  -> EntitlementGrant.status set to REVOKED, with a revocation reason and actor recorded
-  -> effective access recalculates on next read
+Extend: a new validUntil
+  -> one transaction: update validUntil, GrantAuditEntry(action: extended, from, to, actor, reason)
+
+Revoke:
+  -> one transaction: status = REVOKED, GrantAuditEntry(action: revoked, actor, reason)
 ```
 
-No background job is required to expire a grant. This is deliberate: expiry is a property of the
-*read* (is `now` within the validity window), not an event that has to be observed and acted on by a
-scheduled task. The alternative — a job that flips `status` to `EXPIRED` when the window passes —
-adds a moving part with no behavioral benefit and a real risk (the job not running for a period
-leaves a stale `ACTIVE` status that reads correctly today but would mislead a future direct table
-inspection). `EXPIRED` as a status value is reserved for exactly that direct-inspection clarity, set
-opportunistically by whatever process next resolves that user's access, not by a scheduled sweep.
+No background job exists for grants. Expiry is a property of the read (`now` within the window), not
+an event something has to notice. The earlier design had the resolver opportunistically write
+`EXPIRED`; that made authorization checks write to the database on the hottest path and is removed
+([SB-EA-09](../../../project/feature-specification/subscription/decisions/effective-access-and-grants.md#sb-ea-09--grant-expiry-is-derived-when-read-never-written-by-a-read)).
+
+## Concurrency
+
+| Race | Outcome |
+| --- | --- |
+| Two admins revoke/extend the same grant | Each is a conditional update on the current row plus its own audit entry; the later one wins and both are recorded |
+| Revoke while the user is mid-request | The request sees the grant either active or revoked; both were true at some instant |
+| Extend an already-expired grant | Allowed; audited as an extension from the old `validUntil` |
 
 ## Admin grant does not require Razorpay
 
 Nothing above calls the provider boundary. This is what makes admin grants the mechanism for testing
 paid entitlements in every environment — see
-[`../cross-cutting/testing-without-razorpay.md`](../cross-cutting/testing-without-razorpay.md).
+[`../cross-cutting/testing-without-razorpay.md`](../cross-cutting/testing-without-razorpay.md). It is
+also the correct tool when support wants to give access without payment — never a Dashboard-created
+subscription ([SB-WH-06](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-06--events-for-unknown-subscriptions-are-persisted-and-matched-never-dropped)).
 
 ## Authorization for granting
 
-Creating, extending, or revoking a grant requires the same platform-action-gated authorization any
-other administrative operation uses (`PlatformAuthorizer.can(..., MANAGE_...)`), following the
-existing admin-route-guard recommendation from the authorization audit
-(`kizunia-authorization-compressed-wind.md` §22, P1-2) — admin-grant UI is exactly the kind of new
-admin surface that audit flagged as needing a structural guard rather than per-page discipline.
+Creating, extending or revoking a grant requires a dedicated platform action (e.g.
+`MANAGE_ENTITLEMENT_GRANTS`) through `PlatformAuthorizer`, behind the shared admin-route guard the
+authorization audit recommends (`kizunia-authorization-compressed-wind.md` §22, P1-2). Self-grants
+are refused regardless of role
+([SB-EA-08](../../../project/feature-specification/subscription/decisions/effective-access-and-grants.md#sb-ea-08--administrators-cannot-grant-access-to-themselves)).
 
 ## Audit
 

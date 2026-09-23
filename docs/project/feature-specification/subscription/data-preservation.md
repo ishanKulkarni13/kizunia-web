@@ -2,7 +2,7 @@
 
 > **Status:** Stable
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 > **Subscription changes should change access. They should never destroy user data.**
 
@@ -45,6 +45,14 @@ reason: losing MCP access means MCP requests can no longer be authorized, not th
 configuration behind it is erased.
 
 ---
+
+## Account removal
+
+Removing a user's account is a separate matter from losing paid access. Kizunia refuses to remove an
+account while it still has a live subscription — the subscription is cancelled first, so Razorpay
+never keeps charging someone who no longer has an account — and it keeps the billing history in a
+pseudonymized form for accounting and disputes. See
+[`decisions/data-preservation.md`](decisions/data-preservation.md#sb-dp-04--billing-records-survive-account-removal).
 
 ## Why this matters more than it looks
 

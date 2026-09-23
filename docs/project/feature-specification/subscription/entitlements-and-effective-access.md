@@ -2,7 +2,7 @@
 
 > **Status:** Stable
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 > **Billing determines access state. Entitlements determine what the application allows.**
 
@@ -21,7 +21,7 @@ Effective access can come from more than one place at once:
 | --- | --- | --- |
 | Default (Free) | No | Nothing — the absence of any other source |
 | Paid Subscription | Yes | Razorpay's billing lifecycle, mirrored into Kizunia |
-| Trial | Yes (Razorpay-native trial) | Same lifecycle as a paid Subscription, see [`subscription-lifecycle.md`](subscription-lifecycle.md#trial) |
+| Trial | Yes (Razorpay-native trial) | A paid Subscription in its trial period — not a separate source type; see [`subscription-lifecycle.md`](subscription-lifecycle.md#trial) |
 | Admin grant | No | An administrator, see [`admin-grants.md`](admin-grants.md) |
 | Promotion | No | A redeemed promotional code, see [`coupons-and-promotions.md`](coupons-and-promotions.md) |
 
@@ -57,9 +57,17 @@ entire time; the grant simply stopped contributing to the maximum once it expire
 grants and subscriptions are modeled as independent, coexisting sources rather than one overwriting
 the other — see [`decisions/effective-access-and-grants.md`](decisions/effective-access-and-grants.md).
 
+## If a user ever has two paid subscriptions
+
+Kizunia never creates a second live subscription for a user, but one can arise from outside Kizunia
+(for example, a subscription created in the Razorpay Dashboard). Kizunia never picks one arbitrarily:
+effective access is the highest plan across all of them — the user always gets at least what they are
+being charged for — and the situation is flagged to support to resolve. See
+[`decisions/uniqueness-and-resubscription.md`](decisions/uniqueness-and-resubscription.md#sb-uq-05--multiple-open-subscriptions-arising-outside-kizunia-are-detected-never-silently-resolved).
+
 ## Free requires nothing
 
-A user with no Subscription, no active grant, and no trial has effective access `FREE` by
+A user with no current paid Subscription (including a trial) and no active grant has effective access `FREE` by
 definition — not because a `FREE` record exists somewhere, but because `FREE` is what "no other
 source is currently valid" resolves to. This is what makes Free free of any Razorpay dependency:
 resolving effective access for a Free user touches zero provider state, in every environment. See

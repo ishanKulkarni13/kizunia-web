@@ -16,7 +16,7 @@ Monthly and yearly are the same product at a different cycle, never modeled as s
 **Rationale:** Matches the original product direction exactly (`suscriptions.md` §1–§6). Treating
 monthly/yearly as one plan with a cycle, rather than two plans, keeps the domain model from
 doubling for no product reason — even though Razorpay itself represents them as two distinct Plan
-objects underneath (see [`../../../architecture/subscription/provider-boundary/razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md)).
+objects underneath (see [`../../../../architecture/subscription/provider-boundary/razorpay-facts.md`](../../../../architecture/subscription/provider-boundary/razorpay-facts.md)).
 
 ## SB-PL-02 — Capabilities are checked, not plan names
 

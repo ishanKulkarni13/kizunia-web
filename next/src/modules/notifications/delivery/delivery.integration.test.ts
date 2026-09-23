@@ -188,6 +188,13 @@ describe("DeliveryService", () => {
     expect(first?.message.collapseKey).toBe(notificationId);
     expect(second?.message.collapseKey).toBe(notificationId);
 
+    // The same id rides in the push's data, where the service worker reads it
+    // on click to acknowledge exactly this notification (#93). The link is the
+    // notification's own action, never a stand-in for its identity.
+    expect(first?.message.data?.notificationId).toBe(notificationId);
+    expect(second?.message.data?.notificationId).toBe(notificationId);
+    expect(first?.message.link).toMatch(/^\//);
+
     // And still exactly one notification, whatever happened to the pushes.
     expect(await prisma.notification.count({ where: { userId: user.id } })).toBe(1);
   });

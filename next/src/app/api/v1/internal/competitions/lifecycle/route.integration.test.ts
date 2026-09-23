@@ -66,6 +66,7 @@ describe("POST /api/v1/internal/competitions/lifecycle — logging", () => {
     );
     expect(event).toBeDefined();
     expect(event?.level).toBe("warn");
+    expect(typeof event?.fields.requestId).toBe("string");
     expect(
       records.some((record) => record.event === "competitions.lifecycle.sweep_completed"),
     ).toBe(false);
@@ -100,7 +101,8 @@ describe("POST /api/v1/internal/competitions/lifecycle — logging", () => {
     );
     expect(event).toBeDefined();
     expect(event?.level).toBe("info");
-    expect(event?.fields).toEqual({
+    expect(typeof event?.fields.requestId).toBe("string");
+    expect(event?.fields).toMatchObject({
       scanned: body.data.scanned,
       changed: body.data.changed,
       byTransition: body.data.byTransition,

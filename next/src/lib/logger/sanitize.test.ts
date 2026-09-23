@@ -84,4 +84,23 @@ describe("sanitizeFields", () => {
     expect(sanitizeValue(null)).toBeNull();
     expect(sanitizeValue(undefined)).toBeUndefined();
   });
+
+  it("does not mark a shared (non-circular) reference as [CIRCULAR]", () => {
+    const shared = { id: "user-1" };
+    const result = sanitizeValue({ a: shared, b: shared }) as Record<string, unknown>;
+
+    // Both properties point to the same object, but neither is a cycle —
+    // both must be serialized in full, not replaced with [CIRCULAR].
+    expect(result.a).toEqual({ id: "user-1" });
+    expect(result.b).toEqual({ id: "user-1" });
+  });
+
+  it("still marks an actual cycle as [CIRCULAR]", () => {
+    const obj: Record<string, unknown> = { name: "y" };
+    obj.self = obj;
+
+    const result = sanitizeValue(obj) as Record<string, unknown>;
+    expect(result.self).toBe("[CIRCULAR]");
+    expect(result.name).toBe("y");
+  });
 });

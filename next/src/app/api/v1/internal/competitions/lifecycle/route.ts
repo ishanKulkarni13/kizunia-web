@@ -29,32 +29,36 @@
  * competitions whose status was previously set by hand.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { NextRequest, NextResponse } from "next/server";
 
-import { logger } from "@/lib/logger";
+import { logger, runWithLogContext } from "@/lib/logger";
 import { CompetitionLifecycleService } from "@/modules/competitions/backend/lifecycle.service";
 
 export async function POST(request: NextRequest) {
-  const expectedSecret = process.env.INTERNAL_LIFECYCLE_SECRET;
+  return runWithLogContext(randomUUID(), async () => {
+    const expectedSecret = process.env.INTERNAL_LIFECYCLE_SECRET;
 
-  const providedSecret = request.headers.get("x-internal-secret");
+    const providedSecret = request.headers.get("x-internal-secret");
 
-  if (!expectedSecret || providedSecret !== expectedSecret) {
-    logger.warn("competitions.lifecycle.sweep_unauthorized");
+    if (!expectedSecret || providedSecret !== expectedSecret) {
+      logger.warn("competitions.lifecycle.sweep_unauthorized");
 
-    return NextResponse.json(
-      { success: false, error: { code: "UNAUTHORIZED", message: "Unauthorized." } },
-      { status: 401 },
-    );
-  }
+      return NextResponse.json(
+        { success: false, error: { code: "UNAUTHORIZED", message: "Unauthorized." } },
+        { status: 401 },
+      );
+    }
 
-  const summary = await CompetitionLifecycleService.runAutomaticSweep();
+    const summary = await CompetitionLifecycleService.runAutomaticSweep();
 
-  logger.info("competitions.lifecycle.sweep_completed", {
-    scanned: summary.scanned,
-    changed: summary.changed,
-    byTransition: summary.byTransition,
+    logger.info("competitions.lifecycle.sweep_completed", {
+      scanned: summary.scanned,
+      changed: summary.changed,
+      byTransition: summary.byTransition,
+    });
+
+    return NextResponse.json({ success: true, data: summary });
   });
-
-  return NextResponse.json({ success: true, data: summary });
 }

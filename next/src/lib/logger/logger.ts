@@ -49,7 +49,10 @@ export interface Logger {
 }
 
 function emit(level: LogLevel, event: string, fields: LogFields): void {
-  const merged = { ...getAmbientLogFields(), ...fields };
+  // Ambient correlation fields (requestId, actorId) are spread last so they
+  // are always authoritative — a caller cannot accidentally or intentionally
+  // shadow them by passing a field with the same name.
+  const merged = { ...fields, ...getAmbientLogFields() };
 
   emitRecord({
     level,

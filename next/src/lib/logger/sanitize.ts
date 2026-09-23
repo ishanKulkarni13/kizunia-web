@@ -46,12 +46,13 @@ function isSensitiveKey(key: string): boolean {
 }
 
 /**
- * Recursively redacts sensitive values by key name. Cycle-safe: a value
- * already visited on the current path is replaced rather than walked again,
- * so a circular reference (a Prisma error carrying its client, the concrete
- * case this codebase has already hit — see
- * `modules/notifications/observability/log.ts`) cannot cause infinite
- * recursion here even before serialization is attempted.
+ * Recursively redacts sensitive values by key name. Cycle-safe: tracks the
+ * current path of ancestor objects (`seen`) so a true circular reference
+ * (A → B → A) terminates with `[CIRCULAR]`, while a shared reference (two
+ * properties pointing at the same object) is walked in full on each visit —
+ * because the object is removed from `seen` once its own subtree is fully
+ * processed, a sibling branch correctly re-visits it rather than
+ * misclassifying it as circular.
  */
 export function sanitizeValue(value: unknown, seen: Set<unknown> = new Set()): unknown {
   if (value === null || typeof value !== "object") {
@@ -62,21 +63,25 @@ export function sanitizeValue(value: unknown, seen: Set<unknown> = new Set()): u
     return "[CIRCULAR]";
   }
 
-  seen.add(value);
-
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeValue(item, seen));
-  }
-
   if (value instanceof Date) {
     return value.toISOString();
   }
 
-  const result: Record<string, unknown> = {};
+  seen.add(value);
 
-  for (const [key, val] of Object.entries(value)) {
-    result[key] = isSensitiveKey(key) ? REDACTED : sanitizeValue(val, seen);
+  let result: unknown;
+
+  if (Array.isArray(value)) {
+    result = value.map((item) => sanitizeValue(item, seen));
+  } else {
+    const obj: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value)) {
+      obj[key] = isSensitiveKey(key) ? REDACTED : sanitizeValue(val, seen);
+    }
+    result = obj;
   }
+
+  seen.delete(value);
 
   return result;
 }

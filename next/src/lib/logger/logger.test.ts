@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runWithLogContext } from "./context";
+import { runWithLogContext, setLogActorId } from "./context";
 import { logger } from "./logger";
 import type { LogRecord } from "./sink";
 import { resetLogSink, setLogSink } from "./sink";
@@ -109,6 +109,38 @@ describe("logger", () => {
     child.info("generation.created", { notificationId: "n2" });
 
     expect(records[0].fields.notificationId).toBe("n2");
+  });
+
+  it("ambient requestId cannot be overwritten by explicit fields", async () => {
+    const records = captureSink();
+
+    await runWithLogContext("real-req-id", async () => {
+      logger.info("event.happened", { requestId: "caller-supplied-id" });
+    });
+
+    expect(records[0].fields.requestId).toBe("real-req-id");
+  });
+
+  it("ambient requestId cannot be overwritten by child bindings", async () => {
+    const records = captureSink();
+
+    await runWithLogContext("real-req-id", async () => {
+      const child = logger.child({ requestId: "child-binding-id" });
+      child.info("event.happened", {});
+    });
+
+    expect(records[0].fields.requestId).toBe("real-req-id");
+  });
+
+  it("ambient actorId cannot be overwritten by explicit fields", async () => {
+    const records = captureSink();
+
+    await runWithLogContext("req-x", async () => {
+      setLogActorId("real-actor");
+      logger.info("event.happened", { actorId: "fake-actor" });
+    });
+
+    expect(records[0].fields.actorId).toBe("real-actor");
   });
 
   it("a throwing sink does not propagate to the caller", () => {

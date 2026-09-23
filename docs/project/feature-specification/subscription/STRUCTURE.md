@@ -2,7 +2,7 @@
 
 > **Status:** Stable
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 This document answers three questions:
 
@@ -48,7 +48,7 @@ subscription/
 │
 ├── plans.md                           Free/Pro/Pro+, quotas, the feature matrix
 ├── entitlements-and-effective-access.md
-├── subscription-lifecycle.md          trial, upgrade, downgrade, cancellation, payment failure, Dashboard-originated changes
+├── subscription-lifecycle.md          subscribing, trial, plan changes, cancellation, payment failure, resubscribing, provider-side changes
 ├── data-preservation.md               the non-destructive-downgrade invariant
 ├── portfolio-and-entitlements.md      exists / editable / publicly displayable
 ├── admin-grants.md
@@ -58,13 +58,15 @@ subscription/
 │   ├── README.md                      ID scheme + full register
 │   ├── plans-and-quotas.md            SB-PL-xx
 │   ├── effective-access-and-grants.md SB-EA-xx
-│   ├── lifecycle.md                   SB-LC-xx (trial, upgrade/downgrade, cancellation)
+│   ├── lifecycle.md                   SB-LC-xx (trial, plan changes, cancellation, provider-side changes)
 │   ├── payment-failure-and-recovery.md SB-PF-xx
 │   ├── data-preservation.md           SB-DP-xx
 │   ├── coupons-and-promotions.md      SB-CP-xx
 │   ├── webhooks-and-reliability.md    SB-WH-xx
-│   ├── reconciliation.md              SB-RC-xx
+│   ├── reconciliation.md              SB-RC-xx (reconciliation and provider synchronization)
 │   ├── provider-boundary-and-environments.md SB-PB-xx
+│   ├── uniqueness-and-resubscription.md SB-UQ-xx
+│   ├── commands-and-idempotency.md    SB-CM-xx
 │   └── reconciliations.md             contradictions between source material and how each was resolved
 │
 ├── open-decisions.md                  what is deliberately not decided yet
@@ -92,11 +94,13 @@ subscription/
 
 See [`docs/architecture/subscription/README.md`](../../../architecture/subscription/README.md) for
 its full reading order. In outline: `provider-boundary/` (the Razorpay boundary and verified
-facts), `lifecycle/` (state mapping, trials, upgrade/downgrade, cancellation, payment failure,
-Dashboard-originated changes), `entitlements/` (effective-access resolution, admin grants, quotas,
+facts), `lifecycle/` (state mapping, multiple subscriptions, trials, plan changes, cancellation,
+payment failure, provider-side changes), `commands/` (billing operations, checkout and creation), `entitlements/` (effective-access resolution, admin grants, quotas,
 authorization wiring, coupons/offers), `webhooks/` (event catalog, security, reliability,
-ordering), `reconciliation/`, `provider-availability/` (test/live/disabled), `history-and-audit/`,
-`cross-cutting/` (observability, security, testing-without-Razorpay, future extensibility), and
+ordering), `reconciliation/` (sync mechanism, due-based scheduling, request budget, orphan
+discovery), `provider-availability/` (test/live/disabled), `history-and-audit/`,
+`cross-cutting/` (observability, security, operations runbook, testing-without-Razorpay, future
+extensibility), and
 `verification-checklist.md`.
 
 ---
@@ -108,7 +112,9 @@ ordering), `reconciliation/`, `provider-availability/` (test/live/disabled), `hi
 | A new rule about what a plan includes | `plans.md` **and** a ruling in `decisions/plans-and-quotas.md` |
 | A change to an existing rule | Amend the ruling in `decisions/`, then update the area that states it |
 | A new word that needs a precise meaning | `glossary.md` |
-| A change to how the provider boundary, webhooks, or reconciliation work | `docs/architecture/subscription/` only, linking to the ruling that required it |
+| A change to how the provider boundary, commands, webhooks, or synchronization work | `docs/architecture/subscription/` only, linking to the ruling that required it |
+| A newly verified (or changed) Razorpay behavior | `architecture/subscription/provider-boundary/razorpay-facts.md`, then every ruling citing it |
+| An operator procedure | `architecture/subscription/cross-cutting/operations-runbook.md` |
 | A question you cannot answer | `open-decisions.md`, with what it blocks |
 | An answer to one of those questions | A ruling in `decisions/`, and delete the open item |
 | Something the reconciling direction changed from the original product doc | `decisions/reconciliations.md` |

@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted — 2026-09-21. Not implemented. Documentation-only phase; no code, schema, or migration
-exists yet.
+Accepted — 2026-09-21. **Amended — 2026-09-24** (see [Amendments](#amendments)). Not implemented.
+Documentation-only phase; no code, schema, or migration exists yet.
 
 ---
 
@@ -154,6 +154,42 @@ promotions. Rejected — see
 
 ---
 
+# Amendments
+
+## 2026-09-24 — Architecture hardening
+
+An adversarial review, assuming 100k+ users, thousands of paying customers, unreliable networks,
+provider outages and rate limits, and Razorpay Dashboard operators as a second writer, found the
+founding decision sound and its realization incomplete. The five commitments above stand. What
+changed, each recorded as an amended or new ruling in the
+[decision register](../../project/feature-specification/subscription/decisions/README.md):
+
+1. **One Kizunia Subscription per Razorpay subscription**, bound once — replacing a single long-lived
+   Subscription with a swappable provider reference, which could not represent a halted subscription
+   recovering after a new one was bought. Kizunia never creates a second *open* subscription for a
+   user; duplicates arising outside Kizunia are detected, never silently resolved (`SB-UQ`).
+2. **Commands are a first-class concept.** Every mutation Kizunia asks of Razorpay is recorded before
+   it is sent, serialized per user, idempotent for client retries, and never blindly retried when its
+   outcome is unknown — Razorpay offers no idempotency for creating subscriptions (`SB-CM`).
+3. **One synchronization mechanism, bounded.** Webhook refetches, confirmations and reconciliation
+   share a sync-due marker on each Subscription, one stale-apply guard, due-based scheduling instead
+   of a sweep, and one global outbound request budget — Razorpay publishes no rate-limit numbers
+   (`SB-RC-04`–`SB-RC-10`, `SB-WH-03`/`SB-WH-05` amended).
+4. **No user-visible dependency on the daily tick.** The only scheduled trigger fires once a day on
+   Vercel Hobby; webhooks and checkout confirmation now sync immediately, and the scheduler is a
+   deployment choice (`SB-PB-06`).
+5. **Plan changes use Razorpay's native capability only.** Razorpay cannot change the plan of UPI,
+   e-mandate or domestic-card subscriptions; V1 documents that limitation rather than building a
+   successor-subscription workaround (`SB-LC-07`, [R-06](../../project/feature-specification/subscription/decisions/reconciliations.md#r-06--the-update-api-does-not-support-plan-changes-for-most-indian-payment-methods)).
+
+This extends "Explicitly not accepted" with: a successor-subscription plan-change workaround in V1; a
+separate webhook-processing queue beside reconciliation; background processes that mutate provider
+state; and any provider call outside the shared request budget. It extends "Accepted costs" with: a
+`BillingOperation` record per provider mutation, sync bookkeeping on every Subscription, and a
+low-priority orphan-discovery scan.
+
+---
+
 # References
 
 - Product specification:
@@ -162,6 +198,7 @@ promotions. Rejected — see
 - Domain model: [`architecture/domain/subscription/`](../domain/subscription/README.md)
 - Prior audits (scratch, not authoritative):
   [`docs/temp/suscriptions.md`](../../temp/suscriptions.md),
+  `docs/temp/suscriptions-issues.md` (input to the 2026-09-24 amendments),
   [`docs/temp/razorpay-feasibility-audit.md`](../../temp/razorpay-feasibility-audit.md),
   [`docs/temp/kizunia-authorization-compressed-wind.md`](../../temp/kizunia-authorization-compressed-wind.md)
 - Sibling ADR, same shape of decision:

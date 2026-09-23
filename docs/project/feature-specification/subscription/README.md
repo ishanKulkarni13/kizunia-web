@@ -6,7 +6,7 @@
 >
 > **Audience:** Product, Backend Developers, Contributors
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 ---
 
@@ -53,7 +53,7 @@ during a Razorpay outage. See [`../../../architecture/subscription/provider-avai
 | 1 | [glossary.md](glossary.md) | The vocabulary everything else assumes |
 | 2 | [plans.md](plans.md) | What Free/Pro/Pro+ are, today |
 | 3 | [entitlements-and-effective-access.md](entitlements-and-effective-access.md) | How "what can this user do" is decided |
-| 4 | [subscription-lifecycle.md](subscription-lifecycle.md) | Trial, upgrade, downgrade, cancellation, payment failure — from the user's side |
+| 4 | [subscription-lifecycle.md](subscription-lifecycle.md) | Subscribing, trial, plan changes, cancellation, payment failure, resubscribing — from the user's side |
 | 5 | [data-preservation.md](data-preservation.md) | Why losing paid access never deletes data |
 | 6 | [portfolio-and-entitlements.md](portfolio-and-entitlements.md) | The one module with a genuine pre-existing gap this closes |
 | 7 | [admin-grants.md](admin-grants.md) | Access without Razorpay |
@@ -70,7 +70,7 @@ during a Razorpay outage. See [`../../../architecture/subscription/provider-avai
 | --- | --- |
 | [`plans.md`](plans.md) | Plan tiers, quotas, the feature matrix |
 | [`entitlements-and-effective-access.md`](entitlements-and-effective-access.md) | Entitlement sources, the highest-wins rule |
-| [`subscription-lifecycle.md`](subscription-lifecycle.md) | Trial, upgrade/downgrade, cancellation, payment failure, Dashboard-originated changes |
+| [`subscription-lifecycle.md`](subscription-lifecycle.md) | Subscribing, trial, plan changes (and their V1 limits), cancellation, payment failure, resubscribing, changes made outside Kizunia |
 | [`data-preservation.md`](data-preservation.md) | The non-destructive-downgrade invariant |
 | [`portfolio-and-entitlements.md`](portfolio-and-entitlements.md) | Exists / editable / publicly displayable |
 | [`admin-grants.md`](admin-grants.md) | Non-billing access grants and their audit expectations |
@@ -104,6 +104,13 @@ reconciled against current official Razorpay documentation:
 Where the reconciling direction changed or clarified the original product doc (payment-failure
 handling, upgrade/downgrade/cancellation timing, coupon scope), that resolution is recorded in
 [`decisions/reconciliations.md`](decisions/reconciliations.md) rather than silently applied.
+
+On 2026-09-24 an adversarial architecture review (input: `docs/temp/suscriptions-issues.md`)
+re-verified Razorpay's documentation and hardened the design: one Subscription per Razorpay
+subscription, a never-two-open-subscriptions rule, recorded and idempotent billing commands, one
+bounded synchronization mechanism, and native-only plan changes. Its conclusions are amendments and
+new rulings in [`decisions/`](decisions/README.md) and R-04–R-06 in
+[`decisions/reconciliations.md`](decisions/reconciliations.md).
 
 ---
 

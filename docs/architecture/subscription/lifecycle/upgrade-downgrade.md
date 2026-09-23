@@ -1,53 +1,101 @@
-# Upgrade / Downgrade
+# Plan Changes (Upgrade / Downgrade)
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24 (rewritten around Razorpay's native capability — see
+> [R-06](../../../project/feature-specification/subscription/decisions/reconciliations.md#r-06--the-update-api-does-not-support-plan-changes-for-most-indian-payment-methods))
+
+Rulings: [SB-LC-02](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-02--upgrades-are-immediate),
+[SB-LC-03](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-03--downgrades-take-effect-at-cycle-end),
+[SB-LC-07](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible),
+[SB-LC-08](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-08--at-most-one-scheduled-change-and-cancellation-always-wins).
 
 ---
 
-## Upgrade — immediate
+## Which changes are plan changes
+
+| User intent | What it actually is | Supported for |
+| --- | --- | --- |
+| Free → Pro / Pro+ | **Creation** — [`../commands/checkout-and-creation.md`](../commands/checkout-and-creation.md) | Every payment method |
+| Pro / Pro+ → Free | **Cycle-end cancellation** — [`cancellation.md`](cancellation.md) | Every payment method |
+| Pro → Pro+, or Monthly → Yearly at a higher price | **Upgrade** — native Update, `schedule_change_at: now` | Only subscriptions Razorpay can update |
+| Pro+ → Pro, or Yearly → Monthly at a lower price | **Downgrade** — native Update, `schedule_change_at: cycle_end` | Only subscriptions Razorpay can update |
+
+**FACT.** Razorpay updates only `authenticated`/`active` subscriptions, refuses updates when the
+payment mode is UPI or e-mandate, and allows domestic-card subscriptions to change only their Offer
+([razorpay-facts](../provider-boundary/razorpay-facts.md#upgrade--downgrade)). Paid→paid changes are
+therefore available in practice for international-card subscriptions. For everyone else they are a
+documented V1 limitation ([SB-LC-07](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible),
+[open question B1](../../../project/feature-specification/subscription/open-decisions.md#b-genuinely-open-product-questions)).
+
+## Capability: advisory in the UI, authoritative at Razorpay
+
+- **Advisory.** When a Subscription is first synchronized after authentication, the boundary fetches
+  the authorization payment and stores its method (`upi`, `emandate`, `card`) and, for cards,
+  whether the card is international. The UI uses it to present the change as available or to
+  explain in advance why it is not. The value is refreshed when a sync shows the subscription
+  recovered from `HALTED` (the customer may have switched to a card).
+- **Authoritative.** The Update call. A refusal is `REJECTED`, changes nothing, and is shown as
+  "this plan change isn't available for your subscription". It is never retried and never worked
+  around. If the advisory value said "possible" and Razorpay refused, the stored value is
+  corrected from the refusal.
+
+## Upgrade — immediate, Razorpay-prorated
 
 ```text
-updateSubscription(ref, { planId: PRO_PLUS, scheduleChangeAt: "now" })
-  -> Razorpay generates a prorated invoice, auto-charges the difference
-  -> subscription.charged webhook fires
-  -> Kizunia refetches authoritative state (SB-WH-03), updates Subscription.plan
-  -> effective access includes PRO_PLUS immediately
+command CHANGE_PLAN(target plan, cycle)       -- preconditions: phase ACTIVE or TRIALING,
+                                              -- no open anomaly, target > current
+  [if a scheduled change is pending: child CANCEL_SCHEDULED_CHANGE, confirmed by sync]
+  child UPDATE_PLAN: update(sub, { plan_id: target, schedule_change_at: "now" })
+    Razorpay invoices and charges the prorated difference
+      - charge succeeds  -> subscription updated; subscription.updated webhook
+      - charge fails     -> "the Subscription is not updated" (FACT)
+    Response applied through the guarded apply path; subscription marked sync-due
+  Access to the higher plan begins when a sync shows the new plan_id.
 ```
 
-See [SB-LC-02](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-02--upgrades-are-immediate).
-No Kizunia-side proration calculation exists — Razorpay computes and charges the difference on its
-own, and Kizunia only reacts to the resulting webhook.
+No access is granted on the strength of the request. The user sees "upgrading…" until the new plan
+is observed, typically within the same request.
 
-## Downgrade — cycle end
+## Downgrade — at cycle end, Razorpay-native
 
 ```text
-updateSubscription(ref, { planId: PRO, scheduleChangeAt: "cycle_end" })
-  -> Razorpay marks has_scheduled_changes = true, change_scheduled_at set
-  -> subscription.updated webhook fires (no state change yet)
-  -> Kizunia records the scheduled change; user keeps current plan/access until cycle end
-  -> at cycle end, Razorpay applies the change; a webhook reflects the new plan
-  -> Kizunia refetches, updates Subscription.plan, recalculates effective access
+command CHANGE_PLAN(lower plan)               -- preconditions: phase ACTIVE, target < current
+  [if a scheduled change is pending: child CANCEL_SCHEDULED_CHANGE first]
+  child UPDATE_PLAN: update(sub, { plan_id: target, schedule_change_at: "cycle_end" })
+    Razorpay sets has_scheduled_changes = true
+  The pending change is mirrored on the Subscription (target plan, effective at current_end) and
+  shown to the user. Access is unchanged until then.
+  At current_end Razorpay applies it. No webhook is documented for that moment (OPEN, A3), so the
+  checkpoint sync at current_end + margin observes the new plan and updates access.
 ```
 
-See [SB-LC-03](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-03--downgrades-take-effect-at-cycle-end).
-A subscription with an active Offer is forced to `cycle_end` by Razorpay regardless — see
-[`../provider-boundary/razorpay-facts.md`](../provider-boundary/razorpay-facts.md#upgrade--downgrade)
-— so defaulting every downgrade to `cycle_end` produces one consistent code path rather than a
-branch on whether an Offer happens to be active.
+`cycle_end` is used for every downgrade, not only those Razorpay forces to cycle end (subscriptions
+with an active Offer): it avoids Razorpay's credit-note refund path and keeps one behavior for all
+downgrades ([SB-LC-03](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-03--downgrades-take-effect-at-cycle-end)).
 
-## Surfacing a pending downgrade
+## Races and edge cases
 
-Razorpay's `has_scheduled_changes`/`change_scheduled_at` fields are exactly what a "your plan
-changes to Pro on <date>" UI element would read — mirrored onto Kizunia's own `Subscription` record
-so the UI never queries Razorpay directly for this.
+| Situation | Behavior |
+| --- | --- |
+| Two plan-change requests (tabs) | One in-flight operation per user; the second is refused or returns the first ([`../commands/operation-model.md`](../commands/operation-model.md)) |
+| Upgrade while a downgrade is scheduled | The scheduled downgrade is cancelled first (Cancel an Update), then the upgrade is sent |
+| Cancellation while a downgrade is scheduled | The scheduled change is cancelled first; the subscription ends at cycle end on its current plan ([SB-LC-08](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-08--at-most-one-scheduled-change-and-cancellation-always-wins)) |
+| Plan change after a cycle-end cancellation was requested | Refused: the subscription is ending; the user can buy the new plan after it ends |
+| Webhook arrives before the Update response | Both are observations; the stale-apply guard orders them |
+| Update response lost (timeout) | `OUTCOME_UNKNOWN`; the next sync shows whether the plan (or a pending change) moved; not re-sent automatically |
+| Razorpay: "another subscription operation is in progress" | `CONCURRENT_OPERATION`; nothing changes; the user may retry shortly |
+| Proration difference below ₹0.5 | Razorpay rejects; shown as "this change can't be made right now" ([FACT](../provider-boundary/razorpay-facts.md#upgrade--downgrade)) |
+| Subscription `PAST_DUE` / `HALTED` / `PAUSED` / not authenticated | Refused locally (Razorpay would refuse too) |
+| Dashboard operator changes the plan | Observed by `subscription.updated` or the next checkpoint/heartbeat; applied like any change; history cause `provider_observed` |
+| Dashboard change to a plan ID not in the catalog | Not applied; `UNMAPPED_PROVIDER_PLAN` ([SB-PB-05](../../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-05--provider-plan-ids-map-to-kizunia-plans-through-a-per-mode-catalog-many-to-one)) |
+| Upgrade with an active Offer | Sent as usual; Razorpay's handling of the Offer across an upgrade is not documented — whatever state results is observed and applied |
 
-## Below the minimum proration threshold
+## What is not built
 
-**OPEN** — see
-[`../../../project/feature-specification/subscription/open-decisions.md`](../../../project/feature-specification/subscription/open-decisions.md).
-Razorpay rejects an update whose prorated difference is below its minimum chargeable amount. Until
-the exact INR threshold is confirmed in TEST mode, an upgrade/downgrade that Razorpay rejects for
-this reason surfaces as a generic "this plan change isn't possible right now" error rather than a
-guessed, possibly-wrong specific message.
+- A successor-subscription workaround for payment methods Razorpay cannot update.
+- Kizunia-computed proration, credits or refunds.
+- Granting the higher plan before Razorpay reports it.
+
+All three are deliberate ([SB-LC-07](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible)).
+See [`../../../project/feature-specification/subscription/future.md`](../../../project/feature-specification/subscription/future.md#plan-changes-razorpay-cannot-perform-natively).

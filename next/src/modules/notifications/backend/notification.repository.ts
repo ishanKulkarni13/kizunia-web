@@ -202,21 +202,29 @@ export class NotificationRepository {
    * Also marks it read if it was not already: opening something is stronger
    * evidence of having seen it than the inbox's own read signal, and leaving it
    * unread afterwards would be visibly wrong.
+   *
+   * Each timestamp is only ever written once. Responding to something already
+   * read must not move its `readAt`, and repeating the call — a double click,
+   * a retried request, a second push click — must not move either.
    */
   static async markResponded(
     userId: string,
     notificationId: string,
     now: Date,
   ): Promise<boolean> {
-    const result = await prisma.notification.updateMany({
-      where: { id: notificationId, userId, respondedAt: null },
-      data: { respondedAt: now, readAt: now },
-    });
+    await prisma.$transaction([
+      prisma.notification.updateMany({
+        where: { id: notificationId, userId, respondedAt: null },
+        data: { respondedAt: now },
+      }),
+      prisma.notification.updateMany({
+        where: { id: notificationId, userId, readAt: null },
+        data: { readAt: now },
+      }),
+    ]);
 
-    if (result.count > 0) return true;
-
-    // Already responded, or not this user's. Distinguish so the service can
-    // 404 the second case without leaking the first.
+    // Distinguishes "already responded" (fine) from "not this user's", which
+    // the service turns into a 404 without leaking that the id exists.
     const exists = await prisma.notification.count({
       where: { id: notificationId, userId },
     });

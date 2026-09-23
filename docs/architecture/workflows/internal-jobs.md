@@ -40,9 +40,10 @@ A scheduled internal job endpoint:
 - Fails closed (401) if `CRON_SECRET` is unset or does not match.
 - Is registered in `next/vercel.json`'s `crons` array, so Vercel's native
   scheduler — not an external one this repository has to configure or
-  trust — is what actually invokes it. This matters concretely: Kizunia may
-  deploy on Vercel's Hobby tier, which supports Vercel's own Cron Jobs but
-  not arbitrary external schedulers calling into the app.
+  trust — is what invokes it by default. This matters concretely: Kizunia may
+  deploy on Vercel's Hobby tier, whose own Cron Jobs are limited to daily
+  granularity. (An external scheduler calling the same endpoint with the same
+  secret is also supported when a tighter cadence is needed — see Cadence below.)
 - Wraps its domain-service call in a try/catch and returns a real HTTP
   error status on failure (not an unhandled exception) — Vercel's own cron
   monitoring/retry behavior keys off the response status.
@@ -118,6 +119,17 @@ On a plan with minute-level cron granularity, change that one schedule to
 something like `*/5 * * * *` and nothing else: the notification task's own
 interval guard keeps the daily evaluation daily, while delivery and retries get
 a much tighter loop.
+
+On Vercel Hobby, the same tighter cadence is available without changing plans:
+an **external scheduler** (any HTTPS cron service) may call
+`GET /api/v1/internal/tick` with `Authorization: Bearer <CRON_SECRET>`. The route
+is public by necessity and authenticated only by that secret, so nothing
+distinguishes the external caller from Vercel's own cron — and nothing needs to.
+Moving later from an external scheduler to Vercel Cron is a deployment-configuration
+change only. Subscription & Billing relies on this: its background work is
+scheduler-agnostic, targets a 5-minute cadence, and stays correct (with documented
+latency) on the daily trigger alone — see
+[SB-PB-06](../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-06--billing-execution-is-scheduler-agnostic).
 
 Historically, every entry used `0 0 */3 * *` (see the cron-semantics note in
 `docs/architecture/domain/assets/lifecycle.md`'s reconciliation section) —

@@ -2,61 +2,79 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24 (corrected: concurrent refetches are not idempotent by themselves)
 
 ---
 
 ## The problem
 
-**FACT.** Razorpay explicitly documents that webhook events are not guaranteed to arrive in order
-(see [`../provider-boundary/razorpay-facts.md`](../provider-boundary/razorpay-facts.md#webhooks)).
+**FACT.** "you may not always receive the webhooks in order" ([razorpay-facts](../provider-boundary/razorpay-facts.md#webhooks)).
 An older event (say, `subscription.pending`, generated when a charge first failed) can be delivered
-*after* a newer one (`subscription.halted`, generated once retries exhausted) if the first delivery
-attempt for the older event was delayed or retried.
+*after* a newer one (`subscription.halted`) if the first delivery attempt for the older event was
+delayed or retried. Applying payloads in delivery order would let the stale `pending` overwrite the
+correct `halted` state.
 
-Applying event payloads directly, in delivery order, as the new "current state" would let the stale
-`pending` event overwrite the correct `halted` state — a real regression, not a theoretical one.
+## Part one: refetch, don't trust
 
-## The resolution: refetch, don't trust
-
-For every state-changing event (see [`event-catalog.md`](event-catalog.md#state-changing-events-trigger-an-authoritative-refetch)),
-Kizunia does not read the new phase from the webhook payload. It calls Razorpay's Fetch Subscription
-API for that subscription's current, authoritative state, and derives the new Kizunia phase from
-that response. See
-[SB-WH-03](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-03--state-changing-events-trigger-an-authoritative-refetch).
+For every event that concerns a subscription, Kizunia does not read the new phase from the payload.
+It marks the Subscription sync-due, and the sync fetches the current authoritative entity
+([SB-WH-03](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-03--state-changing-events-trigger-an-authoritative-refetch)).
 
 ```text
 webhook arrives (subscription.pending, possibly stale)
-  -> Kizunia does NOT set phase = "still pending" from the payload
-  -> Kizunia calls fetchSubscription(providerRef)
-  -> Razorpay returns current state: halted (the true, current state)
-  -> Kizunia sets phase = HALTED
+  -> Kizunia does NOT set phase from the payload
+  -> Subscription marked sync-due
+  -> sync fetches: Razorpay returns current state = halted
+  -> phase = HALTED
 ```
 
-Because the refetch always reflects Razorpay's *current* state regardless of which event triggered
-it, the eventual outcome is correct even if the events themselves arrived out of order — the last
-webhook to be *processed* still produces the *current* truth, not a snapshot from whenever it was
-originally generated.
+## Part two: the fetches themselves can arrive out of order
 
-## What if the refetch itself races with a newer webhook's refetch?
+Refetching is necessary but not sufficient. The earlier version of this document claimed that two
+concurrent refetches "agree because both queried the same authoritative source". They do not:
 
-Two webhooks for the same subscription processed concurrently could each fetch the same current
-state and attempt the same update — this is idempotent by construction: applying "set phase to X"
-twice, where both refetches agree on X because both queried the same authoritative source, produces
-one correct outcome, not a conflict. The transactional update in
-[`reliability-and-idempotency.md`](reliability-and-idempotency.md) is a straightforward "set current
-phase" write, not an increment or delta, so repeating it is safe.
+```text
+t1  worker A sends fetch         (Razorpay: active)
+t2  subscription is cancelled at Razorpay
+t3  worker B sends fetch         (Razorpay: cancelled)
+t4  worker B applies CANCELLED
+t5  worker A's slow response arrives and applies ACTIVE      <- regression
+```
+
+Resolved by the stale-apply guard
+([SB-RC-08](../../../project/feature-specification/subscription/decisions/reconciliation.md#sb-rc-08--a-synchronization-result-is-applied-only-if-it-is-newer-than-the-last-one-applied)):
+every observation carries the time its request was *sent*, and is applied under the Subscription's
+row lock only if that time is later than the last applied observation. At t5, A's observation (sent
+at t1) is older than B's (sent at t3) and is discarded. The same guard covers a command response
+racing a webhook-triggered fetch. Mechanism: [`../reconciliation/sync-mechanism.md`](../reconciliation/sync-mechanism.md#applying-an-observation).
+
+Coalescing reduces how often this race can occur (one pending sync per subscription, claimed under
+a lease), but only the guard makes it harmless.
+
+## Part three: an event that arrives while a fetch is in flight
+
+If a webhook arrives after a fetch was sent but before it is applied, that fetch may not reflect the
+event. The sync mechanism records when the latest trigger arrived, and if it is later than the
+applied observation, keeps the Subscription due immediately instead of scheduling its next
+checkpoint — so every event is eventually observed by a fetch sent after it arrived.
 
 ## What "stale" means for history
 
-Even though a stale event's payload is never applied as current state, the event itself is still
-recorded in full via `BillingEvent` ([SB-WH-02](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-02--every-received-event-is-persisted-with-a-unique-constraint-dedupe-key-before-acknowledgement)) — nothing about this design discards
-information, it only refuses to let a possibly-stale payload drive the *current-state* write.
+A stale event is still recorded in full as a `BillingEvent`
+([SB-WH-02](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-02--every-received-event-is-persisted-with-a-unique-constraint-dedupe-key-before-acknowledgement)),
+and a discarded stale observation is logged. Nothing is thrown away; a possibly-stale input is only
+never allowed to drive the current-state write.
 
-## If the refetch fails because Razorpay is unreachable
+## If the fetch fails
 
-Processing fails cleanly (see [`reliability-and-idempotency.md`](reliability-and-idempotency.md)'s
-retry step); the event is retried on the existing job-runner backoff, and if that budget is
-exhausted, [`../reconciliation/README.md`](../reconciliation/README.md)'s on-demand trigger
-([SB-RC-02](../../../project/feature-specification/subscription/decisions/reconciliation.md#sb-rc-02--a-webhook-processing-failure-after-signature-verification-triggers-on-demand-reconciliation)) is the backstop. The user's existing local state is left untouched in the
-meantime — see [`../provider-availability/outage-and-stale-state.md`](../provider-availability/outage-and-stale-state.md).
+Nothing local changes; the Subscription stays due with backoff, subject to the global cooldown
+([`../reconciliation/provider-rate-limits.md`](../reconciliation/provider-rate-limits.md#provider-failure-taxonomy)).
+The user's existing access is left untouched — see
+[`../provider-availability/outage-and-stale-state.md`](../provider-availability/outage-and-stale-state.md).
+
+## Why not order by payload timestamps
+
+Payloads carry `created_at`, but sequencing events by it would still apply payload state, which is
+exactly what part one refuses to do; and it could not order a webhook against a command response or
+a reconciliation fetch. Observation time of an authoritative read is the one ordering that covers
+every source.

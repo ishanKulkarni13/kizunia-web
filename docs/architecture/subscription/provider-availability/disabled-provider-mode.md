@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 What "paid billing unavailable" means concretely, when provider mode resolves to `disabled`. See
 [SB-PB-03](../../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-03--disabled-is-a-fully-supported-production-state).
@@ -15,7 +15,7 @@ What "paid billing unavailable" means concretely, when provider mode resolves to
 | --- | --- |
 | Authentication | Unrelated to billing |
 | Free membership, in full | Resolves with zero provider calls — see [SB-EA-01](../../../project/feature-specification/subscription/decisions/effective-access-and-grants.md#sb-ea-01--free-has-no-subscription-record) |
-| Existing paid users' effective access | Resolved from Kizunia's own `Subscription`/`EntitlementGrant` tables, not from a live Razorpay call — see [`effective-access-resolution.md`](../entitlements/effective-access-resolution.md) |
+| Existing paid users' effective access | Resolved from Kizunia's own `Subscription`/`EntitlementGrant` tables, not from a live Razorpay call — see [`effective-access-resolution.md`](../entitlements/effective-access-resolution.md). Their `live` subscriptions keep contributing because the deployment's *expected billing mode* is still `live` ([`environments.md`](environments.md#why-two-modes-resolved-and-expected)) |
 | Admin grants (create/extend/revoke) | Never touch the provider boundary — see [`../entitlements/admin-grants.md`](../entitlements/admin-grants.md) |
 | Authorization, quotas, rate limits | All consume already-resolved effective access, not a live provider call |
 | Portfolio, projects, notifications, recommendations, MCP | Unconditionally, per their own entitlement checks against already-resolved effective access |
@@ -45,3 +45,14 @@ raises a typed `BillingProviderUnavailableError` when invoked in `disabled` mode
 - A raw provider error must never reach a normal user — the typed unavailability error is caught at
   the API boundary and translated into the clear, generic message above.
 - No attempt to reach Razorpay happens at all — not a retried, failing call, just none.
+
+## What stops, and what that means
+
+While `disabled`, no webhooks are verified and no syncs run, so local subscription state is frozen at
+whatever was last observed. Paid users keep access; cancellations, halts and renewals that happen at
+Razorpay meanwhile are not observed. When credentials are restored, every Subscription whose
+`syncDueAt` has passed is due immediately and drains within the request budget, and Razorpay's webhook
+retries (if still inside their 24-hour window) are accepted again. A production deployment should
+therefore be `disabled` only before `live` billing starts, or briefly — a long `disabled` period after
+going live is a deliberate operational choice, surfaced by the "provider mode disabled in production"
+alert ([`../cross-cutting/observability.md`](../cross-cutting/observability.md#alerting)).

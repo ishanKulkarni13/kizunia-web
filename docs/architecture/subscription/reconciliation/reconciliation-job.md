@@ -1,59 +1,102 @@
-# Reconciliation Job
+# Reconciliation Scheduling
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24 (rewritten: the periodic sweep of every active subscription was
+> replaced by due-based scheduling)
+
+*When* each Subscription is next observed. The mechanism that performs the observation is
+[`sync-mechanism.md`](sync-mechanism.md). Rulings:
+[SB-RC-01](../../../project/feature-specification/subscription/decisions/reconciliation.md#sb-rc-01--a-periodic-job-re-fetches-authoritative-state-for-locally-active-paid-subscriptions) (amended),
+[SB-RC-05](../../../project/feature-specification/subscription/decisions/reconciliation.md#sb-rc-05--reconciliation-is-due-based-not-a-sweep).
 
 ---
 
-## Periodic sweep
+## What changed, and why
 
-Registered as a task in the existing `internal-jobs` tick/task-registry
-(`next/src/lib/internal-jobs/registry.ts`), following the exact convention documented in
-[`../../workflows/internal-jobs.md`](../../workflows/internal-jobs.md) — a `GET` route behind
-`CRON_SECRET`, guarded by its own minimum-interval marker so it runs on a multi-day cadence
-independent of how often the shared tick fires. See
-[SB-RC-01](../../../project/feature-specification/subscription/decisions/reconciliation.md#sb-rc-01--a-periodic-job-re-fetches-authoritative-state-for-locally-active-paid-subscriptions).
+The earlier design was a periodic job that looped over every locally-active paid subscription and
+fetched each one. At scale that is an unbounded loop against a rate-limited API; it skipped
+unreachable subscriptions and moved straight on to the next (hammering Razorpay during an outage);
+and it excluded exactly the subscriptions most likely to drift — abandoned checkouts, lost creates,
+halted ones. See `docs/temp/suscriptions-issues.md`.
+
+Now there is no sweep. Every non-terminal Subscription always has a `syncDueAt`, computed from what
+Razorpay last said about it. The `billing-sync` tick task drains whatever is due, oldest first, within
+the provider request budget.
+
+## `nextDue` — computed after every successful sync
 
 ```text
-for each Subscription where phase in {ACTIVE, TRIALING, HALTED, PAUSED}
-                        and lastReconciledAt older than the configured horizon:
-  fetchSubscription(providerRef)
-  if authoritative state disagrees with local phase:
-    apply the correction transactionally, same code path a webhook's processing would use
-    record SubscriptionHistoryEntry with cause = reconciliation
-  set lastReconciledAt = now
+nextDue = min(
+  earliest upcoming checkpoint for this phase + checkpointMargin,
+  lastSyncedAt + heartbeat(phase, timeInPhase)
+)
 ```
 
-This deliberately reuses [`../lifecycle/state-mapping.md`](../lifecycle/state-mapping.md) and the
-same transactional-update-plus-history-entry shape from
-[`../webhooks/reliability-and-idempotency.md`](../webhooks/reliability-and-idempotency.md) — a
-reconciliation correction is not a special kind of state change, only a differently-triggered one.
+| Phase | Checkpoints | Heartbeat (upper bound) |
+| --- | --- | --- |
+| `PROVISIONING` | — (resolved by [orphan discovery](orphan-discovery.md)) | — |
+| `PENDING_AUTHENTICATION` | `expire_by` | Short (hours): an unfinished checkout either completes or expires quickly |
+| `TRIALING` | `start_at` (trial end → first charge) | Days |
+| `ACTIVE` | `charge_at` (renewal), `current_end`, scheduled change's effective time | ~Weekly |
+| `PAST_DUE` | Next retry day (retries are daily for cards/UPI) | Daily |
+| `HALTED` | — | Decaying: daily → weekly → monthly ([SB-PF-05](../../../project/feature-specification/subscription/decisions/payment-failure-and-recovery.md#sb-pf-05--synchronization-of-a-halted-subscription-decays-it-never-stops)) |
+| `PAUSED` | — | Weekly |
+| Terminal | — | Never (`syncDueAt = null`) |
 
-## On-demand trigger
+Exact intervals and margins are configuration ([C3](../../../project/feature-specification/subscription/open-decisions.md#c-implementation-time-configuration)).
+The margin exists because Razorpay's renewal and its webhook take time to happen; observing a few
+hours after a checkpoint finds the settled state instead of racing it.
 
-A `BillingEvent` that exhausts its processing retry budget ([SB-RC-02](../../../project/feature-specification/subscription/decisions/reconciliation.md#sb-rc-02--a-webhook-processing-failure-after-signature-verification-triggers-on-demand-reconciliation)) enqueues an immediate
-reconciliation for the subscription it concerns, rather than waiting for the periodic sweep's
-cadence — Kizunia already knows something was reported and not fully processed, which is stronger
-information than "a webhook might have been missed."
+## What each checkpoint detects
 
-## Scope: only currently-relevant subscriptions
+| Checkpoint missed webhook | Detected at | Worst-case staleness (target cadence) |
+| --- | --- | --- |
+| Renewal failed (`pending`) | `charge_at` + margin | margin + ≤ 15 min |
+| Cycle-end cancellation took effect | `current_end` + margin | same |
+| Scheduled downgrade applied (no webhook documented) | Effective time + margin | same |
+| Trial converted / first charge failed | `start_at` + margin | same |
+| `halted` → `active` recovery | Next heartbeat | Up to the decayed heartbeat (the `subscription.activated` webhook is the primary path) |
+| Dashboard/UPI-app change mid-cycle | Next heartbeat | Up to ~1 week |
 
-Terminal-phase subscriptions (`CANCELLED`, `EXPIRED`, `COMPLETED`) are not reconciled — their state
-cannot change further on Razorpay's side. This keeps the sweep's cost proportional to the number of
-subscriptions that can actually still drift, not to the full historical count.
+Under a daily-only tick every "≤ 15 min" becomes "≤ 24 h" ([SB-PB-06](../../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-06--billing-execution-is-scheduler-agnostic)).
 
-## Concurrency
+**Which way staleness errs.** Between a real change and its observation, the local state is the
+*previous* state. For a missed cancellation or halt, the user keeps access slightly longer than paid
+for; for a missed recovery, access is restored slightly late. Kizunia accepts the first and minimizes
+the second with webhooks as the primary path — it never shortens access speculatively
+([`../provider-availability/outage-and-stale-state.md`](../provider-availability/outage-and-stale-state.md)).
 
-A subscription being reconciled at the same moment its own webhook is being processed is handled the
-same way [`../webhooks/ordering-and-staleness.md`](../webhooks/ordering-and-staleness.md) handles two
-concurrent webhook-triggered refetches: both read the same authoritative source and converge on the
-same result, and the transactional update is idempotent (a "set current phase" write, not a delta).
+## The `billing-sync` tick task
 
-## If Razorpay is unreachable during a reconciliation pass
+Registered in the internal task registry; minimum interval ≤ the target cadence.
 
-The fetch for that subscription fails; `lastReconciledAt` is left unchanged so the next pass retries
-it; no local state is modified. The sweep continues with the remaining subscriptions rather than
-aborting entirely — one unreachable dependency during one pass does not stop reconciliation for
-every other subscription, mirroring the existing tick registry's own "a failing task does not abort
-the tick" behavior.
+```text
+run(deadline):
+  if global cooldown active: return { skipped: "cooldown" }
+  resolve expired IN_FLIGHT operations -> OUTCOME_UNKNOWN          (cheap, local)
+  loop until deadline or empty claim:
+    claim a batch of due Subscriptions (sync-mechanism.md#claiming)
+    for each: acquire budget (priority 2 or 3) -> fetch -> apply | backoff
+    stop early if budget unavailable or cooldown begins
+  return counts: claimed, applied, stale-discarded, failed by class, remaining due
+```
+
+The drain stops on an empty claim, not a short one, and stops cleanly before the platform's time
+limit, leaving the remainder due — the same two rules the notification drain follows
+([`../../notifications/jobs/README.md`](../../notifications/jobs/README.md#the-budget)). Orphan
+discovery is a separate, lower-priority task ([`orphan-discovery.md`](orphan-discovery.md)).
+
+## Multiple workers
+
+Two ticks (Vercel Cron and an external scheduler, or an overlap) may run concurrently. The registry's
+last-run marker and the claim's `SKIP LOCKED` + lease make that safe: each Subscription is claimed by
+at most one of them, and any leftover race is resolved by the stale-apply guard. The task has no
+state of its own beyond the rows it claims.
+
+## Scale
+
+Steady-state work is proportional to lifecycle events, not to total subscriptions — see
+[`provider-rate-limits.md`](provider-rate-limits.md#the-budget). A backlog (after an outage, or a
+deployment that paused the tick) drains oldest-first at the budget's rate; because every row's due
+time is kept, nothing is skipped and no subscription is starved by newer ones.

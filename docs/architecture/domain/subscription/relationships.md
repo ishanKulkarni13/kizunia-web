@@ -2,47 +2,62 @@
 
 > **Status:** Design — conceptual, not a schema
 >
-> **Last Updated:** 2026-09-21
+> **Last Updated:** 2026-09-24
 
 ```text
-User 1 ────── 0..n  Subscription            (history across cancel -> resubscribe cycles;
-                                              at most one currently ACTIVE/TRIALING/PENDING/HALTED
-                                              at a time)
-User 1 ────── 0..n  EntitlementGrant         (multiple may be simultaneously ACTIVE)
+User 1 ────── 0..n  Subscription            (one per Razorpay subscription, ever; history across
+                                              cancel -> resubscribe is simply several Subscriptions.
+                                              Kizunia never creates a second OPEN one — see below)
+User 1 ────── 0..n  EntitlementGrant         (multiple may be simultaneously valid)
+User 1 ────── 0..n  BillingOperation         (at most one IN_FLIGHT at a time)
 
+Subscription 1 ──── 0..1  ProviderReference          (bound once, when Razorpay confirms creation)
 Subscription 1 ──── 0..n  SubscriptionHistoryEntry   (append-only)
-Subscription 1 ──── 0..1  ProviderReference          (present once a real Razorpay subscription exists)
-Subscription 0..1 ─────── 0..n  BillingEvent          (an event concerns at most one Subscription;
-                                                        a Subscription accumulates many events over time)
+Subscription 1 ──── 0..n  BillingOperation           (the commands that targeted it)
+Subscription 0..1 ─────── 0..n  BillingEvent          (an event concerns at most one Subscription)
+Subscription 1 ──── 0..n  charge / refund / dispute facts
+Subscription 0..1 ─────── 0..1  Subscription          (supersededBy)
 
-EffectiveAccess = max(tier)
-  over { Subscription.phase-implied tier (if currently paid-equivalent) }
-  ∪    { EntitlementGrant.plan : status = ACTIVE and within validity window }
+EffectiveAccess(user, now) = max(tier)
+  over { Subscription.plan : phase in {TRIALING, ACTIVE, PAST_DUE}
+                             and providerMode = expected billing mode }
+  ∪    { EntitlementGrant.plan : status = ACTIVE and now within validity window }
   default FREE
 ```
+
+## Uniqueness, stated precisely
+
+| Set | Cardinality per user | How it is guaranteed |
+| --- | --- | --- |
+| All Subscriptions | Unbounded (history) | — |
+| **Open** Subscriptions (`PROVISIONING`, `PENDING_AUTHENTICATION`, `TRIALING`, `ACTIVE`, `PAST_DUE`, `PAUSED`, `HALTED`) | Kizunia creates at most one; more than one is an anomaly | Command-time check under the user's single in-flight operation; detection on every phase change ([`../../subscription/lifecycle/multiple-subscriptions.md`](../../subscription/lifecycle/multiple-subscriptions.md)) |
+| **Contributing** Subscriptions (`TRIALING`, `ACTIVE`, `PAST_DUE`) | Normally ≤ 1 | Follows from the above; effective access takes the maximum regardless |
+| Pending scheduled plan changes on one Subscription | ≤ 1 | [SB-LC-08](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-08--at-most-one-scheduled-change-and-cancellation-always-wins) |
+| `IN_FLIGHT` BillingOperations | ≤ 1 | Database constraint |
 
 ## Boundaries with other domains
 
 | Domain | Relationship |
 | --- | --- |
-| **User** | Owns Subscriptions and EntitlementGrants. Subscription & Billing never redefines identity — it reads the existing `User`/`StrictAuthorizationActor` shape |
-| **Project** (`ProjectMember`) | Consumes effective access as a quota input (owned-project limit) but is not itself part of this domain — see [`../../subscription/entitlements/quotas-vs-rate-limits.md`](../../subscription/entitlements/quotas-vs-rate-limits.md) |
-| **Portfolio** | Consumes effective access through the existing `resolvePortfolioPublicEligibility()` seam — see [`../../subscription/entitlements/authorization-integration.md`](../../subscription/entitlements/authorization-integration.md) |
-| **Notifications** | Consumes effective access as an eligibility input at the same user-eligibility stage the notification subsystem already reserved for it — see [`../notifications/README.md`](../notifications/README.md) and [`../../notifications/cross-cutting/feature-flags-and-entitlements.md`](../../notifications/cross-cutting/feature-flags-and-entitlements.md) |
+| **User** | Owns Subscriptions, grants and operations. Billing never redefines identity. Billing records never cascade-delete with a user ([SB-DP-04](../../../project/feature-specification/subscription/decisions/data-preservation.md#sb-dp-04--billing-records-survive-account-removal)) |
+| **Project** (`ProjectMember`) | Consumes effective access as a quota input — see [`../../subscription/entitlements/quotas-vs-rate-limits.md`](../../subscription/entitlements/quotas-vs-rate-limits.md) |
+| **Portfolio** | Consumes effective access through `resolvePortfolioPublicEligibility()` — see [`../../subscription/entitlements/authorization-integration.md`](../../subscription/entitlements/authorization-integration.md) |
+| **Notifications** | Consumes the set-based form of the effective-access rule in its scheduler, and the per-user form in handlers — see [`../notifications/README.md`](../notifications/README.md) and [`../../notifications/cross-cutting/feature-flags-and-entitlements.md`](../../notifications/cross-cutting/feature-flags-and-entitlements.md) |
 | **Recommendations** | Same pattern as Notifications, at the recommendation-generation service |
-| **MCP** | Consumes effective access as an additional check inside the existing `PlatformPolicy`/scope chain, never as a parallel authorization system |
-| **Authorization** (`AuthorizationEvaluator`) | Consumes effective access; does not merge with it. `Entitlement + Authorization = Allowed operation` — see [`../../../project/feature-specification/subscription/glossary.md`](../../../project/feature-specification/subscription/glossary.md#3-entitlement-vs-authorization) |
+| **MCP** | An additional check inside the existing `PlatformPolicy`/scope chain |
+| **Authorization** (`AuthorizationEvaluator`) | Consumes effective access; does not merge with it — see [`../../../project/feature-specification/subscription/glossary.md`](../../../project/feature-specification/subscription/glossary.md#3-entitlement-vs-authorization) |
+| **Rate limiting** | Consumes effective access for plan-tier overrides; separately hosts the outbound provider request budget's counters |
+| **Internal jobs** | Runs the `billing-sync` and orphan-discovery tasks; knows nothing about billing |
 
 ## What this domain does not own
 
-Authorization decisions, resource ownership, rate limiting, and notification/recommendation/MCP
-business logic all remain owned by their existing domains. This domain owns exactly: what plan a
-user's access resolves to, and why.
+Authorization decisions, resource ownership, rate-limit policy, and notification/recommendation/MCP
+business logic remain owned by their domains. This domain owns exactly: what plan a user's access
+resolves to, why, and the record of every billing interaction with Razorpay that led there.
 
 ## Storage is an implementation-phase decision
 
-The relationships above describe cardinality and ownership, not tables or foreign keys. Whether
-`ProviderReference` is embedded on `Subscription` or a related table, whether `BillingEvent`
-retention differs from `SubscriptionHistoryEntry` retention, and the exact Prisma model shapes are
-left to the implementation phase — consistent with [`overview.md`](overview.md)'s reasoning for why
-this document set stops at contracts.
+These relationships describe cardinality and ownership, not tables or foreign keys. How
+`ProviderReference` is stored, whether facts share a table, and exact Prisma shapes are left to
+implementation — with three constraints that are **not** optional: the unique provider ID per mode,
+the one-`IN_FLIGHT`-per-user constraint, and no cascading delete from `User` into billing records.

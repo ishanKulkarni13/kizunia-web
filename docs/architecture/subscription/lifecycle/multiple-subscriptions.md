@@ -76,9 +76,18 @@ For a user whose open Subscription is `HALTED` or `PAUSED`
 If step 7 never completes (user abandons checkout), the old subscription stays cancelled: that is
 what the user confirmed in step 1. The user is Free until they complete a new checkout.
 
-Whether Razorpay's Cancel API accepts `halted` and `paused` subscriptions is not documented
-([open item A1](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support));
-the step-4 `REJECTED` branch is the defined behavior until TEST mode shows otherwise.
+**Verified 2026-09-24 (TEST mode, card subscriptions; [A1](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)).**
+Razorpay's Cancel API **accepts an immediate cancellation of both `halted` and `paused`**
+subscriptions (`200`, then `cancelled` on refetch; `halted` on two subscriptions), so step 4 is
+technically supported. The official documentation names only `active`/`authenticated`, so this is
+*observed* behavior, not a documented guarantee
+([discrepancy D1](../provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior)) — the
+step-4 `REJECTED` branch and the step-5 confirm-by-sync are therefore kept exactly as designed. The
+step-4 call **must be the immediate form** (`cancel_at_cycle_end: false`, as `CANCEL_IMMEDIATELY`
+already is): a cycle-end request on these states returns `200` yet leaves them unchanged (D2), and
+would satisfy neither step 5 nor the user's confirmation. Not verified for UPI/e-mandate subscriptions
+(the case this path exists for — a revoked UPI mandate): TEST mode cannot reproduce them, so the first
+such case in LIVE remains covered by the `REJECTED` branch.
 
 ## Detection
 
@@ -93,7 +102,7 @@ How it can arise despite the invariant:
 | --- | --- |
 | Dashboard/Subscription-Link creation carrying a user's `notes` | An operator duplicates a subscription |
 | A superseded subscription later reinstated | Support reverses a cancellation (if Razorpay ever permits it) |
-| A create whose outcome was unknown, followed by a second purchase after the first was wrongly declared `ABANDONED` | Orphan-discovery window too short ([open item A5](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)) |
+| A create whose outcome was unknown, followed by a second purchase after the first was wrongly declared `ABANDONED` | Orphan-discovery window too short (the filter is `created_at`, inclusive — [A5](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)) |
 | A bug | — |
 
 What Kizunia does, and does not do:

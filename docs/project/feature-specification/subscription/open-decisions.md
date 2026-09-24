@@ -2,7 +2,7 @@
 
 > **Status:** Live
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (A1, A2, A5, A8, A13, A14 and parts of A4/A7 answered by TEST verification the same day)
 
 Questions that are **deliberately not answered yet** — either because they are genuinely open
 product questions, or because they require observing Razorpay's actual behavior in TEST mode (or
@@ -12,7 +12,10 @@ of what an implementation phase must resolve before the area it blocks can proce
 **How to use this document.** Answering an item means writing a ruling in
 [`decisions/`](decisions/README.md) (or a FACT in
 [`razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md)),
-updating the document that explains the behavior, and **deleting the item from here**.
+updating the document that explains the behavior, and moving the item to
+[A-resolved](#a-resolved-answered-by-test-verification-2026-09-24) with the verification date, its
+source (official documentation, TEST observation, or both) and its limitations. Resolved items are not
+deleted, so the decision history stays readable.
 
 Every item is classified:
 
@@ -30,23 +33,43 @@ undefined.
 
 ## A. Razorpay behavior requiring TEST-mode verification or Support
 
-| # | Item | Class | Fallback until resolved | Blocks |
-| --- | --- | --- | --- | --- |
-| A1 | Whether `halted`, `paused`, `pending` and `created` subscriptions can be cancelled via the Cancel API (docs name only `active`/`authenticated`) | TEST | `halted`/`paused` refused → supersession is refused and the user is directed to recover the existing subscription ([SB-UQ-04](decisions/uniqueness-and-resubscription.md#sb-uq-04--a-halted-or-paused-subscription-is-superseded-only-by-a-confirmed-cancellation)). `pending` refused → a `PAST_DUE` customer's cancellation is shown as unavailable until the payment recovers or halts. `created` refused → an unfinished checkout for a different plan blocks a new checkout until its short `expire_by` passes; the user can continue the existing one meanwhile | [`multiple-subscriptions.md`](../../../architecture/subscription/lifecycle/multiple-subscriptions.md#supersession); cancellation while past due; abandoned-checkout cleanup |
-| A2 | How a requested-but-not-yet-effective cycle-end cancellation appears in the fetched entity (no field is documented) | TEST | Kizunia's own `BillingOperation` record is the only source of "cancels at period end"; Dashboard/UPI-originated cycle-end cancellations are invisible until they take effect | "Your plan ends on…" UI accuracy for non-Kizunia-originated cancellations |
-| A3 | Whether any webhook fires when a `cycle_end` plan change is applied at the cycle boundary | TEST | Due-based sync at the scheduled-change time ([SB-RC-05](decisions/reconciliation.md#sb-rc-05--reconciliation-is-due-based-not-a-sweep)) observes it | Latency of applying a native scheduled downgrade |
-| A4 | Exact error codes/shape Razorpay returns when refusing an update for UPI, e-mandate or domestic-card subscriptions | TEST | Any `BAD_REQUEST_ERROR` from an update is classified `REJECTED` and surfaced as "this plan change isn't available for your payment method" | Deterministic classification in [SB-LC-07](decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible) |
-| A5 | Which timestamp Fetch All Subscriptions' `from`/`to` filter on (presumed `created_at`) | TEST | Orphan-discovery windows overlap generously (see [`orphan-discovery.md`](../../../architecture/subscription/reconciliation/orphan-discovery.md)) | Orphan-discovery window sizing |
-| A6 | Whether `x-razorpay-event-id` is present on every delivery and identical across retries | TEST | A delivery without the header is deduplicated on `sha256(raw body)` instead | [SB-WH-02](decisions/webhooks-and-reliability.md#sb-wh-02--every-received-event-is-persisted-with-a-unique-constraint-dedupe-key-before-acknowledgement) dedupe key |
-| A7 | Subscription state until a trial's `start_at`, and the path when the first real charge at `start_at` fails | TEST | Presumed `authenticated`, then the ordinary `pending → halted` path; Kizunia's mapping handles either | [`trials.md`](../../../architecture/subscription/lifecycle/trials.md) |
-| A8 | How `expire_by` interacts with `expired` for a `created` subscription without `start_at` | TEST | Kizunia sets `expire_by` explicitly on every create and also treats a local checkout older than it as abandoned | Abandoned-checkout cleanup timing |
-| A9 | Whether `invoice.*` webhooks fire for subscription invoices | TEST | Not subscribed; not needed for lifecycle | Nothing currently |
-| A10 | The halted/cancelled behavior of a UPI or e-mandate subscription whose mandate the customer revoked | TEST | Whatever state sync reports is mirrored; no assumption is made | Support playbooks |
-| A11 | Real-world e-mandate retry timing under Indian banking holidays | TEST | Kizunia does not depend on the timing — access follows the reported phase | Support expectations only |
-| A12 | Kizunia's actual Razorpay API rate limits (none are documented) | SUPPORT | Conservative configured budget adapting to observed 429s ([SB-RC-06](decisions/reconciliation.md#sb-rc-06--all-outbound-razorpay-calls-share-one-bounded-request-budget)) | Budget tuning before LIVE |
-| A13 | The maximum `total_count` Razorpay accepts per billing interval | TEST | A conservative configured value; a `completed` subscription is handled as terminal | Choice of `total_count` at creation |
-| A14 | Whether re-sending `cancel_at_cycle_end: true` for a subscription already scheduled to cancel succeeds, errors, or changes anything | TEST | Treated as possibly erroring: an error on re-issue is shown as "already cancelling" when Kizunia's own record says so | Resolving outcome-unknown cycle-end cancellations |
-| A15 | How Razorpay treats an active Offer when a subscription is upgraded | TEST | Whatever state results is observed and applied; no assumption | Offer + upgrade UX |
+Items still open after the 2026-09-24 TEST pass (results of that pass are in
+[A-resolved](#a-resolved-answered-by-test-verification-2026-09-24) below and in
+[`razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md#test-verification-2026-09-24)).
+Each row says exactly why it could not be answered.
+
+| # | Item | Class | Why it is still open | Fallback until resolved | Blocks |
+| --- | --- | --- | --- | --- | --- |
+| A3 | Whether any webhook fires when a `cycle_end` plan change is applied at the cycle boundary | TEST | **Not attempted.** Needs (a) a public HTTPS webhook endpoint registered in the Dashboard (no API exists; no tunnel tool available; skipping webhooks was the decision for the pass) and (b) a successful native plan change, which needs an international-card subscription (excluded) | Due-based sync at the scheduled-change time ([SB-RC-05](decisions/reconciliation.md#sb-rc-05--reconciliation-is-due-based-not-a-sweep)) observes it | Latency of applying a native scheduled downgrade |
+| A4 | Exact refusal shape for **UPI** and **e-mandate** subscriptions (the domestic-card refusals are resolved — see A-resolved) | TEST | UPI is not offered in TEST Checkout; an e-mandate registration completed at the mock bank but the subscription stayed `created` for the 9+ minutes observed, so it could never be updated | Any `BAD_REQUEST_ERROR` from an update is classified `REJECTED` (confirmed sufficient for domestic cards) and surfaced as "this plan change isn't available for your payment method" | Deterministic classification in [SB-LC-07](decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible) |
+| A6 | Whether `x-razorpay-event-id` is present on every delivery and identical across retries | TEST | **Not attempted** — no webhook endpoint (see A3) | A delivery without the header is deduplicated on `sha256(raw body)` instead | [SB-WH-02](decisions/webhooks-and-reliability.md#sb-wh-02--every-received-event-is-persisted-with-a-unique-constraint-dedupe-key-before-acknowledgement) dedupe key |
+| A7 | What happens when a trial's **first real charge at `start_at` fails** (the pre-`start_at` state is resolved — see A-resolved) | TEST | TEST mode never ran the first scheduled charge: the subscription was still `authenticated` 47 minutes after `start_at`, and "Charge this now" is documented only for `active`/`pending` | Presumed the ordinary `pending → halted` path; Kizunia's mapping handles either | [`trials.md`](../../../architecture/subscription/lifecycle/trials.md) |
+| A9 | Whether `invoice.*` **webhook events** fire for subscription invoices | TEST | **Not attempted** — no webhook endpoint (see A3). (The invoices themselves are fetchable by API — recorded in `razorpay-facts.md`) | Not subscribed; not needed for lifecycle | Nothing currently |
+| A10 | The halted/cancelled behavior of a UPI or e-mandate subscription whose mandate the customer revoked | TEST | **Not reproducible** — TEST mode has no way to revoke a mandate | Whatever state sync reports is mirrored; no assumption is made | Support playbooks |
+| A11 | Real-world e-mandate retry timing under Indian banking holidays | TEST | **Not reproducible** — TEST mode has no banking calendar | Kizunia does not depend on the timing — access follows the reported phase | Support expectations only |
+| A12 | Kizunia's actual Razorpay API rate limits (none are documented) | SUPPORT | Only Razorpay Support can state them; no 429 was encountered during the TEST pass | Conservative configured budget adapting to observed 429s ([SB-RC-06](decisions/reconciliation.md#sb-rc-06--all-outbound-razorpay-calls-share-one-bounded-request-budget)) | Budget tuning before LIVE |
+| A15 | How Razorpay treats an active Offer when a subscription is upgraded | TEST | **Not attempted** — needs a native upgrade (international card, excluded) and an Offer, which can be created only in the Dashboard | Whatever state results is observed and applied; no assumption | Offer + upgrade UX |
+
+### A-resolved. Answered by TEST verification (2026-09-24)
+
+Kept here (not deleted) so the decision history stays readable. Source for every row:
+**TEST observation** on 2026-09-24 in Razorpay TEST mode, in addition to the official documentation
+named in [`razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md).
+Limitations are stated per row. Where the observation differs from the documentation, the difference is
+flagged in
+[`razorpay-facts.md` § Documentation vs observed behavior](../../../architecture/subscription/provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior)
+and needs review.
+
+| # | Question | Result | Limitations |
+| --- | --- | --- | --- |
+| A1 | Can the Cancel API cancel `created`, `pending`, `paused`, `halted`? | **Yes — immediate cancel (`cancel_at_cycle_end: false`) is accepted in all four** (`200`, then `cancelled` on refetch); `halted` observed on two subscriptions. **Cycle-end cancel is not equivalent:** refused (`400`) for `created`/`authenticated`, but `200` **with no state change** for `pending`/`paused`/`halted`. Supersession step 3 therefore works technically ([SB-UQ-04](decisions/uniqueness-and-resubscription.md#sb-uq-04--a-halted-or-paused-subscription-is-superseded-only-by-a-confirmed-cancellation)). **Discrepancy vs documentation (D1, D2) flagged for review** | Card subscriptions only (UPI/e-mandate not reproducible). `pending`/`halted` were reached with Dashboard-simulated failures, not real bank declines. **No webhook observation** (not attempted) |
+| A2 | How is a requested cycle-end cancel visible in the fetched entity? | **Not visible.** No field changes; scheduled-change APIs report nothing pending. Only Kizunia's own `BillingOperation` can show "cancels at period end" | Whether the cancel actually *takes effect* at `current_end` was not observable (no accelerated clock) |
+| A4 (part) | Refusal shape for domestic-card subscriptions | `400 BAD_REQUEST_ERROR`, four description variants, `field` sometimes `offer_id`; a refused update leaves state unchanged. The current `REJECTED` classification is sufficient | Domestic card only; the remainder is open above |
+| A5 | Which timestamp do `from`/`to` filter on? | **`created_at`**, both bounds **inclusive** | Only `created_at` vs `start_at` was contrasted |
+| A7 (part) | State until a trial's `start_at` | **`authenticated`**, `paid_count 0`, `charge_at == start_at`, period fields `null`; immediate cancel accepted, cycle-end refused | First-charge failure path is open above |
+| A8 | How does `expire_by` interact with `expired` for a `created` subscription without `start_at`? | It becomes **`expired`** after `expire_by`, but only after a lag of up to ~3 minutes (188 s observed). `expire_by` ≥ 30 s ahead accepted; past values rejected | Behavior of a payment made inside the lag window not tested |
+| A13 | Maximum `total_count`? | Enforced per period/interval, ≈ 100 years of billing: `monthly` 1200, `yearly` 100 (others in `razorpay-facts.md`) | Values above the maximum are rejected with the maximum named in the message |
+| A14 | Does re-sending `cancel_at_cycle_end: true` succeed, error, or change anything? | **Succeeds (`200`), changes nothing observable** | Cannot tell a no-op from a re-record, for the same reason as A2 |
 
 ## B. Genuinely open product questions
 
@@ -96,5 +119,6 @@ For clarity, since "not yet decided" and "deliberately decided to be minimal" ar
 | Whether plan changes use a Kizunia-built workaround | Decided: no — native Razorpay capability only — see [SB-LC-07](decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible) |
 | Whether Vercel Pro is required | Decided: no — execution is scheduler-agnostic — see [SB-PB-06](decisions/provider-boundary-and-environments.md#sb-pb-06--billing-execution-is-scheduler-agnostic) |
 | Whether an Offer can be linked to an active subscription | Decided (FACT): yes, effective at the end of the current cycle — see [SB-CP-05](decisions/coupons-and-promotions.md#sb-cp-05--an-offer-can-be-linked-to-an-active-subscription-effective-at-cycle-end) |
+| Whether Razorpay can cancel a `halted`/`paused` subscription (the supersession mechanism) | TEST-OBSERVED 2026-09-24: yes, immediate cancel — see [A-resolved](#a-resolved-answered-by-test-verification-2026-09-24). The design and its `REJECTED` fallback are unchanged |
 | The minimum proration difference | FACT: ₹0.5 — see [`razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md#upgrade--downgrade) |
 | What TEST-mode tooling exists for subscriptions | FACT: Dashboard "Charge this now" simulates success/failure; no send-test-webhook tool — see [`razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md#test-vs-live-mode) |

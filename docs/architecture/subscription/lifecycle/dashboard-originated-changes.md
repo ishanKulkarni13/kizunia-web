@@ -41,7 +41,7 @@ is what lets support answer "did we do this, or did it happen at Razorpay?"
 
 | Provider-side action | Kizunia |
 | --- | --- |
-| Cancel (immediate or cycle end) | Observed and applied; a cycle-end cancel is invisible until it takes effect ([A2](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)) |
+| Cancel (immediate or cycle end) | Observed and applied; a cycle-end cancel is invisible until it takes effect (verified in TEST mode 2026-09-24: no entity field changes, [A2](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)) |
 | Pause / resume | `PAUSED` (no access) / `ACTIVE` |
 | Update plan / quantity | Applied if the plan ID is in the catalog; otherwise not applied, `UNMAPPED_PROVIDER_PLAN` |
 | Link an Offer | Observed (`offer_id`); billing only, no access effect |

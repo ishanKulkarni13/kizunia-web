@@ -87,7 +87,7 @@ Resolution is observation-only ([SB-CM-03](../../../project/feature-specificatio
 | `CREATE_SUBSCRIPTION` | Orphan discovery searches the creation window for `notes.kz_sub = <Subscription id>` ([`orphan-discovery.md`](../reconciliation/orphan-discovery.md)); a webhook carrying those notes resolves it sooner ([SB-WH-06](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-06--events-for-unknown-subscriptions-are-persisted-and-matched-never-dropped)) | Found → provider ID bound, `SUCCEEDED`. Window closed without a match → Subscription `ABANDONED`, operation `NOT_APPLIED` |
 | `UPDATE_PLAN` | Next sync: the provider plan (or a pending scheduled change) equals the requested plan | `SUCCEEDED` or `NOT_APPLIED` |
 | `CANCEL_IMMEDIATELY` | Next sync: status `cancelled` | `SUCCEEDED` or `NOT_APPLIED` |
-| `CANCEL_AT_CYCLE_END` | Not observable from the entity ([open item A2](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)); resolved when the subscription is observed `cancelled` at period end, or offered to the user to re-issue (expected to be harmless; [A14](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)) | `SUCCEEDED` or `NOT_APPLIED` |
+| `CANCEL_AT_CYCLE_END` | Not observable from the entity (verified in TEST mode 2026-09-24: no field changes, [A2](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)); resolved when the subscription is observed `cancelled` at period end, or offered to the user to re-issue (verified harmless: a repeat returns `200` and changes nothing, [A14](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)). A `200` here is **not** evidence the cancellation was recorded — see [`cancellation.md`](../lifecycle/cancellation.md#customer-cancellation--which-kind) | `SUCCEEDED` or `NOT_APPLIED` |
 | `CANCEL_SCHEDULED_CHANGE` | Next sync: `has_scheduled_changes = false` | `SUCCEEDED` or `NOT_APPLIED` |
 
 Until resolved, the user sees "your last billing change is still being confirmed" and may not issue
@@ -104,7 +104,7 @@ resolution window). An `OUTCOME_UNKNOWN` operation older than the alert threshol
 | Change plan (paid→paid) | `ACTIVE` or `TRIALING` | Update Subscription (`now` for upgrades, `cycle_end` for downgrades), preceded by Cancel an Update if a change is pending | Sync observes the new plan |
 | Cancel (customer) | `ACTIVE`, `PAST_DUE` → cycle end; `TRIALING` → immediate | Cancel (`cancel_at_cycle_end` true / false) | Sync observes `cancelled` |
 | Cancel immediately (admin) | Any open phase | Cancel (`false`) | Sync observes `cancelled` |
-| Abandon checkout | `PENDING_AUTHENTICATION` | Cancel (`false`) — see [open item A1](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support) | n/a |
+| Abandon checkout | `PENDING_AUTHENTICATION` | Cancel (`false`) — accepted for `created` in TEST mode ([A1](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)) | n/a |
 | Supersede | `HALTED` or `PAUSED`, user confirmed | Cancel (`false`), sync-confirmed, then Start checkout | Per the new subscription |
 
 Composed commands (plan change after cancelling a scheduled change; supersession) run as a parent

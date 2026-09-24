@@ -67,12 +67,18 @@ These are deliberate or pending, not oversights:
 1. **Paid→paid plan changes are unavailable for UPI, e-mandate and domestic-card subscriptions** —
    most Indian customers. Product decision; highest-impact open question
    ([B1](../../project/feature-specification/subscription/open-decisions.md#b-genuinely-open-product-questions)).
-2. **Supersession depends on Razorpay accepting cancellation of `halted`/`paused` subscriptions**,
-   which is undocumented ([A1](../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)).
-   The refusal fallback is defined, but if Razorpay refuses, users with a revoked UPI mandate may be
-   unable to resubscribe without support cancelling in the Dashboard.
+2. **Supersession depends on Razorpay accepting cancellation of `halted`/`paused` subscriptions.**
+   The documentation names only `active`/`authenticated`, but TEST mode accepted an immediate cancel
+   of both on 2026-09-24 ([A1](../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)).
+   Still unproven for UPI/e-mandate subscriptions (not reproducible in TEST), and a documented-vs-observed
+   discrepancy is flagged for review. The refusal fallback stays defined: if Razorpay refuses, users
+   with a revoked UPI mandate may be unable to resubscribe without support cancelling in the Dashboard.
+   A cycle-end cancel of `pending`/`paused`/`halted` returns `200` without effect and must not be used
+   for supersession.
 3. **Dashboard- and UPI-app-originated cycle-end cancellations are invisible until they take effect**
-   ([A2](../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)).
+   (confirmed in TEST mode: [A2](../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)).
+   That a Kizunia-requested cycle-end cancel actually takes effect at `current_end` could not be
+   observed in TEST mode.
 4. **Rate-limit numbers are unknown** until Razorpay Support confirms them ([A12](../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)).
 5. **On a daily-only tick**, recovery paths (retries after failures, outcome-unknown creates, missed
    webhooks) take up to 24 hours ([SB-PB-06](../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-06--billing-execution-is-scheduler-agnostic)).
@@ -84,7 +90,9 @@ These are deliberate or pending, not oversights:
 
 1. Run the TEST-mode verification plan for every §A item marked TEST in
    [`open-decisions.md`](../../project/feature-specification/subscription/open-decisions.md), and
-   record each result as a FACT (A1 first — it gates supersession).
+   record each result as a FACT (A1 first — it gates supersession). *A first TEST pass on 2026-09-24
+   answered A1, A2, A5, A8, A13, A14 and parts of A4/A7; the items that still need a webhook endpoint
+   (A3, A6, A9) or an international-card subscription (A3, A15) remain.*
 2. Ask Razorpay Support for the account's API rate limits (A12).
 3. From the authorization audit (`docs/temp/kizunia-authorization-compressed-wind.md` §22, P1):
    refactor `PortfolioPolicy` onto `AuthorizationEvaluator`, and add the shared admin-route guard

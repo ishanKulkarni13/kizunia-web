@@ -98,9 +98,14 @@ Kizunia acts on Razorpay's observed state, not on an assumed one.
 
 **Consequence:** This is the only path by which Kizunia itself cancels a `halted` subscription —
 see the amendment to [SB-PF-03](payment-failure-and-recovery.md#sb-pf-03--halted-ends-paid-access-but-never-cancels-the-subscription).
-Whether the Cancel API accepts `halted`/`paused` subscriptions is not documented
-([open item A1](../open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support));
-until verified, the refusal fallback above is the defined behavior.
+**TEST verification (2026-09-24, [A1](../open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)):**
+in TEST mode Razorpay's Cancel API accepted an *immediate* cancellation of `halted` (two
+subscriptions) and `paused` subscriptions, and the subscription read `cancelled` on refetch. The
+documentation names only `active`/`authenticated`, so this is observed rather than documented
+behavior (flagged for review as D1 in
+[`razorpay-facts.md`](../../../../architecture/subscription/provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior)).
+The decision is unchanged: the refusal fallback above remains the defined behavior if Razorpay refuses,
+and UPI/e-mandate subscriptions could not be reproduced in TEST mode.
 
 ## SB-UQ-05 — Multiple open subscriptions arising outside Kizunia are detected, never silently resolved
 

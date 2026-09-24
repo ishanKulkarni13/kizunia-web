@@ -46,9 +46,12 @@ when the window has been fully paged: watermark := window.to
 - **Bounded:** `maxPagesPerRun` × 100 items per run, and budget-gated. A backlog after an incident
   drains over several runs; the watermark advances only when a window is complete, so nothing is
   skipped.
-- **Overlap:** windows overlap by a configured margin, because which timestamp `from`/`to` filter on
-  is not documented ([A5](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)).
-  Re-seeing an item is harmless — known IDs are skipped.
+- **Overlap:** windows overlap by a configured margin. Which timestamp `from`/`to` filter on is not
+  documented, but TEST mode showed it is `created_at` with both bounds inclusive
+  ([A5, verified 2026-09-24](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)),
+  so the margin now only has to cover clock skew and settle delay, not an unknown timestamp. The
+  margin is kept as designed (the observation is not a documented guarantee). Re-seeing an item is
+  harmless — known IDs are skipped.
 - **Settle delay:** the newest minutes are not scanned, so an in-progress create is not misreported.
 
 ## Resolving `OUTCOME_UNKNOWN` creates

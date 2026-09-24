@@ -1,7 +1,8 @@
 # Razorpay Facts
 
 > **Status:** Live — re-verified 2026-09-24 against current official Razorpay documentation
-> (first verified 2026-09-21)
+> (first verified 2026-09-21); provider behavior additionally **observed in Razorpay TEST mode on
+> 2026-09-24** (see [TEST verification](#test-verification-2026-09-24))
 >
 > **Last Updated:** 2026-09-24
 
@@ -11,8 +12,12 @@ tagged `[RAZORPAY FACT]` links back to. It supersedes `docs/temp/razorpay-feasib
 wherever the two disagree — that document was an earlier research pass; this one reflects direct
 verification against Razorpay's live documentation.
 
-**Tags.** **FACT** — explicitly documented, with a source. **INTERPRETATION** — Kizunia's
-engineering conclusion. **OPEN** — not conclusively established by documentation; listed in
+**Tags.** **FACT** — explicitly documented, with a source. **TEST-OBSERVED** — observed directly in
+Razorpay TEST mode by experiment, with the date; it is evidence of provider behavior, not a
+documented guarantee, and where it differs from documentation the difference is recorded under
+[Documentation vs observed behavior](#documentation-vs-observed-behavior) and flagged for review.
+**INTERPRETATION** — Kizunia's engineering conclusion. **OPEN** — not conclusively established by
+documentation or TEST observation; listed in
 [`open-decisions.md`](../../../project/feature-specification/subscription/open-decisions.md) as
 requiring TEST-mode verification (or a question to Razorpay Support). An OPEN item is never
 silently treated as a fact anywhere else in this design.
@@ -61,8 +66,15 @@ although the Pause API returns `paused`. Source: [Subscription Entity](https://r
 a state to guess at — see [`../reconciliation/provider-rate-limits.md`](../reconciliation/provider-rate-limits.md#provider-failure-taxonomy).
 Kizunia's own phase mapping is in [`../lifecycle/state-mapping.md`](../lifecycle/state-mapping.md).
 
-**OPEN.** How `expire_by` interacts with `expired` for a `created` subscription that has no
-`start_at`; the documentation ties `expired` only to `start_at`.
+**TEST-OBSERVED (2026-09-24; was OPEN).** A `created` subscription with **no** `start_at` becomes
+`expired` once its `expire_by` passes — the documentation ties `expired` only to `start_at`. The
+transition is **not instantaneous**: with `expire_by` = now + 45 s, the first fetch that no longer
+read `created` came 188 s after `expire_by`, so a subscription past its `expire_by` can still read
+`created` for a few minutes. `expired` is terminal and cannot be cancelled ("Subscription is not
+cancellable in expired status." — matches the documented error). `expire_by` values as short as 30 s
+in the future were accepted; a past value is rejected with `BAD_REQUEST_ERROR` ("Link expire by cannot
+be lesser than the current time."). Whether a payment made inside the lag window would succeed was
+not tested.
 
 ---
 
@@ -84,8 +96,23 @@ the authorization *payment* (its `method`, and for cards whether the card is int
 from the subscription entity. Kizunia stores it as advisory UX data only — see
 [SB-LC-07](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible).
 
-**OPEN.** Whether and how a *requested but not yet effective* cycle-end cancellation is visible in the
-fetched entity (no field is documented for it).
+**TEST-OBSERVED (2026-09-24; was OPEN).** A *requested but not yet effective* cycle-end cancellation
+is **not visible** in the fetched entity. Comparing the full entity before and after a successful
+`cancel_at_cycle_end: true` on an `active` subscription showed **no differing field**
+(`status`, `has_scheduled_changes`, `change_scheduled_at`, `charge_at`, `end_at` and every other
+field were unchanged), and both `retrieve_scheduled_changes` and `cancel_scheduled_changes` answer
+"No Pending update for this subscription". Only Kizunia's own record can say "cancels at period end".
+That the cancellation actually takes effect at `current_end` **could not be observed** — TEST mode has
+no accelerated clock and the first cycle ends ~30 days out.
+
+**TEST-OBSERVED (2026-09-24) — fields not in the documented entity.** Fetched subscriptions also
+carry `payment_method` (`"card"` and `"emandate"` observed; `null` before authentication),
+`halted_at` (epoch when halted, else `null`), `card_mandate_id` (for card subscriptions),
+`customer_email` and `customer_contact` (populated from Checkout). `customer_id` was `null` on
+fetches immediately after authentication and populated on later fetches. This **contradicts** the
+documented "no `payment_method` field" statement above — see
+[Documentation vs observed behavior](#documentation-vs-observed-behavior) (D3). Kizunia should treat
+these as useful but undocumented: it may read them defensively, never depend on them.
 
 ---
 
@@ -110,6 +137,15 @@ second real subscription. Creation idempotency is therefore entirely Kizunia's �
 row written *before* the call, and Kizunia identifiers carried in `notes` so the provider object can
 be found again. See [`../commands/checkout-and-creation.md`](../commands/checkout-and-creation.md).
 
+**TEST-OBSERVED (2026-09-24; A13, was OPEN).** The maximum `total_count` is enforced per plan
+period/interval and is reported in the rejection (`400 BAD_REQUEST_ERROR`, "Exceeds the maximum
+total_count (N) allowed for the given period and interval"). Observed maxima: `yearly` ×1 → 100;
+`monthly` ×1 → 1200; `monthly` ×3 → 400; `monthly` ×12 → 100; `weekly` ×1 → 5200; `weekly` ×4 →
+1300; `daily` ×7 → 5214.29 (a non-integer, so treat the reported value as a bound to floor). The
+pattern is a ceiling of roughly **100 years of billing**; the smallest accepted value tested was 1.
+For Kizunia's monthly and yearly plans a `total_count` of 1200 / 100 is the ceiling; the choice of
+the actual value remains configuration.
+
 **FACT.** At checkout completion Razorpay returns `razorpay_payment_id`, `razorpay_subscription_id`
 and `razorpay_signature`; the signature is `hmac_sha256(razorpay_payment_id + "|" +
 subscription_id, key_secret)`, where `subscription_id` should be the one held by the merchant's
@@ -126,7 +162,11 @@ server, not the value echoed back by Checkout. Source:
 `customer_id` filter is documented. Source:
 [Fetch All Subscriptions](https://razorpay.com/docs/api/payments/subscriptions/fetch-subscriptions/).
 
-**OPEN.** Which timestamp `from`/`to` filter on (presumed `created_at`, not stated).
+**TEST-OBSERVED (2026-09-24; was OPEN).** `from`/`to` filter on **`created_at`**, and both bounds
+are **inclusive**. Tested on a subscription whose `start_at` was 420 s after its `created_at`: a
+window around `created_at` returned it; a window around `start_at` did not; `from == created_at`
+returned it; `from = created_at + 1` did not; `to == created_at` returned it. Not tested: whether the
+filter behaves differently for other timestamps (`ended_at`, `halted_at`).
 
 **INTERPRETATION.** Finding provider subscriptions Kizunia lost track of is feasible, but only as a
 bounded, windowed, paginated scan — see [`../reconciliation/orphan-discovery.md`](../reconciliation/orphan-discovery.md).
@@ -158,8 +198,22 @@ never touches Kizunia's UI (the Razorpay-sent email link, since `customer_notify
 `true`). Kizunia must detect this rather than assume it cannot happen — see
 [`../lifecycle/multiple-subscriptions.md`](../lifecycle/multiple-subscriptions.md).
 
-**OPEN.** Real-world e-mandate retry timing under Indian banking holidays. The halted-state behavior
-of a UPI/e-mandate subscription whose mandate the customer has revoked.
+**TEST-OBSERVED (2026-09-24) — retry progression under Dashboard-simulated failures (card).** With
+failures produced by the Dashboard's "Charge this now" (see [Test vs live mode](#test-vs-live-mode)):
+`active → pending` on the first failed charge; each further failure incremented `auth_attempts`
+(observed 1, 2, 3, 4) and advanced `charge_at` by exactly 86 400 s (one day); after the fourth failed
+attempt the subscription became `halted` with `halted_at` set and `auth_attempts` reset to 0. This
+matches the documented "3 retries after the original attempt" (4 failures total). The retry schedule
+here is a *simulation* driven by manual clicks, not Razorpay's real T+1/T+2/T+3 clock.
+
+**OPEN (not reproducible in TEST).** Real-world e-mandate retry timing under Indian banking holidays
+(A11): TEST mode has no banking calendar. The halted-state behavior of a UPI/e-mandate subscription
+whose mandate the customer has revoked (A10): TEST mode offers no way to revoke a mandate. An e-mandate
+registration was started in TEST mode but stayed `created` (see
+[TEST verification](#test-verification-2026-09-24)), so no e-mandate lifecycle beyond registration was
+observed. **Halted recovery** (customer changes payment method) was not exercised — it needs the
+customer-side card-change flow; one `halted → pending` transition was observed during Dashboard
+clicking on a halted subscription but its cause could not be attributed (see D9).
 
 ---
 
@@ -200,9 +254,29 @@ is in progress." Source: same.
 **FACT.** Subscriptions can be updated from the Dashboard as well as the API. Source:
 [Update a Subscription (guide)](https://razorpay.com/docs/payments/subscriptions/update/).
 
-**OPEN.** The exact error codes/shape for the payment-method refusals (needed to classify them
-deterministically). Whether any webhook fires when a `cycle_end` change is *applied* (only immediate
-updates are documented as firing `subscription.updated`).
+**TEST-OBSERVED (2026-09-24; A4, partially resolved) — domestic-card refusals.** Updating an `active`
+subscription authorized with a **domestic card** is refused with `HTTP 400`, code
+`BAD_REQUEST_ERROR`, and these descriptions:
+
+| Request | Description | `field` |
+| --- | --- | --- |
+| `plan_id` with `schedule_change_at: "now"` | "Can't update subscription immediately when card mandate is applicable" | none |
+| `quantity` with `schedule_change_at: "now"` | same | none |
+| `plan_id` with `schedule_change_at: "cycle_end"` | "Only offers can be updated for subscriptions when payment mode is domestic card." | `offer_id` |
+| `remaining_count` with `schedule_change_at: "cycle_end"` | same | `offer_id` |
+
+Every case is `BAD_REQUEST_ERROR`, consistent with the current fallback ("any `BAD_REQUEST_ERROR` is
+classified `REJECTED`"), but the code is **not specific** — the distinguishing signal is the free-text
+description, which Kizunia must not parse. A refused update left the subscription unchanged
+(`has_scheduled_changes` stayed `false`). **Not verified:** the UPI and e-mandate refusals (UPI cannot
+be authorized through Checkout in TEST; an e-mandate registration did not complete, see below).
+
+**OPEN (not verified).** Whether any webhook fires when a `cycle_end` change is *applied* (A3):
+a *successful* native plan change needs an international-card subscription (domestic cards allow
+only offer updates) and a registered webhook endpoint; the first was ruled out for this verification
+and the second was not available (see [TEST verification](#test-verification-2026-09-24)). How Razorpay
+treats an active Offer on upgrade (A15) is open for the same reasons, plus Offers can be created only
+from the Dashboard.
 
 ---
 
@@ -234,9 +308,38 @@ cancelled. Source: same.
 **FACT.** Subscriptions can be cancelled from the Dashboard, immediately or at cycle end. Source:
 [Pause, Resume and Cancel](https://razorpay.com/docs/payments/subscriptions/pause-resume-cancel/).
 
-**OPEN.** Whether `created`, `pending`, `halted` and `paused` subscriptions can be cancelled through
-the API. The API page names only `active`/`authenticated`; the states diagram shows
-`paused → cancelled`. This blocks [supersession](../lifecycle/multiple-subscriptions.md#supersession).
+**TEST-OBSERVED (2026-09-24; A1, was OPEN) — which states accept cancellation.** The API page names
+only `active`/`authenticated`; the states diagram shows `paused → cancelled`. Observed in TEST mode
+against the live API, each result confirmed by a separate `GET` of the subscription:
+
+| State when cancelled | `cancel_at_cycle_end: false` (immediate) | `cancel_at_cycle_end: true` |
+| --- | --- | --- |
+| `created` | **Accepted** — `200`, then `cancelled` | Refused — `400` "Subscription cannot be cancelled since no billing cycle is going on" |
+| `authenticated` (trial) | **Accepted** — `200`, then `cancelled` | Refused — `400`, same message |
+| `active` | Accepted (documented) | `200`; state stays `active`; effect invisible (see above) |
+| `pending` | **Accepted** — `200`, then `cancelled` (stays `cancelled` on refetch) | **`200` but state unchanged** — no cancellation observed |
+| `paused` | **Accepted** — `200`, then `cancelled`; a later `resume` is refused ("can't be resumed as subscription is in cancelled state") | **`200` but state unchanged** (`paused`) |
+| `halted` | **Accepted** — `200`, then `cancelled` (observed on two subscriptions) | **`200` but state unchanged** (`halted`) |
+| `expired` | Refused — `400` "Subscription is not cancellable in expired status." (`field: "status"`) | not tested |
+| `cancelled` | Refused — `400` "Subscription is not cancellable in cancelled status." (`field: "status"`) | not tested |
+
+**INTERPRETATION.** Immediate cancellation is the only cancellation whose effect is verified for
+`created`, `pending`, `paused` and `halted`; it works for all four and is terminal. A **`200` from a
+cycle-end request on `pending`/`paused`/`halted` must never be read as a cancellation** — the
+documented refusal for "no billing cycle is going on" is *not* returned in these states, and the
+subscription is unchanged. Whether such a request is recorded for later or is a silent no-op could not
+be determined (there is no accelerated clock). See the architecture impact recorded in
+[`../lifecycle/cancellation.md`](../lifecycle/cancellation.md#customer-cancellation--which-kind).
+
+**TEST-OBSERVED (2026-09-24; A14, was OPEN).** Re-sending `cancel_at_cycle_end: true` to an `active`
+subscription that already received one **succeeds again with `200`** and changes nothing observable;
+it does not error. Combined with the A2 result, a repeated cycle-end request is harmless but also
+unconfirmable.
+
+**TEST-OBSERVED (2026-09-24) — other cancellation facts.** A pending cycle-end cancel did not prevent
+an immediate cancel (on the same subscription: request cycle-end, then cancel immediately →
+`cancelled`; observed for `active`, `pending` and `halted`). Response bodies of `pause`/`resume`/`cancel` were not always consistent with the state a
+later `GET` returned (D9) — the authoritative `GET` is the truth.
 
 ---
 
@@ -247,6 +350,15 @@ pausing sets `paused_at` and nulls `current_start`, `current_end` and `charge_at
 be enabled on the account. Only `paused` subscriptions can be resumed; resume can fail if the
 mandate is no longer valid. Sources: [Pause](https://razorpay.com/docs/api/payments/subscriptions/pause-subscription/),
 [Resume](https://razorpay.com/docs/api/payments/subscriptions/resume-subscription/).
+
+**TEST-OBSERVED (2026-09-24).** `pause` (`pause_at: "now"`) on an `active` card subscription →
+`paused`, `charge_at` becomes `null`. Unlike the documentation, **`current_start` and `current_end`
+were retained** (D4). Pausing an already-paused subscription and resuming a non-paused one are refused
+with `400 BAD_REQUEST_ERROR` ("subscription can't be paused as subscription is in paused state" /
+"can't be resumed as subscription is in active state"; the same wording with `halted`/`cancelled`).
+`resume` on a `paused` subscription → `active` with `charge_at` restored. A `paused` subscription can
+be cancelled immediately (see [Cancellation](#cancellation)). Pause was enabled on the TEST account
+without any special request.
 
 **INTERPRETATION.** Kizunia never pauses or resumes a subscription itself in V1. A `paused`
 subscription only arises from the Dashboard or the customer's UPI app.
@@ -300,8 +412,17 @@ same pages; recorded because eligibility is therefore entirely Kizunia's
 so Kizunia cannot infer "trial" from provider state and must record it itself
 ([SB-LC-10](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-10--subscription-kind-is-recorded-at-creation-never-inferred)).
 
-**OPEN.** The exact state until `start_at` (presumed `authenticated`) and what happens when the first
-real charge at `start_at` fails (presumed the ordinary `pending → halted` path).
+**TEST-OBSERVED (2026-09-24; A7, partially resolved).** A subscription created with a future
+`start_at` and authenticated by card is `authenticated` until `start_at`, with `paid_count: 0`,
+`charge_at == start_at` and `current_start`/`current_end` both `null`. It can be cancelled only
+immediately (see [Cancellation](#cancellation)). In TEST mode the subscription was still
+`authenticated` **47 minutes after `start_at`** with no charge attempted — TEST mode does not run the
+scheduled first charge promptly (or at all within the window), and the Dashboard's "Charge this now" is
+documented only for `active`/`pending` subscriptions.
+
+**OPEN (not reproducible in TEST).** What happens when the first real charge at `start_at` **fails**
+(presumed the ordinary `pending → halted` path, unchanged). The state before `start_at` is settled;
+the failure path needs the first charge to run, which TEST mode did not do.
 
 ---
 
@@ -318,8 +439,11 @@ Source: [Webhooks FAQ](https://razorpay.com/docs/webhooks/faqs/).
 **FACT.** `x-razorpay-event-id` "is unique per event and can help you determine the duplicity of a
 webhook event." Source: [Webhooks Best Practices](https://razorpay.com/docs/webhooks/best-practices/).
 
-**OPEN.** Whether the header is present on every delivery and identical across retries of one event
-(implied, not stated).
+**OPEN — NOT VERIFIED (A6).** Whether the header is present on every delivery and identical across
+retries of one event (implied, not stated). Observing it needs a public HTTPS endpoint registered in
+the Dashboard's TEST webhooks (Razorpay offers no API to register one) and a way to fail deliveries on
+purpose; no such endpoint existed and the decision for this verification was to skip webhooks (see
+[TEST verification](#test-verification-2026-09-24)). **No webhook behavior of any kind was verified.**
 
 **FACT.** "Razorpay follows at-least-once delivery semantics." A response must be 2xx within 5
 seconds; "Razorpay considers any non-2xx response as an event delivery failure"; failed deliveries
@@ -365,7 +489,11 @@ separately configured webhook URLs and secrets. Source:
 **FACT.** Razorpay publishes its webhook source IP addresses. Source:
 [IP whitelisting](https://razorpay.com/docs/security/whitelists/).
 
-**OPEN.** Whether `invoice.*` events fire for subscription invoices.
+**OPEN — NOT VERIFIED (A9).** Whether `invoice.*` *webhook events* fire for subscription invoices
+(same endpoint limitation as A6). **TEST-OBSERVED (2026-09-24):** the invoices *themselves* exist and
+are fetchable through the API — `GET /v1/invoices?subscription_id=…` returns one invoice per charge
+attempt, `paid` when its payment was captured and `issued` while unpaid — so lifecycle sync never
+needs `invoice.*` events to see them.
 
 ---
 
@@ -440,5 +568,81 @@ charge 4 times in a row" it is `halted`. Test card tokens are valid for 3 days. 
 accelerated billing clock and no documented "send test webhook" tool. Source:
 [Test Subscriptions](https://razorpay.com/docs/payments/subscriptions/test/).
 
+**TEST-OBSERVED (2026-09-24) — how the simulated charge actually behaves.** In practice "Charge this
+now → Failure" does **not** deterministically produce a failed charge. Each click creates an invoice and
+a payment described "Failed Recurring Payment via Subscription" that starts in payment status
+`created` and resolves **asynchronously** (seconds later) to `captured` **or** `failed`
+(`BAD_REQUEST_ERROR`). The tester reports choosing "Failure" on every click (not independently confirmed); across
+six such clicks on one subscription the payments resolved captured, failed, captured, failed,
+captured, then a sixth still `created` — and a successful payment moves the
+subscription forward one billing cycle (`paid_count` +1, `current_end` and `charge_at` advance)
+instead of failing it. Reaching `pending` and `halted` therefore took repeated clicking with polling,
+and the resulting state must be read from the API, not assumed from the click. See D5.
+
+**TEST-OBSERVED (2026-09-24) — Checkout automation notes.** Standard Checkout and the hosted
+subscription page (`short_url`) can be completed with the documented domestic test card. Headless
+automated browsers trigger an hCaptcha bot check on card submission; a normal visible browser
+generally passes. E-mandate offers a mock bank page with `Success`, `Payment successful but e-Mandate
+failed` and `Failure`. Card checkout needs a valid-looking Indian mobile number (some numbers are
+rejected).
+
 **INTERPRETATION.** See [`../provider-availability/environments.md`](../provider-availability/environments.md)
 and [SB-PB-02](../../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-02--provider-mode-is-resolved-once-at-boot).
+
+---
+
+## TEST verification (2026-09-24)
+
+**What this section is.** The record of one provider-verification pass against Razorpay TEST mode on
+2026-09-24 (TEST-mode key only; the API base was `https://api.razorpay.com` with a `rzp_test_` key, and
+Checkout displayed its "Test Mode" banner). It changed no application code and no architecture
+decision. Every result above tagged **TEST-OBSERVED** comes from here.
+
+**Method.** Subscriptions were created with the API and authenticated through Razorpay's hosted
+subscription page using the documented domestic test card (Visa 4718 6091 0820 4366). States were
+reached as follows, and every result was confirmed by a `GET /v1/subscriptions/:id` rather than trusted
+from the command response:
+
+| State | How it was reproduced |
+| --- | --- |
+| `created` | Create Subscription, never paid |
+| `authenticated` | Create with a future `start_at`, pay the authentication charge |
+| `active` | Create, pay the authentication charge (no `start_at`) |
+| `paused` | `POST /pause` on an `active` subscription |
+| `pending` | Dashboard "Charge this now" simulated failures, polled until `pending` |
+| `halted` | Repeated Dashboard simulated failures until four attempts were exhausted (observed twice) |
+| `expired` | A `created` subscription whose `expire_by` passed |
+
+**Not attempted or not reproducible (all remain OPEN in
+[`open-decisions.md`](../../../project/feature-specification/subscription/open-decisions.md)):**
+
+| Item | Why |
+| --- | --- |
+| Any webhook behavior (A3, A6, A9, and "was a webhook generated" for every experiment above) | Needs a public HTTPS endpoint registered in the Dashboard; there is no API to register one, no tunnel tool was installed, and the decision for this pass was to skip webhooks |
+| A3, A15 (native plan change applying; offers on upgrade) | A successful native plan change needs an international-card subscription; international cards were excluded from this pass. Offers can be created only in the Dashboard |
+| A4 for UPI and e-mandate | UPI is not offered in TEST Checkout; an e-mandate registration completed at the mock bank but the subscription stayed `created` for the ≥ 9 minutes observed |
+| A7 first-charge failure | TEST mode never ran the first scheduled charge (47 min past `start_at`) |
+| A10, A11 | TEST mode cannot revoke a mandate or model a banking calendar |
+| A12 | Support question by nature |
+| Halted *recovery* | Needs the customer-side payment-method-change flow |
+| Effect of a cycle-end cancel actually firing at `current_end` | No accelerated clock; first cycle ends ~30 days out |
+
+**Cleanup.** All non-terminal test subscriptions created by this pass were cancelled. Razorpay offers
+no API to delete Plans; the test plans named `KZ-VERIFY …` remain in the TEST account.
+
+## Documentation vs observed behavior
+
+Recorded rather than silently resolved. **Each item needs a human decision before Kizunia relies on
+either side.** "Safe to rely on" states the conservative reading the current design already takes.
+
+| # | Razorpay documented | TEST observed | Safe to rely on |
+| --- | --- | --- | --- |
+| D1 | Cancel API page names only `active`/`authenticated` as cancellable | Immediate cancel also accepted for `created`, `pending`, `paused`, `halted` | Treat immediate cancel of these four as *observed to work in TEST*; still verify `cancelled` by fetch, and handle a `400` as `REJECTED` |
+| D2 | Cycle-end cancel is refused when no billing cycle is running | Refused with that message for `created`/`authenticated`, but **`200` with no state change** for `pending`/`paused`/`halted` | Never treat a cycle-end `200` as cancellation in those states; use immediate cancellation where a guaranteed end is required |
+| D3 | The subscription entity has no `payment_method` field | `payment_method`, `halted_at`, `card_mandate_id`, `customer_email`, `customer_contact` are returned | Do not depend on them; read defensively |
+| D4 | Pausing nulls `current_start`, `current_end` and `charge_at` | Only `charge_at` became `null`; `current_start`/`current_end` were retained | Do not derive "paused" from null period fields |
+| D5 | A failed simulated charge moves the subscription to `pending` | The "Failure" click often ended in a *captured* payment and a forward billing cycle; outcomes resolve asynchronously | Read state from the API after every simulated charge |
+| D6 | `expired` is tied to `start_at` only | A `created` subscription without `start_at` expires after `expire_by`, up to ~3 minutes late | Treat `created` past `expire_by` as *probably abandoned*, not yet `expired` |
+| D7 | `paused → cancelled` in the state diagram; Cancel page silent on other states | Consistent for immediate cancel; see D2 for cycle-end | as D1/D2 |
+| D8 | Update refusal for domestic card documented as "you can update only the offer" | Confirmed; descriptions differ by request (see the A4 table) and are all `BAD_REQUEST_ERROR` | Classify by code only, as the current fallback already does |
+| D9 | — | **Unexplained anomaly.** Once, on one subscription, `resume` returned `200`/`active` and an immediate `cancel` returned `400` (body not captured), after which the entity read `paused`. Four attempts to reproduce the sequence — including the same call order — all behaved normally. Separately, one halted subscription was later observed `pending` with a higher `paid_count` while Dashboard actions were being taken | A command's response body is never authoritative; only a subsequent `GET`. This is already the design ([SB-WH-03](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-03--state-changing-events-trigger-an-authoritative-refetch)) |

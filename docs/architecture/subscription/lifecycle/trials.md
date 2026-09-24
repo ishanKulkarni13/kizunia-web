@@ -45,7 +45,9 @@ If the first charge fails, the expected path is the ordinary `pending → halted
 `PAST_DUE` (still contributes) then `HALTED` (does not). A trial user whose card fails therefore
 keeps access through Razorpay's retry window — an accepted consequence of
 [SB-PF-02](../../../project/feature-specification/subscription/decisions/payment-failure-and-recovery.md#sb-pf-02--pending-retains-full-paid-access).
-Both the pre-`start_at` state and this path are pending TEST verification
+The pre-`start_at` state is verified: `authenticated`, `paid_count 0`, `charge_at == start_at`
+(TEST mode, 2026-09-24). This first-charge failure path is **not** verified — TEST mode never ran the
+first scheduled charge (still `authenticated` 47 minutes after `start_at`) — and remains open
 ([A7](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)).
 
 ## Cancelling during a trial

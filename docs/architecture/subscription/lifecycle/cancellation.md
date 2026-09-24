@@ -14,10 +14,10 @@ Rulings: [SB-LC-04](../../../project/feature-specification/subscription/decision
 
 | Phase | Provider call | Access |
 | --- | --- | --- |
-| `ACTIVE`, `PAST_DUE` | `cancel(cancel_at_cycle_end: true)` — for `PAST_DUE` (Razorpay `pending`) acceptance is unverified ([A1](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)) | Continues until `current_end` |
+| `ACTIVE`, `PAST_DUE` | `cancel(cancel_at_cycle_end: true)`. **Review flag (TEST 2026-09-24, [A1](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)):** for `PAST_DUE` (Razorpay `pending`) Razorpay returns `200` but the subscription is unchanged and no scheduled cancellation can be seen — whether the request is recorded or is a silent no-op is unknown. The design is unchanged; the consequence is that a cycle-end cancel of a `PAST_DUE` subscription cannot be presumed effective, and the `CANCELLATION_NOT_EFFECTIVE` check below is its only backstop. An immediate cancel of a `pending` subscription *is* verified to work | Continues until `current_end` |
 | `TRIALING` | `cancel(cancel_at_cycle_end: false)` — Razorpay refuses cycle-end cancellation before the first cycle ([FACT](../provider-boundary/razorpay-facts.md#cancellation)) | Ends immediately; trial eligibility is consumed ([SB-LC-11](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-11--one-trial-per-account)) |
-| `PENDING_AUTHENTICATION` | Abandon-checkout (immediate; acceptance for `created` unverified — A1) | None to end |
-| `HALTED`, `PAUSED` | Immediate (no cycle is running; acceptance unverified — A1) | None to end |
+| `PENDING_AUTHENTICATION` | Abandon-checkout (immediate; accepted for `created` in TEST mode — A1) | None to end |
+| `HALTED`, `PAUSED` | Immediate (no cycle is running; accepted in TEST mode for both — A1). **Never cycle-end:** Razorpay returns `200` for it on these states but leaves them unchanged | None to end |
 | Terminal | Refused | — |
 
 A pending scheduled plan change is cancelled first
@@ -29,8 +29,9 @@ A pending scheduled plan change is cancelled first
 command CANCEL_AT_CYCLE_END  (BillingOperation, one in flight per user)
   cancel(sub, { cancel_at_cycle_end: true })
     -> SUCCEEDED: Subscription.cancelAtPeriodEnd = true, requested by this operation
-       (Razorpay documents no field or webhook for a pending cycle-end cancellation — OPEN, A2 —
-        so Kizunia's own record is the source of "ends on <date>")
+       (Razorpay documents no field or webhook for a pending cycle-end cancellation, and TEST mode
+        confirmed the entity shows none — A2, 2026-09-24 — so Kizunia's own record is the source of
+        "ends on <date>")
   user keeps access through current_end
   at current_end Razorpay moves the subscription to cancelled; subscription.cancelled fires
   the webhook sync (or the current_end checkpoint sync if the webhook is missed) sets CANCELLED
@@ -56,7 +57,7 @@ records the resulting refund fact but never computes or issues one in V1.
 
 | Situation | Behavior |
 | --- | --- |
-| Cancel response lost (timeout) | `OUTCOME_UNKNOWN`. Immediate: the next sync shows `cancelled` or not. Cycle-end: not observable until `current_end`; the user may re-issue it — expected to be harmless, pending TEST verification ([A14](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)) |
+| Cancel response lost (timeout) | `OUTCOME_UNKNOWN`. Immediate: the next sync shows `cancelled` or not. Cycle-end: not observable until `current_end`; the user may re-issue it — verified harmless in TEST mode: a repeat returns `200` and changes nothing observable ([A14](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)) |
 | Repeated cancel requests | Same idempotency key → same result; a new key while one is in flight → refused; after success → "already cancelling" from local state, no provider call |
 | Cancel while an upgrade is in flight | Refused until the upgrade operation resolves (one in flight per user) |
 | Dashboard or UPI-app cancellation | Observed through `subscription.cancelled` / sync; applied identically; history cause `provider_observed` ([`dashboard-originated-changes.md`](dashboard-originated-changes.md)) |

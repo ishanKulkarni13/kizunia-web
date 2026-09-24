@@ -6,12 +6,12 @@ import {
   ValidationError,
 } from "@/lib/errors";
 
-
+import { PortfolioErrorCode } from "./error-code";
 
 export class PortfolioNotFoundError extends NotFoundError {
   constructor() {
     super({
-      code: "PORTFOLIO_NOT_FOUND",
+      code: PortfolioErrorCode.NOT_FOUND,
       message: "Portfolio not found.",
     });
   }
@@ -20,9 +20,36 @@ export class PortfolioNotFoundError extends NotFoundError {
 export class PortfolioAlreadyExistsError extends ConflictError {
   constructor() {
     super({
-      code: "PORTFOLIO_ALREADY_EXISTS",
+      code: PortfolioErrorCode.ALREADY_EXISTS,
       status: HttpStatus.CONFLICT,
       message: "The user already has a portfolio.",
+    });
+  }
+}
+
+/**
+ * Raised when creation is attempted while the user's soft-deleted portfolio
+ * still exists. `Portfolio.userId` is unique and nothing is hard-deleted, so
+ * a replacement row cannot exist: the owner restores the deleted one.
+ */
+export class PortfolioDeletedError extends ConflictError {
+  constructor() {
+    super({
+      code: PortfolioErrorCode.DELETED,
+      status: HttpStatus.CONFLICT,
+      message:
+        "Your portfolio was deleted. Restore it instead of creating a new one.",
+    });
+  }
+}
+
+/** Raised when restore is requested for a portfolio that is not deleted. */
+export class PortfolioNotDeletedError extends ConflictError {
+  constructor() {
+    super({
+      code: PortfolioErrorCode.NOT_DELETED,
+      status: HttpStatus.CONFLICT,
+      message: "Your portfolio is not deleted.",
     });
   }
 }
@@ -39,7 +66,7 @@ export class PortfolioAlreadyExistsError extends ConflictError {
 export class PortfolioProjectAlreadyExistsError extends ConflictError {
   constructor() {
     super({
-      code: "PORTFOLIO_PROJECT_ALREADY_EXISTS",
+      code: PortfolioErrorCode.PROJECT_ALREADY_EXISTS,
       status: HttpStatus.CONFLICT,
       message: "This project is already in your portfolio.",
     });
@@ -54,7 +81,7 @@ export class PortfolioProjectAlreadyExistsError extends ConflictError {
 export class PortfolioProjectNotFoundError extends NotFoundError {
   constructor() {
     super({
-      code: "PORTFOLIO_PROJECT_NOT_FOUND",
+      code: PortfolioErrorCode.PROJECT_NOT_FOUND,
       message: "This project is not in your portfolio.",
     });
   }
@@ -70,7 +97,7 @@ export class PortfolioProjectNotFoundError extends NotFoundError {
 export class PortfolioProjectMembershipRequiredError extends ForbiddenError {
   constructor() {
     super({
-      code: "PORTFOLIO_PROJECT_MEMBERSHIP_REQUIRED",
+      code: PortfolioErrorCode.PROJECT_MEMBERSHIP_REQUIRED,
       message:
         "You must be a member of this project to add it to your portfolio.",
     });
@@ -80,7 +107,7 @@ export class PortfolioProjectMembershipRequiredError extends ForbiddenError {
 export class PortfolioProjectReorderMismatchError extends ValidationError {
   constructor() {
     super({
-      code: "PORTFOLIO_PROJECT_REORDER_MISMATCH",
+      code: PortfolioErrorCode.PROJECT_REORDER_MISMATCH,
       status: HttpStatus.UNPROCESSABLE_ENTITY,
       message:
         "Reorder must list every project in your portfolio exactly once.",
@@ -101,7 +128,7 @@ export class PortfolioProjectReorderMismatchError extends ValidationError {
 export class PortfolioTestimonialNotFoundError extends NotFoundError {
   constructor() {
     super({
-      code: "PORTFOLIO_TESTIMONIAL_NOT_FOUND",
+      code: PortfolioErrorCode.TESTIMONIAL_NOT_FOUND,
       message: "Testimonial not found.",
     });
   }
@@ -110,7 +137,7 @@ export class PortfolioTestimonialNotFoundError extends NotFoundError {
 export class PortfolioTestimonialReorderMismatchError extends ValidationError {
   constructor() {
     super({
-      code: "PORTFOLIO_TESTIMONIAL_REORDER_MISMATCH",
+      code: PortfolioErrorCode.TESTIMONIAL_REORDER_MISMATCH,
       status: HttpStatus.UNPROCESSABLE_ENTITY,
       message:
         "Reorder must list every testimonial in your portfolio exactly once.",
@@ -130,7 +157,7 @@ export class PortfolioTestimonialReorderMismatchError extends ValidationError {
 export class PortfolioTechnologyAlreadyExistsError extends ConflictError {
   constructor() {
     super({
-      code: "PORTFOLIO_TECHNOLOGY_ALREADY_EXISTS",
+      code: PortfolioErrorCode.TECHNOLOGY_ALREADY_EXISTS,
       status: HttpStatus.CONFLICT,
       message: "This technology is already in your portfolio.",
     });
@@ -146,7 +173,7 @@ export class PortfolioTechnologyAlreadyExistsError extends ConflictError {
 export class PortfolioTechnologyNotFoundError extends NotFoundError {
   constructor() {
     super({
-      code: "PORTFOLIO_TECHNOLOGY_NOT_FOUND",
+      code: PortfolioErrorCode.TECHNOLOGY_NOT_FOUND,
       message: "This technology is not in your portfolio.",
     });
   }
@@ -155,14 +182,11 @@ export class PortfolioTechnologyNotFoundError extends NotFoundError {
 export class PortfolioTechnologyReorderMismatchError extends ValidationError {
   constructor() {
     super({
-      code: "PORTFOLIO_TECHNOLOGY_REORDER_MISMATCH",
+      code: PortfolioErrorCode.TECHNOLOGY_REORDER_MISMATCH,
       status: HttpStatus.UNPROCESSABLE_ENTITY,
       message:
         "Reorder must list every technology in your portfolio exactly once.",
     });
   }
 }
-
-
-
 

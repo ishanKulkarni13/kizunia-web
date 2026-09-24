@@ -9,6 +9,7 @@ import type {
   AddPortfolioTechnologyInput,
   UpdatePortfolioTechnologyInput,
 } from "../../schemas/portfolio-technology.schema";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 interface PortfolioTechnologiesStore {
   technologies: PortfolioTechnologySummaryDto[];
@@ -149,3 +150,7 @@ async function run(
     }
   }
 }
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => usePortfolioTechnologiesStore.getState().reset());

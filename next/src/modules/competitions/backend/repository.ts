@@ -240,6 +240,15 @@ export class CompetitionRepository {
         },
 
         technologies: {
+          // A soft-deleted Technology behaves as if it does not exist outside
+          // the admin surface (docs/architecture/domain/technology.md), so the
+          // public read omits it. `findByIdForEdit` (admin) still returns it.
+          where: {
+            technology: {
+              deletedAt: null,
+            },
+          },
+
           include: {
             technology: true,
           },

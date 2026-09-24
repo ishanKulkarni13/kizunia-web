@@ -5,6 +5,7 @@
  *
  * - Request parsing
  * - Authentication
+ * - Rate limiting
  * - Validation
  * - Calling services
  * - Returning responses
@@ -17,8 +18,6 @@ import { NextRequest } from "next/server";
 import { ApiResponse } from "@/lib/http";
 import { Route } from "@/lib/http/route";
 
-import { UnauthorizedError } from "@/lib/errors";
-
 import { SessionService } from "@/lib/auth/session";
 import { RateLimitPolicyId } from "@/lib/rate-limit/policies";
 import { rateLimitService } from "@/lib/rate-limit/service";
@@ -28,11 +27,9 @@ import { portfolioProjectService } from "./portfolio-project.service";
 import { portfolioTestimonialService } from "./portfolio-testimonial.service";
 import { portfolioTechnologyService } from "./portfolio-technology.service";
 
-
-
-import { createPortfolioSchema } from "../schemas";
 import { PortfolioNotFoundError } from "../errors";
 import { UpdatePortfolioProfileSchema } from "../schemas/update/profile-update.schema";
+import { ChangePortfolioVisibilitySchema } from "../schemas/portfolio-visibility.schema";
 import {
   AddPortfolioTestimonialSchema,
   ReorderPortfolioTestimonialsSchema,
@@ -88,165 +85,150 @@ export class PortfolioController {
   }
 
   static async findMine(request: NextRequest) {
-  return Route.execute(async () => {
-    // -----------------------------------------------------------------------
-    // Authentication
-    // -----------------------------------------------------------------------
-
-    const actor = await SessionService.getActor(request);
-
-    if (
-      !actor ||
-      !actor.id ||
-      !actor.role ||
-      actor.banned === undefined
-    ) {
-      throw new UnauthorizedError({
-        code: "UNAUTHORIZED",
-        message: "Failed to authenticate the actor.",
-      });
-    }
-
-    // -----------------------------------------------------------------------
-    // Business Logic
-    // -----------------------------------------------------------------------
-
-    const portfolio = await portfolioService.findMine({
-      actor: {
-        id: actor.id,
-        role: actor.role,
-        banned: ( actor.banned === true) ? true : false,
-      },
-    });
-
-    if (!portfolio) {
-      throw new PortfolioNotFoundError();
-    }
-
-    // -----------------------------------------------------------------------
-    // Response
-    // -----------------------------------------------------------------------
-
-    return ApiResponse.ok(portfolio);
-  });
-}
-
-  // ===========================================================================
-  // Create
-  // ===========================================================================
-
-  static async create(
-    request: NextRequest,
-  ) {
     return Route.execute(async () => {
       // -----------------------------------------------------------------------
       // Authentication
       // -----------------------------------------------------------------------
 
-      const actor =
-        await SessionService.getActor(request);
-
-      if (
-        !actor ||
-        !actor.id ||
-        !actor.role ||
-        actor.banned === undefined
-      ) {
-        throw new UnauthorizedError({
-          code: "UNAUTHORIZED",
-          message:
-            "Failed to authenticate the actor.",
-        });
-      }
+      const actor = await SessionService.getStrictActor(request);
 
       // -----------------------------------------------------------------------
-      // Validation
+      // Rate Limiting
       // -----------------------------------------------------------------------
 
-      // const body =
-      //   await request.json();
-
-      // const dto =
-      //   createPortfolioSchema.parse(body);
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_READ_OWN,
+        request,
+        actor,
+      });
 
       // -----------------------------------------------------------------------
       // Business Logic
       // -----------------------------------------------------------------------
 
-      const portfolio =
-        await portfolioService.create({
-          actor: {
-            id: actor.id,
-            role: actor.role,
-            banned: (actor.banned === true) ? true : false,
-          },
+      const portfolio = await portfolioService.findMine({ actor });
 
-          // dto,
-        });
+      if (!portfolio) {
+        throw new PortfolioNotFoundError();
+      }
 
       // -----------------------------------------------------------------------
       // Response
       // -----------------------------------------------------------------------
 
-      return ApiResponse.created(
-        portfolio,
-      );
+      return ApiResponse.ok(portfolio);
     });
   }
 
   // ===========================================================================
-// Profile
-// ===========================================================================
+  // Create
+  // ===========================================================================
 
-static async updateProfile(request: NextRequest) {
-  return Route.execute(async () => {
-    // -----------------------------------------------------------------------
-    // Authentication
-    // -----------------------------------------------------------------------
+  static async create(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
 
-    const actor = await SessionService.getStrictActor(request);
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_CREATE,
+        request,
+        actor,
+      });
 
-    // if (
-    //   !actor ||
-    //   !actor.id ||
-    //   !actor.role ||
-    //   actor.banned === undefined
-    // ) {
-    //   throw new UnauthorizedError({
-    //     code: "unauthorized",
-    //     message: "Failed to authenticate the actor.",
-    //   });
-    // }
+      // No request body: a portfolio is created from the account itself.
+      const portfolio = await portfolioService.create({ actor });
 
-    // -----------------------------------------------------------------------
-    // Validation
-    // -----------------------------------------------------------------------
-
-    const body = await request.json();
-
-    const data = UpdatePortfolioProfileSchema.parse(body);
-
-    // -----------------------------------------------------------------------
-    // Business Logic
-    // -----------------------------------------------------------------------
-
-    const portfolio = await portfolioService.updateProfile({
-      actor: {
-        id: actor.id,
-        role: actor.role,
-        banned: (actor.banned === true) ? true : false,
-      },
-
-      dto: data,
+      return ApiResponse.created(portfolio);
     });
+  }
 
-    // -----------------------------------------------------------------------
-    // Response
-    // -----------------------------------------------------------------------
+  // ===========================================================================
+  // Profile
+  // ===========================================================================
 
-    return ApiResponse.ok(portfolio);
-  });
-}
+  static async updateProfile(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_PROFILE_WRITE,
+        request,
+        actor,
+      });
+
+      const body = await request.json();
+
+      const data = UpdatePortfolioProfileSchema.parse(body);
+
+      const portfolio = await portfolioService.updateProfile({
+        actor,
+        dto: data,
+      });
+
+      return ApiResponse.ok(portfolio);
+    });
+  }
+
+  // ===========================================================================
+  // Visibility & lifecycle
+  //
+  // Like every handler here, none accepts a portfolio id: the portfolio is
+  // always the session user's own.
+  // ===========================================================================
+
+  static async changeVisibility(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_LIFECYCLE_WRITE,
+        request,
+        actor,
+      });
+
+      const body = await request.json();
+
+      const dto = ChangePortfolioVisibilitySchema.parse(body);
+
+      const portfolio = await portfolioService.changeVisibility({
+        actor,
+        dto,
+      });
+
+      return ApiResponse.ok(portfolio);
+    });
+  }
+
+  static async delete(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_LIFECYCLE_WRITE,
+        request,
+        actor,
+      });
+
+      await portfolioService.delete({ actor });
+
+      return ApiResponse.ok({ deleted: true });
+    });
+  }
+
+  static async restore(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_LIFECYCLE_WRITE,
+        request,
+        actor,
+      });
+
+      const portfolio = await portfolioService.restore({ actor });
+
+      return ApiResponse.ok(portfolio);
+    });
+  }
 
   // ===========================================================================
   // Projects
@@ -263,6 +245,16 @@ static async updateProfile(request: NextRequest) {
       // -----------------------------------------------------------------------
 
       const actor = await SessionService.getStrictActor(request);
+
+      // -----------------------------------------------------------------------
+      // Rate Limiting
+      // -----------------------------------------------------------------------
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_READ_OWN,
+        request,
+        actor,
+      });
 
       // -----------------------------------------------------------------------
       // Business Logic
@@ -285,6 +277,16 @@ static async updateProfile(request: NextRequest) {
       // -----------------------------------------------------------------------
 
       const actor = await SessionService.getStrictActor(request);
+
+      // -----------------------------------------------------------------------
+      // Rate Limiting
+      // -----------------------------------------------------------------------
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_PROJECTS_WRITE,
+        request,
+        actor,
+      });
 
       // -----------------------------------------------------------------------
       // Validation
@@ -317,6 +319,16 @@ static async updateProfile(request: NextRequest) {
       const actor = await SessionService.getStrictActor(request);
 
       // -----------------------------------------------------------------------
+      // Rate Limiting
+      // -----------------------------------------------------------------------
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_PROJECTS_WRITE,
+        request,
+        actor,
+      });
+
+      // -----------------------------------------------------------------------
       // Validation
       // -----------------------------------------------------------------------
 
@@ -345,6 +357,16 @@ static async updateProfile(request: NextRequest) {
       // -----------------------------------------------------------------------
 
       const actor = await SessionService.getStrictActor(request);
+
+      // -----------------------------------------------------------------------
+      // Rate Limiting
+      // -----------------------------------------------------------------------
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_PROJECTS_WRITE,
+        request,
+        actor,
+      });
 
       // -----------------------------------------------------------------------
       // Validation
@@ -381,6 +403,16 @@ static async updateProfile(request: NextRequest) {
       const actor = await SessionService.getStrictActor(request);
 
       // -----------------------------------------------------------------------
+      // Rate Limiting
+      // -----------------------------------------------------------------------
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_PROJECTS_WRITE,
+        request,
+        actor,
+      });
+
+      // -----------------------------------------------------------------------
       // Business Logic
       // -----------------------------------------------------------------------
 
@@ -409,6 +441,12 @@ static async updateProfile(request: NextRequest) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
 
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_READ_OWN,
+        request,
+        actor,
+      });
+
       const testimonials = await portfolioTestimonialService.list({ actor });
 
       return ApiResponse.ok(testimonials);
@@ -418,6 +456,12 @@ static async updateProfile(request: NextRequest) {
   static async addTestimonial(request: NextRequest) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_TESTIMONIALS_WRITE,
+        request,
+        actor,
+      });
 
       const body = await request.json();
 
@@ -435,6 +479,12 @@ static async updateProfile(request: NextRequest) {
   static async reorderTestimonials(request: NextRequest) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_TESTIMONIALS_WRITE,
+        request,
+        actor,
+      });
 
       const body = await request.json();
 
@@ -456,6 +506,12 @@ static async updateProfile(request: NextRequest) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
 
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_TESTIMONIALS_WRITE,
+        request,
+        actor,
+      });
+
       const body = await request.json();
 
       const dto = UpdatePortfolioTestimonialSchema.parse(body);
@@ -476,6 +532,12 @@ static async updateProfile(request: NextRequest) {
   ) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_TESTIMONIALS_WRITE,
+        request,
+        actor,
+      });
 
       const testimonials = await portfolioTestimonialService.remove({
         actor,
@@ -499,6 +561,12 @@ static async updateProfile(request: NextRequest) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
 
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_READ_OWN,
+        request,
+        actor,
+      });
+
       const technologies = await portfolioTechnologyService.list({ actor });
 
       return ApiResponse.ok(technologies);
@@ -508,6 +576,12 @@ static async updateProfile(request: NextRequest) {
   static async addTechnology(request: NextRequest) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_TECHNOLOGIES_WRITE,
+        request,
+        actor,
+      });
 
       const body = await request.json();
 
@@ -526,6 +600,12 @@ static async updateProfile(request: NextRequest) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
 
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_TECHNOLOGIES_WRITE,
+        request,
+        actor,
+      });
+
       const body = await request.json();
 
       const dto = ReorderPortfolioTechnologiesSchema.parse(body);
@@ -542,6 +622,12 @@ static async updateProfile(request: NextRequest) {
   static async updateTechnology(request: NextRequest, technologyId: string) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_TECHNOLOGIES_WRITE,
+        request,
+        actor,
+      });
 
       const body = await request.json();
 
@@ -560,6 +646,12 @@ static async updateProfile(request: NextRequest) {
   static async removeTechnology(request: NextRequest, technologyId: string) {
     return Route.execute(async () => {
       const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.PORTFOLIO_TECHNOLOGIES_WRITE,
+        request,
+        actor,
+      });
 
       const technologies = await portfolioTechnologyService.remove({
         actor,

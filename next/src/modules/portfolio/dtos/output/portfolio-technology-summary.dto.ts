@@ -38,6 +38,13 @@ export interface PortfolioTechnologySummaryDto {
   description: string | null;
 
   displayOrder: number;
+
+  /**
+   * True when the catalog entry has been retired (soft-deleted). The public
+   * portfolio no longer renders it, but the owner still sees it here so the
+   * relationship can be removed; the row itself is never deleted for them.
+   */
+  unavailable: boolean;
 }
 
 export interface PortfolioTechnologyAssetDto {

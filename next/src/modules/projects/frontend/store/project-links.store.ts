@@ -8,6 +8,7 @@ import type {
   CreateProjectLinkInput,
   UpdateProjectLinkInput,
 } from "../../schemas/project-link.schema";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 interface ProjectLinksStore {
   links: ProjectLinkDto[];
@@ -112,3 +113,7 @@ async function run(
     }
   }
 }
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => useProjectLinksStore.setState({ links: [], initializedProjectId: null, busy: false }));

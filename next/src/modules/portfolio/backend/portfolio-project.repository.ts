@@ -24,6 +24,7 @@ import { Prisma, PrismaClient } from "@/generated/prisma";
 import prisma from "@/lib/prisma";
 
 import { PortfolioProjectAlreadyExistsError } from "../errors";
+import { portfolioAssetSelect } from "./asset-select";
 
 const portfolioProjectSummarySelect = {
   projectId: true,
@@ -49,14 +50,7 @@ const portfolioProjectSummarySelect = {
       visibility: true,
 
       logoAsset: {
-        select: {
-          id: true,
-          secureUrl: true,
-          width: true,
-          height: true,
-          format: true,
-          mimeType: true,
-        },
+        select: portfolioAssetSelect,
       },
 
       // Narrowed to the portfolio owner at query time, so exactly one row

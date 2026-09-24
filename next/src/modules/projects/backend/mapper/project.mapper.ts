@@ -97,6 +97,8 @@ export class ProjectMapper {
       iconAsset: this.toAssetDto(entry.technology.iconAsset),
 
       displayOrder: entry.displayOrder,
+
+      unavailable: entry.technology.deletedAt !== null,
     };
   }
 

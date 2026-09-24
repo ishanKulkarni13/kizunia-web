@@ -14,18 +14,12 @@ import { Prisma, PrismaClient, Testimonial } from "@/generated/prisma";
 import prisma from "@/lib/prisma";
 
 import { PortfolioTestimonialNotFoundError } from "../errors";
+import { portfolioAssetSelect } from "./asset-select";
 
 const testimonialWithImage = Prisma.validator<Prisma.TestimonialDefaultArgs>()({
   include: {
     imageAsset: {
-      select: {
-        id: true,
-        secureUrl: true,
-        width: true,
-        height: true,
-        format: true,
-        mimeType: true,
-      },
+      select: portfolioAssetSelect,
     },
   },
 });

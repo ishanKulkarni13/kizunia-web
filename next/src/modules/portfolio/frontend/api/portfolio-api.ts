@@ -1,6 +1,7 @@
 import { HttpClient } from "@/lib/http/client";
 import { PortfolioEditorDto, PortfolioPublicDto } from "../../dtos";
 import { UpdatePortfolioProfileDto } from "../../dtos/input/update.dto";
+import type { ChangePortfolioVisibilityInput } from "../../schemas/portfolio-visibility.schema";
 
 export class PortfolioApi {
   static async create(): Promise<PortfolioEditorDto> {
@@ -27,6 +28,29 @@ export class PortfolioApi {
       PortfolioEditorDto,
       UpdatePortfolioProfileDto
     >("/api/v1/portfolio/profile", dto);
+
+    return response.data;
+  }
+
+  static async setVisibility(
+    dto: ChangePortfolioVisibilityInput,
+  ): Promise<PortfolioEditorDto> {
+    const response = await HttpClient.patch<
+      PortfolioEditorDto,
+      ChangePortfolioVisibilityInput
+    >("/api/v1/portfolio/visibility", dto);
+
+    return response.data;
+  }
+
+  static async delete(): Promise<void> {
+    await HttpClient.delete<{ deleted: true }>("/api/v1/portfolio");
+  }
+
+  static async restore(): Promise<PortfolioEditorDto> {
+    const response = await HttpClient.post<PortfolioEditorDto>(
+      "/api/v1/portfolio/restore",
+    );
 
     return response.data;
   }

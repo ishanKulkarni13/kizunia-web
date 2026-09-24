@@ -232,6 +232,18 @@ export function ProfileEditor() {
             {form.resumeAssetId && (
               <p className="text-sm text-muted-foreground">
                 A resume is currently attached.{" "}
+                {portfolio.resumeAsset?.id === form.resumeAssetId && (
+                  <>
+                    <a
+                      href={portfolio.resumeAsset.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      View
+                    </a>{" "}
+                  </>
+                )}
                 <button
                   type="button"
                   className="underline"

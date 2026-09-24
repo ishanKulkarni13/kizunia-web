@@ -221,10 +221,11 @@ describe("PortfolioPolicy - VIEW (non-owner)", () => {
   });
 });
 
-describe("PortfolioPolicy - management actions (EDIT, DELETE, MANAGE_PROJECTS, MANAGE_TESTIMONIALS, MANAGE_TECHNOLOGIES)", () => {
+describe("PortfolioPolicy - management actions (EDIT, DELETE, CHANGE_VISIBILITY, MANAGE_PROJECTS, MANAGE_TESTIMONIALS, MANAGE_TECHNOLOGIES)", () => {
   const MANAGE_ACTIONS = [
     PortfolioAction.EDIT,
     PortfolioAction.DELETE,
+    PortfolioAction.CHANGE_VISIBILITY,
     PortfolioAction.MANAGE_PROJECTS,
     PortfolioAction.MANAGE_TESTIMONIALS,
     PortfolioAction.MANAGE_TECHNOLOGIES,
@@ -267,5 +268,57 @@ describe("PortfolioPolicy - management actions (EDIT, DELETE, MANAGE_PROJECTS, M
   it.each(MANAGE_ACTIONS)("denies management of a deleted portfolio", (action) => {
     const context = createContext({ deletedAt: new Date() });
     expectDenied(decide(context, action), AuthorizationCode.RESOURCE_DELETED);
+  });
+});
+
+
+describe("PortfolioPolicy - RESTORE", () => {
+  it("allows the owner to restore a deleted portfolio", () => {
+    const context = createContext({ deletedAt: new Date() });
+    expect(decide(context, PortfolioAction.RESTORE).allowed).toBe(true);
+  });
+
+  it("does not itself require the portfolio to be deleted (that is a service precondition)", () => {
+    const context = createContext();
+    expect(decide(context, PortfolioAction.RESTORE).allowed).toBe(true);
+  });
+
+  it("allows the owner regardless of stored visibility or public eligibility", () => {
+    const context = createContext({
+      deletedAt: new Date(),
+      visibility: PortfolioVisibility.PRIVATE,
+      isPubliclyDisplayable: false,
+    });
+    expect(decide(context, PortfolioAction.RESTORE).allowed).toBe(true);
+  });
+
+  it("denies a non-owner", () => {
+    const context = createContext({
+      deletedAt: new Date(),
+      actor: { id: OTHER_ID, role: PlatformRole.USER, banned: false },
+    });
+    expectDenied(
+      decide(context, PortfolioAction.RESTORE),
+      AuthorizationCode.OWNER_REQUIRED,
+    );
+  });
+
+  it("denies a banned owner", () => {
+    const context = createContext({
+      deletedAt: new Date(),
+      actor: { id: OWNER_ID, role: PlatformRole.USER, banned: true },
+    });
+    expectDenied(
+      decide(context, PortfolioAction.RESTORE),
+      AuthorizationCode.ACCOUNT_BANNED,
+    );
+  });
+
+  it("denies when there is no portfolio context", () => {
+    const context = createContext({ portfolio: null });
+    expectDenied(
+      decide(context, PortfolioAction.RESTORE),
+      AuthorizationCode.UNAUTHORIZED,
+    );
   });
 });

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/lib/http";
 import { ProjectApi } from "../api/project-api";
 import { ProjectDetailsDto } from "../../backend/dto/output";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 interface ProjectStore {
   project: ProjectDetailsDto | null;
@@ -126,3 +127,7 @@ export const useProjectStore = create<ProjectStore>(
     },
   }),
 );
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => useProjectStore.getState().clear());

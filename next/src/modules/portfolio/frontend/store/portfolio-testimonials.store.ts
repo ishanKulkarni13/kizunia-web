@@ -9,6 +9,7 @@ import type {
   AddPortfolioTestimonialInput,
   UpdatePortfolioTestimonialInput,
 } from "../../schemas/portfolio-testimonial.schema";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 interface PortfolioTestimonialsStore {
   testimonials: PortfolioTestimonialSummaryDto[];
@@ -148,3 +149,7 @@ async function run(
     }
   }
 }
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => usePortfolioTestimonialsStore.getState().reset());

@@ -7,6 +7,7 @@ import { UpdatePortfolioProfileDto } from "../../dtos/input/update.dto";
 import { PortfolioEditorDto } from "../../dtos";
 import { UpdatePortfolioProfileSchema } from "../../schemas/update/profile-update.schema";
 import { usePortfolioStore } from "./portfolio.store";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 type ProfileFieldErrors = Partial<Record<keyof UpdatePortfolioProfileDto, string>>;
 
@@ -78,7 +79,7 @@ export const usePortfolioProfileStore =
         phone: portfolio.phone,
         publicContactEmail: portfolio.publicContactEmail,
         location: portfolio.location,
-        resumeAssetId: portfolio.resumeAssetId,
+        resumeAssetId: portfolio.resumeAsset?.id ?? null,
       };
 
       set({
@@ -186,3 +187,7 @@ export const usePortfolioProfileStore =
       });
     },
   }));
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => usePortfolioProfileStore.getState().reset());

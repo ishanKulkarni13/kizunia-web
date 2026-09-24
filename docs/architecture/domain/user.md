@@ -135,7 +135,7 @@ Examples:
 - Lowercase
 - Characters: `a-z`, `0-9`, `-`
 - No spaces
-- Reserved usernames are prohibited
+- Reserved usernames are prohibited — one list, `RESERVED_USERNAMES` in `src/lib/reserved-usernames.ts`, enforced by the Better Auth `usernameValidator` (case-insensitively). It holds the names that would collide with a route (the static segments beside `/api/v1/portfolio/[username]` and top-level routes). A test fails if a new static segment is added beside `[username]` without reserving it. Accounts that already held such a name are not migrated. The public page lives under its own `/u/` prefix, so it adds no collision.
 - Reasonable length restrictions apply
 
 The username replaces the need for a separate user slug.

@@ -114,6 +114,12 @@ export const RateLimitPolicyId = {
   PORTFOLIO_PROJECTS_WRITE: "portfolio:projects-write",
   PORTFOLIO_TESTIMONIALS_WRITE: "portfolio:testimonials-write",
   PORTFOLIO_TECHNOLOGIES_WRITE: "portfolio:technologies-write",
+  /** The signed-in user reading their own effective access (`GET /me/entitlements`). */
+  ENTITLEMENTS_READ: "entitlements:read",
+  /** Billing admin reads (grant listing; later billing views). */
+  BILLING_ADMIN_READ: "billing-admin:read",
+  /** Billing admin writes (creating, extending and revoking entitlement grants). */
+  BILLING_ADMIN_WRITE: "billing-admin:write",
 } as const;
 
 export type RateLimitPolicyId =
@@ -449,5 +455,32 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "open",
     description:
       "Adding, editing, reordering or removing portfolio technologies. Small composite-key writes validated against the catalog; reorders are interactive, so the ceiling matches projects. Local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.ENTITLEMENTS_READ]: {
+    id: RateLimitPolicyId.ENTITLEMENTS_READ,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "The signed-in user reading their own capability and quota flags. The UI asks on navigation, and each read is one indexed query against Kizunia's own tables. Local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.BILLING_ADMIN_READ]: {
+    id: RateLimitPolicyId.BILLING_ADMIN_READ,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "Billing administrators listing entitlement grants. Admin-only and interactive; fails closed because the data is billing-sensitive.",
+  },
+  [RateLimitPolicyId.BILLING_ADMIN_WRITE]: {
+    id: RateLimitPolicyId.BILLING_ADMIN_WRITE,
+    limit: 60,
+    windowSeconds: 60 * 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "Creating, extending or revoking entitlement grants. A grant is money-equivalent, so the write is rare, deliberate and audited; fails closed.",
   },
 } as const;

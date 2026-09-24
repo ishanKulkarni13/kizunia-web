@@ -98,6 +98,11 @@ export const SideBarNavMain: SidebarNavSection[] = [
         title: "Announcements",
         url: "/admin/notification-announcements",
       },
+      {
+        id: "admin-billing-grants",
+        title: "Entitlement grants",
+        url: "/admin/billing/grants",
+      },
     ],
   },
   { // portfolio

@@ -52,6 +52,8 @@ export const PlatformPermissionSet = {
         PlatformAction.MANAGE_TECHNOLOGIES,
         PlatformAction.MANAGE_MEDIA,
         PlatformAction.MANAGE_NOTIFICATION_ANNOUNCEMENTS,
+        // Billing: view only. Grants and billing writes are SUPER_ADMIN's (IB-15).
+        PlatformAction.VIEW_BILLING,
     ]),
 
     [PlatformRole.SUPER_ADMIN]: new Set<PlatformAction>([
@@ -66,5 +68,8 @@ export const PlatformPermissionSet = {
         PlatformAction.MANAGE_TECHNOLOGIES,
         PlatformAction.MANAGE_MEDIA,
         PlatformAction.MANAGE_NOTIFICATION_ANNOUNCEMENTS,
+        PlatformAction.VIEW_BILLING,
+        PlatformAction.MANAGE_BILLING,
+        PlatformAction.MANAGE_ENTITLEMENT_GRANTS,
     ]),
 } as const;

@@ -63,3 +63,22 @@ describe("PlatformPermissionSet - ACCESS_ADMIN_DASHBOARD", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * Billing role matrix (IB-15, product decision): SUPER_ADMIN manages grants and
+ * billing and views billing; ADMIN only views; MODERATOR and USER hold none.
+ * docs/architecture/subscription/implementation/open-decisions.md#ib-15--billing-admin-roles
+ */
+describe("PlatformPermissionSet - billing actions", () => {
+  const matrix: ReadonlyArray<[PlatformAction, readonly PlatformRole[]]> = [
+    [PlatformAction.MANAGE_ENTITLEMENT_GRANTS, [PlatformRole.SUPER_ADMIN]],
+    [PlatformAction.MANAGE_BILLING, [PlatformRole.SUPER_ADMIN]],
+    [PlatformAction.VIEW_BILLING, [PlatformRole.SUPER_ADMIN, PlatformRole.ADMIN]],
+  ];
+
+  it.each(matrix)("%s is held by exactly the expected roles", (action, holders) => {
+    for (const role of Object.values(PlatformRole)) {
+      expect(PlatformPermissionSet[role].has(action)).toBe(holders.includes(role));
+    }
+  });
+});

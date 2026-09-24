@@ -54,9 +54,15 @@ model User {
   // ---------------------------------------------------------------------------
   // MCP / OAuth provider
   // ---------------------------------------------------------------------------
-  oauthApplications               OauthApplication[]        @relation("oauthApplicationOwner")
-  oauthAccessTokens               OauthAccessToken[]        @relation("oauthAccessTokenUser")
-  oauthConsents                   OauthConsent[]             @relation("oauthConsentUser")
+  oauthApplications OauthApplication[] @relation("oauthApplicationOwner")
+  oauthAccessTokens OauthAccessToken[] @relation("oauthAccessTokenUser")
+  oauthConsents     OauthConsent[]     @relation("oauthConsentUser")
+
+  // ---------------------------------------------------------------------------
+  // Subscription & Billing — entitlement grants (Phase I)
+  // ---------------------------------------------------------------------------
+  entitlementGrants EntitlementGrant[] @relation("entitlementGrantRecipient")
+  grantAuditEntries GrantAuditEntry[]  @relation("grantAuditTarget")
 
   @@map("user")
 }
@@ -1771,4 +1777,105 @@ model OauthConsent {
   @@index([clientId])
   @@index([userId])
   @@map("oauth_consent")
+}
+
+// =============================================================================
+// Subscription & Billing — entitlement grants (Phase I)
+// =============================================================================
+//
+// Kizunia-owned entitlement persistence. Nothing here refers to a payment
+// provider: grants are how paid capabilities are given without payment, and
+// they work with Razorpay never configured. Subscription and billing tables
+// arrive in Phase III; promotion columns in Phase VII.
+// See docs/architecture/subscription/implementation-plan/README.md#persistence-boundary.
+//
+// Every reference to the recipient is a NULLABLE `userId` with
+// `onDelete: Restrict` plus `subjectPseudonym` (IB-14): a user who has grant
+// rows cannot be hard-deleted by a cascade, and a future account-removal
+// workflow pseudonymizes instead of deleting history. Actor columns
+// (`grantedByUserId`, `revokedByUserId`, `performedByUserId`) are plain strings
+// so an administrator's own removal never rewrites audit history.
+//
+// Hand-written CHECK constraints (validity window, no self-grant, revocation
+// consistency, non-blank reasons) live in migration
+// 20260924000100_add_entitlement_grants.
+
+/// A non-billing entitlement source: currently only an admin grant.
+///
+/// Status is ACTIVE or REVOKED only. "Expired" is derived from the validity
+/// window when read and is never written (SB-EA-09) — there is no expiry job.
+model EntitlementGrant {
+  id               String            @id @default(cuid())
+  /// Recipient. Nulled only by a future pseudonymization workflow.
+  userId           String?
+  subjectPseudonym String?
+  plan             MembershipPlan
+  source           EntitlementSource
+  status           GrantStatus       @default(ACTIVE)
+  validFrom        DateTime
+  /// `null` = no expiry. Contributes while `validFrom <= now < validUntil`.
+  validUntil       DateTime?
+  /// The granting administrator. Never the recipient (SB-EA-08, also a CHECK).
+  grantedByUserId  String?
+  reason           String
+  revokedAt        DateTime?
+  revokedByUserId  String?
+  revokeReason     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user         User?             @relation("entitlementGrantRecipient", fields: [userId], references: [id], onDelete: Restrict)
+  auditEntries GrantAuditEntry[]
+
+  /// The resolver's read: a user's ACTIVE grants whose window has not ended.
+  @@index([userId, status, validUntil])
+  @@map("entitlement_grant")
+}
+
+/// Append-only record of every grant creation, extension and revocation,
+/// written in the same transaction as the change it records. Never updated,
+/// never deleted.
+model GrantAuditEntry {
+  id                 String           @id @default(cuid())
+  grantId            String
+  action             GrantAuditAction
+  performedByUserId  String
+  targetUserId       String?
+  subjectPseudonym   String?
+  plan               MembershipPlan
+  previousValidUntil DateTime?
+  newValidUntil      DateTime?
+  reason             String
+  createdAt          DateTime         @default(now())
+
+  grant      EntitlementGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  targetUser User?            @relation("grantAuditTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+
+  @@index([grantId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@map("grant_audit_entry")
+}
+
+/// Paid plans only. FREE is deliberately unrepresentable in storage: it is what
+/// "no other source is valid" resolves to (SB-EA-01). Declaration order is
+/// tier order.
+enum MembershipPlan {
+  PRO
+  PRO_PLUS
+}
+
+/// How a grant came to exist. PROMOTION is added in Phase VII.
+enum EntitlementSource {
+  ADMIN_GRANT
+}
+
+enum GrantStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum GrantAuditAction {
+  CREATED
+  EXTENDED
+  REVOKED
 }

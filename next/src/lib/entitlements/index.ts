@@ -1,21 +1,54 @@
 /**
- * Entitlements — "what limits does this customer get?"
+ * Entitlements — "what may this user do?"
  *
- * A sibling of `lib/rate-limit`, not a child of it. This is deliberately
- * the entire entitlements system for V1: one type and one function that
- * always returns the default tier. There is no `Plan`/`Subscription` model
- * in the schema yet (see the audit), and the codebase's own authorization
- * layer already reserves this exact seam — see the comment on
- * `PlatformAction.CREATE_PORTFOLIO` in
- * `src/authorization/platform/permission-set.ts`, which calls out that
- * "there is no subscription/plan system yet" and that a future one will
- * plug in without touching call sites.
+ * The read-side seam of Subscription & Billing. Every feature asks here, by
+ * capability or quota, and never by plan name (SB-PL-02). The billing module
+ * owns every write; this module only reads Kizunia's own tables and never
+ * imports `modules/billing` or anything provider-related.
  *
- * The rate-limit policy resolver (`lib/rate-limit/resolver.ts`) takes an
- * `Entitlements` value as an input. The day a real `Plan` model exists,
- * `resolveEntitlements` below is the only function whose body changes —
- * no controller, service, or policy call site is touched.
+ * - `catalog.ts` — the one authoritative plan → capability/quota table (pure)
+ * - `validity.ts` — when a grant contributes, derived at read time (pure)
+ * - `grant-predicate.ts` — the same rule as a Prisma filter, plus the
+ *   set-based `entitledUsersWhere` for batch consumers
+ * - `resolver.ts` — async, per-user effective access
+ * - `explain.ts` — which sources contributed, and why not
+ *
+ * This barrel reaches the database. Client components import
+ * `@/lib/entitlements/catalog` (or `validity`) directly instead.
+ *
+ * See docs/architecture/subscription/entitlements/effective-access-resolution.md
+ * and docs/architecture/subscription/implementation-plan/phase-I/README.md.
  */
+
+export * from "./catalog";
+export * from "./validity";
+export { validGrantWhere, entitledUsersWhere } from "./grant-predicate";
+export {
+  resolveEffectiveAccess,
+  hasCapability,
+  getQuota,
+  type EffectiveAccess,
+  type EntitlementsDb,
+  type ResolveOptions,
+} from "./resolver";
+export {
+  explainEffectiveAccess,
+  type AccessExplanation,
+  type ExplainedSource,
+  type ExplainedGrantSource,
+  type ExplainedDefaultSource,
+} from "./explain";
+
+// -----------------------------------------------------------------------------
+// Rate-limit tier (unchanged)
+// -----------------------------------------------------------------------------
+//
+// The rate-limit policy resolver (`lib/rate-limit/resolver.ts`) takes an
+// `Entitlements` value as an input and currently ignores it. It stays on this
+// synchronous, argument-less default until a plan-tier rate-limit override is
+// actually configured, so rate limiting costs no database read per request
+// (IB-3, docs/architecture/subscription/implementation/open-decisions.md).
+// Paid plans do not relax abuse protection by default.
 
 export type EntitlementTier = "default";
 
@@ -26,8 +59,9 @@ export interface Entitlements {
 const DEFAULT_ENTITLEMENTS: Entitlements = { tier: "default" };
 
 /**
- * Resolves the caller's entitlements. Always the default tier today —
- * there is nothing yet to distinguish one caller's limits from another's.
+ * The rate-limit tier. Always the default: no plan-tier rate-limit override is
+ * configured. This is NOT effective access — for that, use
+ * `resolveEffectiveAccess`.
  */
 export function resolveEntitlements(): Entitlements {
   return DEFAULT_ENTITLEMENTS;

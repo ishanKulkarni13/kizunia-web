@@ -49,6 +49,28 @@ export class PortfolioAuthorizer {
     );
   }
 
+  static restore(
+    context: PortfolioContext,
+  ): void {
+    Authorization.assert(
+      PortfolioPolicy.can(
+        context,
+        PortfolioAction.RESTORE,
+      ),
+    );
+  }
+
+  static changeVisibility(
+    context: PortfolioContext,
+  ): void {
+    Authorization.assert(
+      PortfolioPolicy.can(
+        context,
+        PortfolioAction.CHANGE_VISIBILITY,
+      ),
+    );
+  }
+
   static manageProjects(
     context: PortfolioContext,
   ): void {

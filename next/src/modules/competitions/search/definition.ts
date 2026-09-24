@@ -116,7 +116,11 @@ const categories = relationMultiFilter<CompetitionWhere>({
 const technologies = relationMultiFilter<CompetitionWhere>({
   spec: specs.technologies,
   toWhere: (slugs) => ({
-    technologies: { some: { technology: { slug: { in: slugs } } } },
+    // A retired (soft-deleted) technology is not a filter option (the
+    // facet omits it), so it must not match here either.
+    technologies: {
+      some: { technology: { slug: { in: slugs }, deletedAt: null } },
+    },
   }),
 });
 

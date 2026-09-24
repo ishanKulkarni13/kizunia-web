@@ -198,6 +198,8 @@ export function ProjectTechnologiesTab({
 
                 <p className="truncate text-xs text-muted-foreground">
                   {technology.type}
+                  {technology.unavailable &&
+                    " · No longer available in the catalog — remove it to clear it here"}
                 </p>
               </div>
 

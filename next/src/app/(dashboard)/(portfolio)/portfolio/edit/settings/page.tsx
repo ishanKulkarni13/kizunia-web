@@ -1,5 +1,5 @@
-import { PortfolioSectionPlaceholder } from "@/modules/portfolio/frontend/components/editor/portfolio-section-placeholder";
+import { PortfolioLifecycleSettings } from "@/modules/portfolio/frontend/components/editor/settings/portfolio-lifecycle-settings";
 
 export default function PortfolioEditSettingsPage() {
-  return <PortfolioSectionPlaceholder title="Settings" />;
+  return <PortfolioLifecycleSettings />;
 }

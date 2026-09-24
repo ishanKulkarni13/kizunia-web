@@ -38,7 +38,12 @@ export const CANDIDATE_INCLUDE = {
   logoAsset: true,
   coverAsset: true,
   categories: { include: { category: { select: { slug: true } } } },
-  technologies: { include: { technology: { select: { slug: true } } } },
+  // A retired (soft-deleted) technology no longer counts as one of the
+  // competition's technologies for scoring.
+  technologies: {
+    where: { technology: { deletedAt: null } },
+    include: { technology: { select: { slug: true } } },
+  },
   eligibilities: { select: { type: true } },
   types: { select: { type: true } },
   locations: {

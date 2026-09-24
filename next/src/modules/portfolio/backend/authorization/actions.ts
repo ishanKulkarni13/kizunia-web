@@ -8,6 +8,21 @@ export enum PortfolioAction {
   DELETE = "DELETE",
 
   /**
+   * Bring the owner's own soft-deleted Portfolio back. Owner-only, like
+   * DELETE, but a separate action because it must be allowed on exactly the
+   * state every other owner action refuses: a deleted Portfolio.
+   */
+  RESTORE = "RESTORE",
+
+  /**
+   * Change the stored `PUBLIC`/`PRIVATE` preference. Owner-only, like EDIT —
+   * kept as its own action so publishing can later be gated (for example by
+   * a plan) without touching EDIT. Distinct from public-display eligibility,
+   * which is runtime-computed and never written here.
+   */
+  CHANGE_VISIBILITY = "CHANGE_VISIBILITY",
+
+  /**
    * Manage the Portfolio's relationships to Projects (attach, detach,
    * feature, reorder). Owner-only, like EDIT — kept as its own action so the
    * two can diverge later without touching call sites.

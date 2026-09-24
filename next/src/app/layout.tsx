@@ -6,6 +6,7 @@ import "./mdx.css";
 import NextTopLoader from "nextjs-toploader";
 // import "@mdxeditor/editor/style.css";
 import { ThemeProvider } from "@/providers/theme-provider";
+import { SessionStateReset } from "@/providers/session-state-reset";
 import { Analytics } from "@vercel/analytics/next";
 import { Toaster } from "sonner";
 import { SpeedInsights } from '@vercel/speed-insights/next';
@@ -102,6 +103,7 @@ export default function RootLayout({
             showSpinner={false}
           />
           <Toaster />
+          <SessionStateReset />
         </ThemeProvider>
         <SpeedInsights />
         <Analytics />

@@ -23,10 +23,14 @@ export class PortfolioPolicy {
 
       case PortfolioAction.EDIT:
       case PortfolioAction.DELETE:
+      case PortfolioAction.CHANGE_VISIBILITY:
       case PortfolioAction.MANAGE_PROJECTS:
       case PortfolioAction.MANAGE_TESTIMONIALS:
       case PortfolioAction.MANAGE_TECHNOLOGIES:
         return this.canManage(context);
+
+      case PortfolioAction.RESTORE:
+        return this.canRestore(context);
 
       default:
         return {
@@ -150,9 +154,9 @@ export class PortfolioPolicy {
   }
 
   /**
-   * Owner-only management, covering EDIT, DELETE, MANAGE_PROJECTS,
-   * MANAGE_TESTIMONIALS and MANAGE_TECHNOLOGIES — identical rules for all
-   * five today. Kept as distinct PortfolioAction members (not merged into
+   * Owner-only management, covering EDIT, DELETE, CHANGE_VISIBILITY,
+   * MANAGE_PROJECTS, MANAGE_TESTIMONIALS and MANAGE_TECHNOLOGIES — identical
+   * rules for all six today. Kept as distinct PortfolioAction members (not merged into
    * one enum value) so each can diverge from the others later without
    * touching call sites:
    *
@@ -194,6 +198,45 @@ export class PortfolioPolicy {
         (ctx) => !ctx.portfolio?.deletedAt,
         AuthorizationCode.RESOURCE_DELETED,
         "Portfolio has been deleted.",
+      )
+
+      .require(
+        (ctx) => ctx.isOwner,
+        AuthorizationCode.OWNER_REQUIRED,
+        "You do not have permission to manage this portfolio.",
+      )
+
+      .grant()
+
+      .evaluate();
+  }
+
+  /**
+   * Restoring is the one owner action that must work on a deleted Portfolio,
+   * so it is `canManage` without the not-deleted requirement. Whether the
+   * Portfolio is actually deleted is a business precondition the service
+   * checks (PortfolioNotDeletedError), not an authorization question. Only
+   * the owner may restore — `userId` is unique, so "the owner" is the only
+   * person who could have a portfolio to restore.
+   */
+  private static canRestore(
+    context: PortfolioContext,
+  ): AuthorizationDecision {
+    return AuthorizationEvaluator
+      .start(context)
+
+      .security(
+        (ctx) => !ctx.actor.banned,
+        AuthorizationCode.ACCOUNT_BANNED,
+        "Your account has been banned.",
+      )
+
+      .platformOverride()
+
+      .require(
+        (ctx) => ctx.portfolio !== null,
+        AuthorizationCode.UNAUTHORIZED,
+        "Portfolio context is missing.",
       )
 
       .require(

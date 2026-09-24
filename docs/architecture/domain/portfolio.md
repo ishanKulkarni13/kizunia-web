@@ -229,8 +229,10 @@ remains an active member of the Project. There is currently no
 `ProjectMember` removal/leave workflow anywhere in the codebase — membership
 only ever ends today via a cascading `User` deletion — so this invariant is
 enforced **at query time**, not by cleanup: every read of `PortfolioProject`
-(both the editor and the public portfolio) joins `ProjectMember` and returns
-only relationships where the owner is still a member. The instant that row
+(both the editor's projects list and the public portfolio) joins
+`ProjectMember` and returns only relationships where the owner is still a
+member. The editor aggregate (`GET /portfolio/me`) does not carry projects at
+all, so no project can reach the editor around this rule. The instant that row
 disappears, the Project stops appearing everywhere, even though the
 `PortfolioProject` row itself is untouched and reappears automatically if
 membership is restored.
@@ -336,11 +338,31 @@ that page is built.
 
 ## Deletion
 
-Hard delete, consistent with Portfolio Projects and Links (neither has a
-`deletedAt`). Deleting the Portfolio cascades to delete its Testimonials at
-the database level, but this only fires on a genuine hard delete — ordinary
-"delete portfolio" flows soft-delete the Portfolio and leave Testimonial
-rows intact.
+A single Testimonial is hard-deleted, consistent with Portfolio Projects and
+Links (neither has a `deletedAt`). Deleting the *Portfolio* is a soft delete
+(see [Portfolio Lifecycle](#portfolio-lifecycle)) and leaves every Testimonial
+row intact. The database cascade only fires on a genuine hard delete of the
+Portfolio or its User.
+
+---
+
+# Portfolio Lifecycle
+
+A Portfolio is **soft-deleted** and can be **restored**; nothing is ever
+hard-deleted by these flows and there is no retention or purge system.
+
+| Operation | Endpoint | Behaviour |
+|---|---|---|
+| Delete | `DELETE /api/v1/portfolio` | Sets `deletedAt`. The stored `visibility`, every child row (testimonials, projects, technologies, …) and every Asset reference (resume, testimonial images) are left exactly as they were, so the reconciliation sweep — which detaches only *unreferenced* assets — never touches them. |
+| Restore | `POST /api/v1/portfolio/restore` | Clears `deletedAt` and sets `visibility = PRIVATE`, always, so restoring never re-exposes contact details on its own. Refused (`409 PORTFOLIO_NOT_DELETED`) if the portfolio is not deleted. |
+| Create while deleted | `POST /api/v1/portfolio` | `409 PORTFOLIO_DELETED`. `Portfolio.userId` is unique and nothing is hard-deleted, so no replacement row can exist: the owner restores instead. |
+| Owner read while deleted | `GET /api/v1/portfolio/me` | `403 RESOURCE_DELETED` (not `404`, which means "no portfolio yet"). The editor keys on that code to offer Restore. Every other owner action is refused the same way. |
+| Public read while deleted | `GET /api/v1/portfolio/[username]` | The same indistinguishable `404` as private, ineligible, banned or nonexistent. |
+
+Delete, restore and visibility changes are owner-only
+(`PortfolioAction.DELETE` / `RESTORE` / `CHANGE_VISIBILITY`). `RESTORE` is the
+one owner action allowed on a deleted portfolio; whether it *is* deleted is a
+service precondition, not an authorization question.
 
 ---
 
@@ -393,6 +415,18 @@ existing rows that held it were conservatively migrated to `PRIVATE`
 `remove_portfolio_unlisted_visibility` migration.
 
 Visibility affects the entire portfolio rather than individual projects.
+
+**New portfolios are `PRIVATE`.** Nothing is published until the owner opts in
+(the column default; the create path does not set it). Portfolios created
+before this default changed were not migrated: they keep whatever was stored.
+
+The owner changes it with `PATCH /api/v1/portfolio/visibility`
+(`PortfolioAction.CHANGE_VISIBILITY`, owner-only, evaluated by
+`PortfolioPolicy`; the portfolio is always the session user's own — no id is
+accepted). The stored value is the owner's *preference*. It is a different axis
+from public-display eligibility (`resolvePortfolioPublicEligibility`, a
+runtime entitlement that is never persisted) and from deletion; none of them
+writes another.
 
 Referenced Projects continue using their own visibility/status/deletion
 rules — a Portfolio being `PUBLIC` never overrides a `PRIVATE` or
@@ -481,9 +515,15 @@ the same `PortfolioController`/`PortfolioService` (separated by method,
 not by class — consistent with the rest of the codebase):
 
 - **Editor API** — authenticated, owner-scoped (`findMine`, `create`,
-  `updateProfile`). Returns `PortfolioEditorDto`. Every query is scoped by
-  the actor's own id from the session; there is no id-based editor route
-  that could be pointed at another user's portfolio.
+  `updateProfile`, `changeVisibility`, `delete`, `restore`). Returns
+  `PortfolioEditorDto`, an explicit hand-mapped contract limited to what the
+  editor reads: the profile scalars, `visibility`, the owner's `username` and
+  the resume asset. It deliberately carries no projects, testimonials or
+  technologies — each has its own endpoint, DTO and visibility rules, and the
+  aggregate must not become a second way to fetch them. Every query is scoped
+  by the actor's own id from the session; there is no id-based editor route
+  that could be pointed at another user's portfolio. Every authenticated route
+  is rate limited per user (`portfolio:*` policies).
 - **Public API** — anonymous, keyed by username (`findPublicByUsername`).
   Enforces `visibility: PUBLIC`, `deletedAt: null`, owner has a username,
   and owner is not banned. Returns `PortfolioPublicDto` — an explicit,
@@ -496,9 +536,14 @@ their own dedicated files), served at `/api/v1/portfolio/projects` and
 `/api/v1/portfolio/projects/[projectId]`. No route accepts a portfolio id;
 every handler resolves the portfolio from the session, exactly like
 `updateProfile`. Its own summary DTO (`PortfolioProjectSummaryDto`) is
-deliberately narrower than `PortfolioEditorDto`'s embedded relations —
-see [Portfolio Projects](#portfolio-projects) above for the editor/public
+deliberately narrower than a `Project` — see [Portfolio Projects](#portfolio-projects) above for the editor/public
 distinction.
+
+**The resume is a `DOCUMENT` asset and is never delivered through its stored
+`secureUrl`**, which the provider refuses. Both DTOs emit the URL from the
+Assets module's `buildAssetViewUrl`, minted per request: it is signed and
+short-lived, so it is never persisted, and the public route is never
+statically cached (`dynamic = "force-dynamic"`).
 
 The public contract is intentionally "reasonably rich" beyond what the
 current frontend renders, because it is designed to also support future

@@ -25,8 +25,11 @@
  * expected current status.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { NextRequest, NextResponse } from "next/server";
 
+import { logger, runWithLogContext } from "@/lib/logger";
 import { secretEquals } from "@/lib/security/timing-safe-equal";
 import { assetReconciliationService } from "@/modules/assets/backend/reconciliation.service";
 
@@ -46,19 +49,21 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  try {
-    const summary = await assetReconciliationService.runAll();
+  return runWithLogContext(randomUUID(), async () => {
+    try {
+      const summary = await assetReconciliationService.runAll();
 
-    return NextResponse.json({ success: true, data: summary });
-  } catch (error) {
-    console.error("Asset reconciliation run failed", error);
+      return NextResponse.json({ success: true, data: summary });
+    } catch (error) {
+      logger.error("assets.reconciliation_failed", error);
 
-    return NextResponse.json(
-      {
-        success: false,
-        error: { code: "RECONCILIATION_FAILED", message: "Reconciliation run failed." },
-      },
-      { status: 500 },
-    );
-  }
+      return NextResponse.json(
+        {
+          success: false,
+          error: { code: "RECONCILIATION_FAILED", message: "Reconciliation run failed." },
+        },
+        { status: 500 },
+      );
+    }
+  });
 }

@@ -31,28 +31,41 @@
  * competitions whose status was previously set by hand.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { NextRequest, NextResponse } from "next/server";
 
+import { logger, runWithLogContext } from "@/lib/logger";
 import { CompetitionLifecycleService } from "@/modules/competitions/backend/lifecycle.service";
 import { secretEquals } from "@/lib/security/timing-safe-equal";
 
 export async function POST(request: NextRequest) {
-  const expectedSecret = process.env.INTERNAL_LIFECYCLE_SECRET;
+  return runWithLogContext(randomUUID(), async () => {
+    const expectedSecret = process.env.INTERNAL_LIFECYCLE_SECRET;
 
-  const providedSecret = request.headers.get("x-internal-secret");
+    const providedSecret = request.headers.get("x-internal-secret");
 
-  if (
-    !expectedSecret ||
-    providedSecret === null ||
-    !secretEquals(providedSecret, expectedSecret)
-  ) {
-    return NextResponse.json(
-      { success: false, error: { code: "UNAUTHORIZED", message: "Unauthorized." } },
-      { status: 401 },
-    );
-  }
+    if (
+      !expectedSecret ||
+      providedSecret === null ||
+      !secretEquals(providedSecret, expectedSecret)
+    ) {
+      logger.warn("competitions.lifecycle.sweep_unauthorized");
 
-  const summary = await CompetitionLifecycleService.runAutomaticSweep();
+      return NextResponse.json(
+        { success: false, error: { code: "UNAUTHORIZED", message: "Unauthorized." } },
+        { status: 401 },
+      );
+    }
 
-  return NextResponse.json({ success: true, data: summary });
+    const summary = await CompetitionLifecycleService.runAutomaticSweep();
+
+    logger.info("competitions.lifecycle.sweep_completed", {
+      scanned: summary.scanned,
+      changed: summary.changed,
+      byTransition: summary.byTransition,
+    });
+
+    return NextResponse.json({ success: true, data: summary });
+  });
 }

@@ -11,6 +11,7 @@
  */
 
 import { NextRequest } from "next/server";
+import { logger } from "@/lib/logger";
 import { CreateCompetitionSchema } from "../schemas/create-competition";
 import { CompetitionService } from "./service";
 import { CompetitionAuthorizer } from "./authorization/authorizer";
@@ -77,6 +78,8 @@ export class CompetitionController {
       CompetitionAuthorizer.create(context);
 
       const competition = await CompetitionService.create({ data, context });
+
+      logger.info("competitions.created", { competitionId: competition.id });
 
       return ApiResponse.created(competition);
     });
@@ -300,6 +303,12 @@ export class CompetitionController {
 
       const result = await CompetitionLifecycleService.apply(ids);
 
+      logger.info("competitions.lifecycle.apply_completed", {
+        requestedCount: ids.length,
+        applied: result.applied,
+        skippedCount: result.skipped.length,
+      });
+
       // -----------------------------------------------------------------
       // Response
       // -----------------------------------------------------------------
@@ -407,7 +416,7 @@ export class CompetitionController {
       // -------------------------------------------------
       // Context
       // -------------------------------------------------
-      console.log("CompetitionController.delete: competitionId", competitionId);
+
       const context = await CompetitionContextResolver.resolve({
         actor,
         competitionId,
@@ -426,6 +435,8 @@ export class CompetitionController {
       await CompetitionService.delete({
         context,
       });
+
+      logger.info("competitions.deleted", { competitionId });
 
       // -------------------------------------------------
       // Response
@@ -471,6 +482,8 @@ export class CompetitionController {
       // -------------------------------------------------
 
       await CompetitionService.restore(context);
+
+      logger.info("competitions.restored", { competitionId });
 
       // -------------------------------------------------
       // Response
@@ -561,6 +574,11 @@ export class CompetitionController {
         .map((context) => context.competition.id);
 
       if (unauthorized.length > 0) {
+        logger.warn("competitions.bulk_update_denied", {
+          action: action.type,
+          unauthorizedCount: unauthorized.length,
+        });
+
         throw new ForbiddenError({
           code: CompetitionErrorCode.BULK_UNAUTHORIZED,
           message:
@@ -574,6 +592,12 @@ export class CompetitionController {
       // -------------------------------------------------
 
       const result = await CompetitionService.bulkApply(ids, action);
+
+      logger.info("competitions.bulk_updated", {
+        action: action.type,
+        requestedCount: ids.length,
+        updatedCount: result.updated,
+      });
 
       // -------------------------------------------------
       // Response

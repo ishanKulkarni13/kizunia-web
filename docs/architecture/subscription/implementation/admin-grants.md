@@ -8,13 +8,13 @@
 
 Admin grants designed independently of Razorpay: creation, expiry, revocation, audit and history, authorization, effect on effective access, interaction with paid subscriptions, and the difference between admin users and admin-granted customer access.
 
-**Open decisions referenced here:** [IB-15](open-decisions.md#ib-15--billing-admin-roles). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+**Decisions referenced here:** [IB-15](open-decisions.md#ib-15--billing-admin-roles). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 
 | Aspect | Design |
 | --- | --- |
-| Authorization | `PlatformAuthorizer.can({actor}, MANAGE_ENTITLEMENT_GRANTS)` in `GrantService` (roles IB-15). No `platformOverride` for this action. Admin pages sit behind the existing `admin/layout.tsx` `ACCESS_ADMIN_DASHBOARD` guard, and every API route re-authorizes |
+| Authorization | `PlatformAuthorizer.can({actor}, MANAGE_ENTITLEMENT_GRANTS)` in `GrantService`. **Roles (IB-15, product decision (owner)):** `SUPER_ADMIN` only; `ADMIN` may view grants through `VIEW_BILLING`; `MODERATOR` has neither. No `platformOverride` for this action. Admin pages sit behind the existing `admin/layout.tsx` `ACCESS_ADMIN_DASHBOARD` guard, and every API route re-authorizes |
 | Create | Refuse `recipient == actor` (SB-EA-08; also DB CHECK). One tx: `EntitlementGrant{ADMIN_GRANT, ACTIVE, validFrom=now, validUntil=now+duration?, grantedBy, reason}` + `GrantAuditEntry(CREATED)` |
 | Expiry | Derived at read time; nothing written; no job |
 | Extend | Conditional `updateMany where {id, status: ACTIVE}` + `GrantAuditEntry(EXTENDED, previous→new)`; allowed on expired grants |

@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-6 in-flight semantics)
 
 What "one subscription per user" actually means, how Kizunia keeps it true for everything it does
 itself, and what happens when Razorpay reports otherwise. Rulings:
@@ -28,7 +28,9 @@ Subscription to represent a future plan.
 > **Kizunia never creates a new open Subscription for a user who already has one.**
 > ([SB-UQ-02](../../../project/feature-specification/subscription/decisions/uniqueness-and-resubscription.md#sb-uq-02--kizunia-never-creates-a-second-open-subscription-for-a-user))
 
-**Where it is enforced.** In the checkout command's precondition step, inside the transaction that
+**Where it is enforced.** In one precondition policy, evaluated by every creating command (a single
+function, so any later relaxation, for example for a switch flow, is a local change:
+[IB-21](../implementation/open-decisions.md#ib-21--plan-change-extensibility)), in the checkout command's precondition step, inside the transaction that
 holds the user's in-flight `BillingOperation` ([`../commands/operation-model.md`](../commands/operation-model.md)).
 Because only one operation per user can be in flight, two concurrent checkouts cannot both see "no
 open Subscription".
@@ -60,18 +62,33 @@ For a user whose open Subscription is `HALTED` or `PAUSED`
    permanently cancels the old one." (recovery is offered first)
 2. User confirms "start new". The checkout request carries supersedesSubscriptionId + the
    confirmation.
-3. Parent BillingOperation(SUPERSEDE) opens (in-flight constraint held for the whole sequence).
+3. Root BillingOperation(SUPERSEDE) opens. It holds the user's single root in-flight slot;
+   its children run under that slot (IB-6).
 4. Child: CANCEL_IMMEDIATELY on the old provider subscription.
-     - REJECTED (Razorpay refuses to cancel this state)  -> parent REJECTED; user directed to
+     - REJECTED (Razorpay refuses to cancel this state)  -> root REJECTED; user directed to
        recovery; nothing else happens
-     - OUTCOME_UNKNOWN                                   -> parent waits; the user sees
-       "confirming"; no creation until resolved
+     - OUTCOME_UNKNOWN                                   -> root ends; the user sees
+       "confirming"; no creation in this request
      - SUCCEEDED                                         -> continue
-5. Confirm by sync: fetch the old subscription; require status `cancelled`
-   (not merely a successful cancel response).
+5. Confirm by sync: one targeted priority-1 fetch of the old subscription inside the request;
+   require status `cancelled` (not merely a successful cancel response).
+     - not yet visible -> root ends SUCCEEDED for the steps done and returns CONFIRMING.
+       The user's next request (same supersedesSubscriptionId, new idempotency key)
+       re-evaluates from local state and continues once the old subscription is observed
+       CANCELLED. No background process continues the command (SB-RC-10).
 6. Mark old.supersededBy = new Subscription id; history entry cause = supersession.
 7. Child: CREATE_SUBSCRIPTION — the ordinary checkout flow.
 ```
+
+**In-flight semantics (decided 2026-09-24, [IB-6](../implementation/open-decisions.md#ib-6--composed-commands-and-the-in-flight-constraint)).**
+Until 2026-09-24 this section said the in-flight constraint was "held for the whole sequence" and
+that the parent "waits" on an unknown outcome. Taken literally, that blocked composed commands,
+because parent and child would both be `IN_FLIGHT`, and it did not say how a composed command
+continues. The rulings:
+
+- only **root** operations take the per-user slot;
+- a command never outlives its request;
+- continuation is the user's next request re-evaluating preconditions.
 
 If step 7 never completes (user abandons checkout), the old subscription stays cancelled: that is
 what the user confirmed in step 1. The user is Free until they complete a new checkout.

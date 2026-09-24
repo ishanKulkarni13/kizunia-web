@@ -8,7 +8,7 @@
 
 Due-based reconciliation on the existing internal-jobs architecture: what becomes due, lifecycle checkpoints, retry and backoff, bounded batches, leasing, orphan discovery, the provider request budget, the global cooldown, and priorities. Scheduler code stays separate from subscription business logic.
 
-**Open decisions referenced here:** [IB-10](open-decisions.md#ib-10--tick-time-budget). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+**Decisions referenced here:** [IB-10](open-decisions.md#ib-10--tick-time-budget). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 

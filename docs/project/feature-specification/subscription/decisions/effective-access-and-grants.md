@@ -66,7 +66,7 @@ product doc requires (`suscriptions.md` §74) would be impossible to reconstruct
 
 ## SB-EA-04 — Admin platform-role bypass is not an entitlement source
 
-**Status:** Accepted
+**Status:** Amended — 2026-09-24 (scope of the bypass: interactive gates only), see below
 
 **Decision:** `PlatformAccess.canBypassAuthorization` (the existing `ADMIN`/`SUPER_ADMIN` bypass) is
 not modeled as contributing `PRO_PLUS` to an administrator's effective access. It remains a
@@ -76,6 +76,24 @@ separate, orthogonal authorization concept.
 codebase today (`kizunia-authorization-compressed-wind.md` §12, §21) and the product direction
 requires it stay that way (`suscriptions.md` §17, §81) — an administrator's ability to use a
 feature must never be reported as "this administrator has a Pro+ customer subscription."
+
+**Amended (2026-09-24) — product decision (owner), decision close-out
+[IB-7](../../../../architecture/subscription/implementation/open-decisions.md#ib-7--admin-bypass-of-entitlement-gates):**
+the **scope** of the bypass is now defined. **Interactive gates only.**
+
+- An `ADMIN` or `SUPER_ADMIN` bypasses the entitlement gates they hit directly in a request: the
+  owned-project quota, portfolio creation and MCP tool access. The bypass uses the existing
+  `.platformOverride()` step of the resource policies, so it covers `ADMIN`/`SUPER_ADMIN` and not
+  `MODERATOR`.
+- **Background eligibility has no bypass.** Deadline and recommendation notifications are decided
+  with no actor present. An administrator who wants them receives an explicit admin grant from
+  another administrator ([SB-EA-08](#sb-ea-08--administrators-cannot-grant-access-to-themselves)
+  still forbids self-grants).
+- Public portfolio display follows the **owner's** effective access, never their role.
+
+*Rationale:* admins already use interactive features such as MCP competition management through the
+same override. Background jobs have no actor to evaluate a role against. Keeping the bypass out of
+entitlement resolution preserves this ruling's original separation.
 
 ## SB-EA-05 — Feature code checks capabilities, never Razorpay-derived fields directly
 

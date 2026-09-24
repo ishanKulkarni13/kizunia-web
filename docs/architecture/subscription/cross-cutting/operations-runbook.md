@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-14, IB-19)
 
 What operators and on-call engineers do when billing needs a human. Each procedure states the signal,
 the safe first action, and what must never be done. The design principle behind all of them: **fix by
@@ -152,12 +152,24 @@ deploying a change to the plan catalog or state mapping in the middle of a bulk 
 
 **Signal:** due backlog age growing; internal task marker shows `billing-sync` not running.
 
-Check the scheduler (Vercel Cron or the external scheduler) and the tick's own summary. Immediate
+Check the scheduler (Vercel Cron or the external scheduler) and the tick's own summary. On the
+Vercel Hobby plan the only cron entry runs **daily**. Reaching the target cadence needs the external
+pinger chosen before LIVE ([IB-19](../implementation/open-decisions.md#ib-19--tick-cadence-on-the-vercel-hobby-plan)),
+so a backlog up to a day old is expected without it. Immediate
 paths (`after()`, checkout confirmation) keep working meanwhile; only retries, checkpoints and orphan
 discovery wait. Invoking the tick endpoint manually with the cron secret is always safe.
 
 ## Account removal for a paying user
 
-The flow refuses while a Subscription is open. Cancel it immediately (recorded command), wait for the
-sync to show `CANCELLED`, then remove the account; billing records are pseudonymized
+**V1 status: the removal workflow is DEFERRED**
+([IB-14](../implementation/open-decisions.md#ib-14--account-removal-storage)). Kizunia has no
+account-deletion feature. Every billing and grant table references the user with `onDelete: Restrict`,
+so Better Auth's admin `remove-user` **fails** (a foreign-key error) for any user who has billing or
+grant rows. That is intended: it is the safe failure. Do not work around it with manual SQL. Record
+the request and escalate until the workflow exists.
+
+The intended workflow, for when it is built: the flow refuses while a Subscription is open. Cancel it
+immediately (recorded command), wait for the sync to show `CANCELLED`, then remove the account;
+billing records are pseudonymized
 ([SB-DP-04](../../../project/feature-specification/subscription/decisions/data-preservation.md#sb-dp-04--billing-records-survive-account-removal)).
+Retention (B3) must be decided first.

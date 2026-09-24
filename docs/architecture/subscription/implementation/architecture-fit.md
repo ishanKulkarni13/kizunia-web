@@ -8,7 +8,7 @@
 
 Where subscriptions belong in the existing architecture: the two homes (a read-side effective-access seam and a write-side billing module), the seams the codebase already provides and what each needs, the small extensions to existing abstractions, dependency direction, and the forbidden couplings.
 
-**Open decisions referenced here:** [IB-3](open-decisions.md#ib-3--entitlement-resolver-signature), [IB-4](open-decisions.md#ib-4--portfolio-creation-gate), [IB-5](open-decisions.md#ib-5--async-portfolio-public-eligibility), [IB-15](open-decisions.md#ib-15--billing-admin-roles). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+**Decisions referenced here:** [IB-3](open-decisions.md#ib-3--entitlement-resolver-signature), [IB-4](open-decisions.md#ib-4--portfolio-creation-gate), [IB-5](open-decisions.md#ib-5--async-portfolio-public-eligibility), [IB-15](open-decisions.md#ib-15--billing-admin-roles). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 
@@ -63,10 +63,10 @@ src/modules/billing/
 
 | Seam | Location | State today | What it needs |
 | --- | --- | --- | --- |
-| `resolveEntitlements()` | `lib/entitlements/index.ts:32` | `{tier:"default"}`, sync, no args | New async per-user API (IB-3) |
+| `resolveEntitlements()` | `lib/entitlements/index.ts:32` | `{tier:"default"}`, sync, no args | New async per-user API **beside** it; the existing function keeps serving rate limiting (IB-3, decided) |
 | `resolvePolicy(…, entitlements)` | `lib/rate-limit/resolver.ts:30` | parameter ignored | Nothing in V1; activate when a plan-tier override is configured |
 | `AuthorizationCode.UPGRADE_REQUIRED` / `FEATURE_DISABLED` | `authorization/types/authorization-code.ts:67,72` | reserved; `FEATURE_DISABLED` used by portfolio | Use as the entitlement denial codes; `Authorization.assert` maps them to 403 with that code |
-| `resolvePortfolioPublicEligibility()` | `portfolio/backend/authorization/public-eligibility.ts` | always `true`; consumed by `PortfolioPolicy.canView` non-owner branch | Real body, async (IB-5) |
+| `resolvePortfolioPublicEligibility()` | `portfolio/backend/authorization/public-eligibility.ts` | always `true`; consumed by `PortfolioPolicy.canView` non-owner branch | Real check, async, computed before the context is built (IB-5, decided) |
 | `CREATE_PORTFOLIO` baseline + comment | `authorization/platform/permission-set.ts:17-24`, `PortfolioService.create:145` | every role | Entitlement `.require` in the portfolio create chain (IB-4) |
 | `ProjectService.create` after `PlatformAuthorizer.can(CREATE_PROJECT)` | `projects/backend/service.ts:295-331` | one `$transaction` creating the project and `OWNER` member | Per-user lock + owned count + quota inside that transaction |
 | Notification scheduler query | `notification-scheduler.service.ts:336-358` `findEnabledUserIds` | filters `enabled`, `banned`, `status` | Add the set-based entitlement predicate per intent |
@@ -84,7 +84,7 @@ src/modules/billing/
 
 1. `lib/entitlements`: from a stub to the effective-access facade.
 2. `PostgresRateLimitStore` (+ `InMemoryRateLimitStore`, `RateLimitStore` port): add `incrementIfBelow(key, ceiling, expiresAt)`. It is a single `INSERT … ON CONFLICT DO UPDATE SET count = count + 1 WHERE count < $ceiling RETURNING count`, where no row returned means refused.
-3. `PlatformAction` + `PlatformPermissionSet`: `MANAGE_ENTITLEMENT_GRANTS`, `VIEW_BILLING`, `MANAGE_BILLING` (role assignment IB-15).
+3. `PlatformAction` + `PlatformPermissionSet`: `MANAGE_ENTITLEMENT_GRANTS`, `VIEW_BILLING`, `MANAGE_BILLING`. Role assignment (IB-15, decided): `SUPER_ADMIN` holds all three; `ADMIN` holds `VIEW_BILLING`; `MODERATOR` holds none.
 4. `RATE_LIMIT_POLICIES`: inbound policies `billing:checkout`, `billing:checkout-confirm`, `billing:command`, `billing:webhook` (IP, fail-open), `promotions:redeem`.
 5. `PortfolioContext`/resolver: async eligibility, plus actor entitlements for create.
 6. `ProjectRepository`: `countOwnedByUser(userId, tx)`; schema index on `ProjectMember(userId, role)`.

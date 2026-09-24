@@ -2,7 +2,7 @@
 
 > **Status:** Live
 >
-> **Last Updated:** 2026-09-24 (re-done after the adversarial architecture review)
+> **Last Updated:** 2026-09-24 (decision close-out applied; earlier: re-done after the adversarial architecture review)
 
 Self-review against the failure scenarios and requirements this design must survive. Each item is
 answered with a reference, not a bare yes/no. Where the answer depends on something not yet verified,
@@ -65,8 +65,10 @@ it says so.
 These are deliberate or pending, not oversights:
 
 1. **Paid→paid plan changes are unavailable for UPI, e-mandate and domestic-card subscriptions** —
-   most Indian customers. Product decision; highest-impact open question
-   ([B1](../../project/feature-specification/subscription/open-decisions.md#b-genuinely-open-product-questions)).
+   most Indian customers, and UPI is a day-one payment method. Product decision, ruled for V1 on
+   2026-09-24: the limitation is kept, and a switch flow is deferred with the seams to add it
+   ([B1](../../project/feature-specification/subscription/open-decisions.md#b-resolved),
+   [IB-21](implementation/open-decisions.md#ib-21--plan-change-extensibility)).
 2. **Supersession depends on Razorpay accepting cancellation of `halted`/`paused` subscriptions.**
    The documentation names only `active`/`authenticated`, but TEST mode accepted an immediate cancel
    of both on 2026-09-24 ([A1](../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)).
@@ -94,8 +96,19 @@ These are deliberate or pending, not oversights:
    answered A1, A2, A5, A8, A13, A14 and parts of A4/A7; the items that still need a webhook endpoint
    (A3, A6, A9) or an international-card subscription (A3, A15) remain.*
 2. Ask Razorpay Support for the account's API rate limits (A12).
-3. From the authorization audit (`docs/temp/kizunia-authorization-compressed-wind.md` §22, P1):
+3. ~~From the authorization audit (`docs/temp/kizunia-authorization-compressed-wind.md` §22, P1):
    refactor `PortfolioPolicy` onto `AuthorizationEvaluator`, and add the shared admin-route guard
-   before any billing-admin UI.
-4. Decide B1 (plan changes for UPI/e-mandate/domestic cards) knowingly before launch messaging is
-   written — it shapes what the pricing page may promise.
+   before any billing-admin UI.~~ **Done** in `c956336` (2026-09-20)
+   ([IB-17](implementation/open-decisions.md#ib-17--stale-documents-and-leftovers)).
+4. ~~Decide B1 (plan changes for UPI/e-mandate/domestic cards) knowingly before launch messaging is
+   written — it shapes what the pricing page may promise.~~ **Decided 2026-09-24**: native-only in
+   V1, and the limitation must be stated in launch messaging
+   ([IB-21](implementation/open-decisions.md#ib-21--plan-change-extensibility)).
+5. **Decision close-out (2026-09-24): done.** Every IB finding is ruled or explicitly deferred
+   ([open decisions](implementation/open-decisions.md)). What still remains is sequenced by phase in
+   the [phase-wise implementation plan](implementation-plan/README.md):
+   - ask Razorpay Support to enable UPI on TEST and LIVE (IB-18), for UPI verification in Phases V–VII;
+   - a stable TEST webhook URL (IB-20), for Phase IV;
+   - the LIVE blockers (A12, IB-11, IB-19, B6, UPI verification), for Phase IX.
+
+   **Nothing blocks Phase I.**

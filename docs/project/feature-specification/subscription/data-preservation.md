@@ -25,6 +25,11 @@ Pro+ user owns 18 projects
   -> creating project #19 is blocked until owned count is back at or under 10
 ```
 
+Deleting a project frees a slot: only projects that have not been deleted count toward the quota
+(decided 2026-09-24, [SB-PL-03](decisions/plans-and-quotas.md#sb-pl-03--project-quotas-count-ownership-only)).
+Administrators are not held to the quota
+([SB-EA-04](decisions/effective-access-and-grants.md#sb-ea-04--admin-platform-role-bypass-is-not-an-entitlement-source)).
+
 ## Portfolio
 
 A portfolio is never deleted because paid access ended. The user can still view and edit it. What
@@ -53,6 +58,11 @@ account while it still has a live subscription — the subscription is cancelled
 never keeps charging someone who no longer has an account — and it keeps the billing history in a
 pseudonymized form for accounting and disputes. See
 [`decisions/data-preservation.md`](decisions/data-preservation.md#sb-dp-04--billing-records-survive-account-removal).
+
+**V1 status (2026-09-24):** Kizunia does not yet have an account-deletion feature. Billing is built
+so that a user with billing records **cannot** be hard-deleted by accident: the database refuses.
+The removal flow described above is built once account deletion exists, and after the retention
+period (open question B3) is decided.
 
 ## Why this matters more than it looks
 

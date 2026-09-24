@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-15)
 
 Mechanism behind [`../../../project/feature-specification/subscription/admin-grants.md`](../../../project/feature-specification/subscription/admin-grants.md).
 
@@ -59,6 +59,14 @@ Creating, extending or revoking a grant requires a dedicated platform action (e.
 authorization audit recommends (`kizunia-authorization-compressed-wind.md` §22, P1-2). Self-grants
 are refused regardless of role
 ([SB-EA-08](../../../project/feature-specification/subscription/decisions/effective-access-and-grants.md#sb-ea-08--administrators-cannot-grant-access-to-themselves)).
+
+**Roles (decided 2026-09-24, product decision (owner),
+[IB-15](../implementation/open-decisions.md#ib-15--billing-admin-roles)):** only `SUPER_ADMIN` holds
+`MANAGE_ENTITLEMENT_GRANTS`. `ADMIN` may *view* grants (`VIEW_BILLING`) but not create, extend or
+revoke them. `MODERATOR` and `USER` hold neither. Because self-grants are refused, a sole
+`SUPER_ADMIN` cannot grant themselves access. Admin *bypass* of interactive gates
+([IB-7](../implementation/open-decisions.md#ib-7--admin-bypass-of-entitlement-gates)) is a separate
+concept and needs no grant.
 
 ## Audit
 

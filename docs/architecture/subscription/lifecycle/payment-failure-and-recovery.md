@@ -60,6 +60,19 @@ Kizunia's "fix payment" action opens that Razorpay flow; it does not collect pay
 Because recovery can also happen entirely outside Kizunia (the email link), Kizunia must — and does —
 treat `HALTED → ACTIVE` as something it observes, not something it initiates.
 
+**UPI subscriptions: PROVIDER-DEPENDENT.** UPI is a day-one payment method, but nothing UPI-specific
+has been observed: UPI is disabled for Subscriptions on the TEST account
+([IB-18](../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)).
+
+- Razorpay *documents* that a halted UPI subscription can recover only by switching to a card, and
+  that a subscription the customer paused from their UPI app can be resumed only by that customer.
+- The architecture supports both routes a UPI subscriber could take: Razorpay's payment-method change
+  (opened, then observed) and [supersession](multiple-subscriptions.md#supersession).
+- *Which* options the UI offers a UPI subscriber, and in what order, is **not decided**. It is settled
+  after UPI verification in implementation-plan
+  [Phase VI](../implementation-plan/phase-VI/README.md)
+  ([IB-22](../implementation/open-decisions.md#ib-22--upi-recovery-ux)).
+
 ## Why this is safe to leave indefinite
 
 A `HALTED` subscription that never recovers costs nothing: Razorpay is not attempting further

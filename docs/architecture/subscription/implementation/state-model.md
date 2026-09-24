@@ -8,7 +8,7 @@
 
 The Kizunia subscription state machine: Razorpay provider status, Kizunia phase and effective contribution kept distinct, every phase, and every valid transition with what causes it.
 
-**Open decisions referenced here:** [IB-9](open-decisions.md#ib-9--trial-conversion-gap). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+**Decisions referenced here:** [IB-9](open-decisions.md#ib-9--trial-conversion-gap). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 
@@ -32,7 +32,7 @@ Three layers, never conflated:
 | `CANCELLED`, `EXPIRED`, `COMPLETED` | no | no | yes | no |
 | `ABANDONED` (local only) | no | no | yes | no |
 
-Mapping (applied in one place, `policy/state-mapping.ts`): `created → PENDING_AUTHENTICATION`; `authenticated` + `kind TRIAL` + future `start_at` → `TRIALING`, otherwise `PENDING_AUTHENTICATION` (**see IB-9**); `active → ACTIVE`; `pending → PAST_DUE`; `halted → HALTED`; `paused → PAUSED`; `cancelled → CANCELLED`; `expired → EXPIRED`; `completed → COMPLETED`; anything else → not applied (`MALFORMED`).
+Mapping (applied in one place, `policy/state-mapping.ts`): `created → PENDING_AUTHENTICATION`; `authenticated` + `kind TRIAL` + (future `start_at`, or `start_at` passed but within the trial-conversion grace C7) → `TRIALING`, otherwise `PENDING_AUTHENTICATION`, raising `TRIAL_CONVERSION_OVERDUE` for a trial past the grace (**IB-9, decided**); `active → ACTIVE`; `pending → PAST_DUE`; `halted → HALTED`; `paused → PAUSED`; `cancelled → CANCELLED`; `expired → EXPIRED`; `completed → COMPLETED`; anything else → not applied (`MALFORMED`).
 
 ```text
 PROVISIONING ─┬─ provider ID bound ─────> PENDING_AUTHENTICATION ─┬─ authenticated (TRIAL, before start_at) ─> TRIALING

@@ -8,7 +8,7 @@
 
 How effective access is computed (highest currently valid access across subscriptions and grants, per provider mode, with no provider call) and how it becomes capabilities, quotas and feature authorization through the existing entitlement resolver and `AuthorizationEvaluator` chains.
 
-**Open decisions referenced here:** [IB-7](open-decisions.md#ib-7--admin-bypass-of-entitlement-gates). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+**Decisions referenced here:** [IB-7](open-decisions.md#ib-7--admin-bypass-of-entitlement-gates). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 

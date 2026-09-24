@@ -109,5 +109,5 @@ workaround where it does not — no successor subscription, no Kizunia proration
 Razorpay refuses, the plan change is a documented V1 limitation and future scope
 ([SB-LC-07](lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible),
 [`../future.md`](../future.md#plan-changes-razorpay-cannot-perform-natively),
-[open question B1](../open-decisions.md#b-genuinely-open-product-questions)). Free→paid is creation
+question B1, [resolved for V1 on 2026-09-24](../open-decisions.md#b-resolved)). Free→paid is creation
 and paid→Free is cancellation, both supported for every payment method.

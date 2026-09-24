@@ -34,7 +34,7 @@ side. See [SB-DP-03](#sb-dp-03--portfolio-public-eligibility-is-a-second-indepen
 
 ## SB-DP-03 — Portfolio public-eligibility is a second, independent gate alongside visibility
 
-**Status:** Accepted
+**Status:** Amended — 2026-09-24 (rationale corrected: the eligibility read is asynchronous), see below
 
 **Decision:** Whether a portfolio is actually shown at its public URL requires **both**
 `visibility === PUBLIC` **and** an entitlement-driven "publicly displayable" check to pass. Neither
@@ -50,9 +50,17 @@ change to `PortfolioPolicy`'s shape — see
 This resolves the audit's flagged gap with the smallest possible change, rather than the
 schema-adding alternatives the audit itself considered.
 
+**Amended (2026-09-24) — engineering decision (autonomous), decision close-out
+[IB-5](../../../../architecture/subscription/implementation/open-decisions.md#ib-5--async-portfolio-public-eligibility):**
+the rationale's "requires … no change to `PortfolioPolicy`'s shape" still holds, but the eligibility
+function **does** change signature. It is called from the synchronous context resolver, and an
+entitlement read is asynchronous I/O. Eligibility, meaning the **owner's** effective access, is
+therefore computed asynchronously before the portfolio context is built and passed into it. The
+decision itself (two independent gates, visibility never overwritten) is unchanged.
+
 ## SB-DP-04 — Billing records survive account removal
 
-**Status:** Accepted — retention period open ([B3](../open-decisions.md#b-genuinely-open-product-questions))
+**Status:** Amended — 2026-09-24 (storage decided; removal workflow deferred); retention period open ([B3](../open-decisions.md#b-genuinely-open-product-questions))
 
 **Decision:** Billing records — `Subscription`, `SubscriptionHistoryEntry`, `BillingOperation`,
 `BillingEvent`, charge facts, and grant audit entries — are never removed by a database cascade
@@ -74,3 +82,15 @@ Refusing removal while billing is open prevents charging someone who no longer h
 pseudonymization keeps the financial history needed for disputes and accounting without keeping
 the person's identity attached. Unlike [SB-DP-01](#sb-dp-01--downgrade-never-deletes-projects-portfolios-or-preferences),
 this concerns account removal, not downgrade.
+
+**Amended (2026-09-24) — engineering decision (autonomous), decision close-out
+[IB-14](../../../../architecture/subscription/implementation/open-decisions.md#ib-14--account-removal-storage):**
+
+- **Storage is decided.** Every billing and entitlement table references the user through a
+  **nullable** `userId` with `onDelete: Restrict`, plus a `subjectPseudonym` column. Actor columns are
+  plain strings, not foreign keys. A hard delete of a user who has billing or grant rows is refused by
+  the database.
+- **The removal workflow (steps 1–3 above) is deferred** until the platform has an account-deletion
+  feature. Kizunia has none today: no deletion route or hook, only Better Auth's admin `remove-user`,
+  which fails safely against `Restrict`.
+- The retention period (B3) remains open and blocks only that workflow.

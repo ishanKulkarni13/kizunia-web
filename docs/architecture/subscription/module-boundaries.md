@@ -30,8 +30,8 @@ What Subscription & Billing owns, what it consumes, and what it must never touch
 | `ProjectMember` ownership counts | Projects | Redefines what "owned" means |
 | `resolvePortfolioPublicEligibility()` | Portfolio | Adds a new schema field to Portfolio, or touches `visibility` |
 | The notification-eligibility seam and its scheduler query | Notifications | Becomes the notification system |
-| `RecommendationService.generateForUser`'s entry point | Recommendations | Duplicates the recommendation engine |
-| `PlatformPolicy`/scope chain | MCP | Adds an MCP-specific authorization helper |
+| The recommendation engine, unchanged and **ungated**. The recommendations capability is enforced at the `TOP_RELEVANT_COMPETITION` notification intent, because the engine also serves the Pro deadline intent ([IB-2](implementation/open-decisions.md#ib-2--recommendation-gate-point); this row used to name `RecommendationService.generateForUser`'s entry point as the gate) | Recommendations | Duplicates or gates the recommendation engine |
+| MCP dispatch, after actor resolution: one `AuthorizationEvaluator` capability check with `.platformOverride()` ([authorization integration](entitlements/authorization-integration.md#mcp)) | MCP | Adds an MCP-specific authorization helper, or a dynamic permission set |
 | `resolvePolicy`'s `entitlements` parameter | Rate limiting | Makes rate limiting Razorpay-aware |
 | The Postgres rate-limit store's atomic counters | Rate limiting | Mixes the provider budget into user-facing rate-limit policies |
 | The notification work queue's claim-with-lease and `P2002` conventions | Background jobs | Introduces a second, differently-shaped queue or worker platform |

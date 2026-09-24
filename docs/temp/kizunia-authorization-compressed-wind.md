@@ -1,5 +1,12 @@
 # Kizunia Authorization & Access-Control Architecture Audit
 
+> **STALE (marked 2026-09-24).** This audit predates `c956336` (2026-09-20), which completed its P1
+> items: the `PortfolioPolicy` refactor onto `AuthorizationEvaluator` and the admin-route guard.
+> Kizunia's current authorization architecture is described in `docs/architecture/authorization/`,
+> and subscription integration decisions are in
+> `docs/architecture/subscription/implementation/open-decisions.md` (IB-17). Kept for history; do
+> not rely on its line references.
+
 **Type:** Read-only audit deliverable (no code changes). This file *is* the requested report.
 **Scope:** Authentication, authorization, ownership/membership, notifications, recommendations, MCP, API, admin, rate limiting, background jobs — evaluated for readiness to support a future Subscription/Entitlement system (Free/Pro/Pro+).
 **Method:** Three parallel codebase investigations (auth/authz/projects/portfolio/admin; MCP/API/rate-limiting; notifications/recommendations/background jobs), each citing concrete file:line evidence from `d:\projects\kizunia-web`.

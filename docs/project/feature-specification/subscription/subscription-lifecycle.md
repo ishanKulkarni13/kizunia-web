@@ -73,8 +73,10 @@ deletes anything the user has already created. See [`data-preservation.md`](data
 
 Cancelling a paid plan keeps paid access through the period the user already paid for, then falls
 back to Free. Once requested, a cancellation cannot be undone in V1; to continue after it takes
-effect, the user subscribes again. During a trial, cancellation is immediate. Immediate cancellation
-of a paid period (losing access right away) is a support action, not the self-serve default — see
+effect, the user subscribes again. During a trial, cancellation is immediate. Cancelling while a
+renewal payment is failing is also immediate: the period being retried was never paid, so paid access
+ends at once and no further charge is attempted. Immediate cancellation of a paid period (losing
+access right away) is a support action, not the self-serve default — see
 [`decisions/lifecycle.md`](decisions/lifecycle.md#sb-lc-04--cancellation-defaults-to-end-of-cycle).
 
 ## Payment failure
@@ -97,7 +99,11 @@ retry window — see [`decisions/payment-failure-and-recovery.md`](decisions/pay
 A user whose subscription is on hold may fix the payment method (restoring it) **or** start a new
 subscription. Starting a new one first cancels the on-hold subscription permanently — the user is
 told this and must confirm it — so the two can never both bill. If Razorpay does not allow the
-on-hold subscription to be cancelled, the user is asked to restore it instead. See
+on-hold subscription to be cancelled, the user is asked to restore it instead. Which of these options Kizunia offers a subscriber who
+pays by **UPI**, and in what order, is settled only once UPI behavior has been verified with
+Razorpay: Razorpay documents that a UPI subscription can be restored only by switching to a card, and
+that has not been observed yet
+([IB-22](../../../architecture/subscription/implementation/open-decisions.md#ib-22--upi-recovery-ux)). See
 [`decisions/uniqueness-and-resubscription.md`](decisions/uniqueness-and-resubscription.md#sb-uq-04--a-halted-or-paused-subscription-is-superseded-only-by-a-confirmed-cancellation).
 
 ## Changes made outside Kizunia

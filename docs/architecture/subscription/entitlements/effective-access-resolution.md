@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-3)
 
 The real implementation of `lib/entitlements/index.ts`'s `resolveEntitlements()`, replacing its
 current `{tier: "default"}` stub. This is the one function every seam in
@@ -75,6 +75,16 @@ the project-quota check ([`quotas-vs-rate-limits.md`](quotas-vs-rate-limits.md#p
 
 ## What changes when this ships
 
-Per the existing comments in `lib/entitlements/index.ts` and `lib/rate-limit/resolver.ts`: only the
-body of `resolveEntitlements()`. Every call site that already consumes its result activates
-plan-aware behavior with zero changes of its own.
+*Original expectation (superseded 2026-09-24):* per the existing comments in
+`lib/entitlements/index.ts` and `lib/rate-limit/resolver.ts`, only the body of `resolveEntitlements()`
+would change.
+
+**Decided ([IB-3](../implementation/open-decisions.md#ib-3--entitlement-resolver-signature)):** that
+function is synchronous and takes no user, so a per-user, database-backed resolver needs a new
+signature.
+
+- `lib/entitlements` gains a **new async per-user API**: effective access for a user, capability and
+  quota questions, the set-based predicate, and explain. Every feature gate consumes it.
+- The existing `resolveEntitlements()` stays as the rate-limit registry's default-tier input until a
+  plan-tier override is configured.
+- Exact names are chosen in implementation-plan [Phase I](../implementation-plan/phase-I/README.md).

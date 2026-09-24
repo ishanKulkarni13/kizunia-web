@@ -484,6 +484,17 @@ Razorpay's separate *Recurring Payments* product, not Subscriptions
 ([Recurring Payments webhooks](https://razorpay.com/docs/api/payments/recurring-payments/webhooks/)); a
 search-result summary that conflated the two was not used.
 
+**TEST-OBSERVED (2026-09-24) — UPI is not available on Kizunia's TEST account.** The Checkout
+preferences endpoint (`GET /v1/preferences?key_id=…&subscription_id=…`, undocumented; the call
+checkout.js itself makes) reported `subscription.upi=false` and `methods.upi=false`, with recurring
+methods card / e-mandate / NACH only. This held for ₹100/month, ₹1,000/year and a trial variant. The
+Subscriptions FAQ calls UPI for Subscriptions "early access" enabled through Razorpay Support (another
+FAQ entry points to Dashboard → Subscriptions → Settings). The cause was not established.
+**Consequence:** every UPI statement in this ledger is documentation only, and UPI is a day-one
+payment method for Kizunia. The UPI behaviors still to verify are product open item
+[A16](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support);
+see also [IB-18](../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account).
+
 **FACT.** Subscriptions and Subscription Links can be created from the Dashboard as well as the API,
 and Dashboard users can pause, resume, cancel (immediately or at cycle end) and update
 subscriptions. Sources: [Create Subscriptions](https://razorpay.com/docs/payments/subscriptions/create/),

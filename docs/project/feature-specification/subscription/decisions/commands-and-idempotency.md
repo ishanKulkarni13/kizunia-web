@@ -14,7 +14,7 @@ mechanism is described in
 
 ## SB-CM-01 — Every mutating provider call is a recorded billing operation
 
-**Status:** Accepted
+**Status:** Amended — 2026-09-24 (the in-flight limit applies to root operations), see below
 
 **Decision:** Every call that mutates Razorpay state is preceded by a durable `BillingOperation`
 record — `{ kind, userId, subscriptionId?, actor, idempotencyKey, status, requestSentAt,
@@ -35,6 +35,18 @@ subscription to lock yet. [RAZORPAY FACT] Razorpay itself rejects some concurren
 but not concurrent *creates*, and its rejection is not something to design around. The record also
 distinguishes Kizunia-originated changes from Dashboard- and customer-originated ones in history
 ([`subscription-history.md`](../../../../architecture/subscription/history-and-audit/subscription-history.md)).
+
+**Amended (2026-09-24) — engineering decision (autonomous), decision close-out
+[IB-6](../../../../architecture/subscription/implementation/open-decisions.md#ib-6--composed-commands-and-the-in-flight-constraint):**
+"at most one `IN_FLIGHT` operation" applies to **root** operations. A composed command (supersession;
+a plan change that first cancels a scheduled change; abandon-then-recreate) is one root with child
+operations that run sequentially under the root's slot. Taken literally, the original wording would
+make a parent and its child collide.
+
+- A command never outlives its request: an unconfirmed step returns `CONFIRMING`, and the user's next
+  request continues.
+- Admin commands take the same per-user slot.
+- Mutating billing endpoints require an `Idempotency-Key` header.
 
 ## SB-CM-02 — The local record is written before the provider call
 

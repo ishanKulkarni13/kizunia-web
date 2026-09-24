@@ -17,6 +17,20 @@ keep three kinds of statement from being confused with each other:
 | **[ENGINEERING]** | A decision about how to build it, often resolving a product requirement against a verified Razorpay constraint |
 | **[RAZORPAY FACT]** | Not a decision at all — a documented Razorpay behavior the ruling next to it depends on. Facts are cited in full, with sources, in [`../../../../architecture/subscription/provider-boundary/razorpay-facts.md`](../../../../architecture/subscription/provider-boundary/razorpay-facts.md); rulings here link to the specific fact rather than restating it |
 
+## Decision authority in amendments
+
+Amendments made during the 2026-09-24 implementation decision close-out name who made them:
+
+- **product decision (owner)** is the project owner's ruling;
+- **engineering decision (autonomous)** was derived from the existing architecture, code and
+  conventions during the close-out, with a recorded rationale. The owner may override it with a new
+  ruling.
+
+The full findings are the IB items in
+[`../../../../architecture/subscription/implementation/open-decisions.md`](../../../../architecture/subscription/implementation/open-decisions.md),
+and both lists are in
+[settled decisions](../../../../architecture/subscription/implementation/settled-decisions.md#rulings-from-the-2026-09-24-decision-close-out).
+
 ## How rulings work
 
 Every ruling has:
@@ -62,7 +76,7 @@ ID prefixes map to topic files:
 | --- | --- | --- |
 | SB-PL-01 | PRODUCT | Three plans at launch — Free, Pro, Pro+ — with Monthly/Yearly cycles on paid plans |
 | SB-PL-02 | PRODUCT | Capabilities are checked, never plan names, in feature code |
-| SB-PL-03 | PRODUCT | Project quotas count ownership only, never membership |
+| SB-PL-03 | PRODUCT | Project quotas count ownership only, never membership — *Amended 2026-09-24 (engineering, IB-12): soft-deleted projects do not count* |
 | SB-PL-04 | PRODUCT | The feature matrix is a starting configuration, not permanent |
 | SB-PL-05 | PRODUCT | Recommendations require Pro+, not Pro |
 
@@ -73,7 +87,7 @@ ID prefixes map to topic files:
 | SB-EA-01 | ENGINEERING | Free has no Subscription record — *Amended 2026-09-24: Free is never stored; a Free user may still have terminal or non-contributing rows* |
 | SB-EA-02 | PRODUCT | Effective access is the highest currently valid entitlement across all sources |
 | SB-EA-03 | ENGINEERING | Entitlement sources coexist as independent records; none overwrites another |
-| SB-EA-04 | PRODUCT | Admin platform-role bypass is not an entitlement source |
+| SB-EA-04 | PRODUCT | Admin platform-role bypass is not an entitlement source — *Amended 2026-09-24 (owner, IB-7): bypass applies to interactive gates only; none for background eligibility* |
 | SB-EA-05 | ENGINEERING | Feature code checks capabilities, never Razorpay-derived fields directly |
 | SB-EA-06 | ENGINEERING | Effective access takes the maximum over every contributing Subscription |
 | SB-EA-07 | ENGINEERING | A Subscription contributes only in the provider mode it was created in |
@@ -87,13 +101,13 @@ ID prefixes map to topic files:
 | SB-LC-01 | ENGINEERING | Trial is Razorpay-native only; no separate no-card trial system |
 | SB-LC-02 | ENGINEERING | Upgrades apply immediately, with Razorpay's automatic prorated charge — *Amended 2026-09-24: paid→paid only, only where Razorpay supports it, access follows synced state* |
 | SB-LC-03 | ENGINEERING | Downgrades take effect at the end of the current billing cycle — *Amended 2026-09-24: paid→paid only; Pro→Free is SB-LC-04* |
-| SB-LC-04 | PRODUCT | Cancellation defaults to end-of-cycle, not immediate — *Amended 2026-09-24: immediate during a trial* |
+| SB-LC-04 | PRODUCT | Cancellation defaults to end-of-cycle, not immediate — *Amended 2026-09-24: immediate during a trial; amended again 2026-09-24 (owner, IB-1): immediate in `PAST_DUE`* |
 | SB-LC-05 | PRODUCT | Immediate cancellation is an explicit admin/support action, not the customer default |
 | SB-LC-06 | PRODUCT | A Dashboard-originated change is a normal lifecycle path, not an edge case — *Amended 2026-09-24: includes customer (UPI app) changes* |
-| SB-LC-07 | PRODUCT | Razorpay decides whether a plan change is possible; no Kizunia workaround where it cannot |
+| SB-LC-07 | PRODUCT | Razorpay decides whether a plan change is possible; no Kizunia workaround where it cannot — *Reaffirmed for V1 2026-09-24 (owner, IB-21), with a requirement that a later switch flow needs no restructuring* |
 | SB-LC-08 | ENGINEERING | At most one scheduled change, and cancellation always wins |
 | SB-LC-09 | PRODUCT | A requested cycle-end cancellation cannot be undone |
-| SB-LC-10 | ENGINEERING | Subscription kind is recorded at creation, never inferred |
+| SB-LC-10 | ENGINEERING | Subscription kind is recorded at creation, never inferred — *Amended 2026-09-24 (engineering, IB-9): bounded `TRIALING` after `start_at`* |
 | SB-LC-11 | PRODUCT | One trial per account |
 
 ### Payment failure and recovery — [payment-failure-and-recovery.md](payment-failure-and-recovery.md)
@@ -112,8 +126,8 @@ ID prefixes map to topic files:
 | --- | --- | --- |
 | SB-DP-01 | PRODUCT | Downgrade never deletes projects, portfolios, or preferences |
 | SB-DP-02 | PRODUCT | Portfolio visibility is never overridden by entitlement loss |
-| SB-DP-03 | ENGINEERING | Portfolio public-eligibility is a second, independent gate alongside visibility |
-| SB-DP-04 | PRODUCT | Billing records survive account removal |
+| SB-DP-03 | ENGINEERING | Portfolio public-eligibility is a second, independent gate alongside visibility — *Amended 2026-09-24 (IB-5): rationale corrected, eligibility is read asynchronously* |
+| SB-DP-04 | PRODUCT | Billing records survive account removal — *Amended 2026-09-24 (engineering, IB-14): storage decided; removal workflow deferred* |
 
 ### Coupons and promotions — [coupons-and-promotions.md](coupons-and-promotions.md)
 
@@ -178,7 +192,7 @@ ID prefixes map to topic files:
 
 | ID | Category | Decision |
 | --- | --- | --- |
-| SB-CM-01 | ENGINEERING | Every mutating provider call is a recorded billing operation; one in flight per user |
+| SB-CM-01 | ENGINEERING | Every mutating provider call is a recorded billing operation; one in flight per user — *Amended 2026-09-24 (engineering, IB-6): one in-flight **root** operation; children run under it* |
 | SB-CM-02 | ENGINEERING | The local record is written before the provider call |
 | SB-CM-03 | ENGINEERING | An outcome-unknown command is resolved by observation, never by blind retry |
 | SB-CM-04 | ENGINEERING | Client retries and multiple tabs resolve to the same operation |

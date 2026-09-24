@@ -8,7 +8,7 @@
 
 The application command model: the single command runner, the ordered command lifecycle (record before calling, never retry blindly), composed commands, the command catalog with preconditions, and how an unknown outcome is resolved by observation.
 
-**Open decisions referenced here:** [IB-1](open-decisions.md#ib-1--past_due-cancellation), [IB-6](open-decisions.md#ib-6--composed-commands-and-the-in-flight-constraint). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+**Decisions referenced here:** [IB-1](open-decisions.md#ib-1--past_due-cancellation), [IB-6](open-decisions.md#ib-6--composed-commands-and-the-in-flight-constraint). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 
@@ -37,20 +37,22 @@ One runner, `backend/commands/command-runner.ts`, implements the documented life
 8 respond          local state after tx B (never optimistic)
 ```
 
-**Composed commands (IB-6):** a root operation (`SUPERSEDE`, `CHANGE_PLAN`) takes the per-user slot; children (`parentOperationId` set) run sequentially under it. Each child is recorded and a failed child stops the root. A step that needs "confirmed by sync" does one targeted immediate sync inside the request (priority 1). If the confirmation is not yet visible, the root ends `SUCCEEDED` for the steps completed and returns `CONFIRMING`. The user's next request (a new idempotency key) re-evaluates preconditions from local state and proceeds when the old subscription is observed terminal. No hidden continuation job exists; background processes never mutate (SB-RC-10).
+**Composed commands (IB-6, decided):** a root operation (`SUPERSEDE`, `CHANGE_PLAN`) takes the per-user slot; children (`parentOperationId` set) run sequentially under it. Each child is recorded and a failed child stops the root. A step that needs "confirmed by sync" does one targeted immediate sync inside the request (priority 1). If the confirmation is not yet visible, the root ends `SUCCEEDED` for the steps completed and returns `CONFIRMING`. The user's next request (a new idempotency key) re-evaluates preconditions from local state and proceeds when the old subscription is observed terminal. No hidden continuation job exists; background processes never mutate (SB-RC-10).
 
 | Command | Actor | Preconditions (local, inside tx A) | Provider call(s) | Settled by |
 | --- | --- | --- | --- | --- |
 | **StartCheckout** (`CREATE_SUBSCRIPTION`) | user | Provider enabled; reuse/uniqueness table ([checkout flow](checkout-flow.md)); trial eligibility if TRIAL; code eligibility | `createSubscription` | Bind + apply → `PENDING_AUTHENTICATION` |
 | **ConfirmCheckout** | user | Caller owns a `PENDING_AUTHENTICATION` sub | none (read-only trigger): verify signature, mark due, targeted sync at priority 2 | Sync |
 | **AbandonCheckout** (child of StartCheckout reuse) | user | Existing `PENDING_AUTHENTICATION`, different plan/cycle or expired | `cancelSubscription(atCycleEnd:false)` | Sync shows `cancelled`/`expired` |
-| **ChangePlan** (`CHANGE_PLAN` → `CANCEL_SCHEDULED_CHANGE`? → `UPDATE_PLAN`) | user | Phase `ACTIVE` (or `TRIALING` for upgrades); no `cancelAtPeriodEnd`; target ≠ current; no open anomaly | `now` for upgrades, `cycle_end` for downgrades | Sync: plan (or pending change) equals target |
-| **Cancel** (customer) | user | `ACTIVE` → `CANCEL_AT_CYCLE_END`; `TRIALING` → `CANCEL_IMMEDIATELY`; `PENDING_AUTHENTICATION` → abandon; **`PAST_DUE` → IB-1**; `HALTED`/`PAUSED` → immediate only; terminal → refused; pending scheduled change cancelled first (parent) | `cancelSubscription` | See [PAST_DUE cancellation](past-due-cancellation.md) for cycle-end |
+| **ChangePlan** (`CHANGE_PLAN` → `CANCEL_SCHEDULED_CHANGE`? → `UPDATE_PLAN`) | user | Phase `ACTIVE` (or `TRIALING` for upgrades); no `cancelAtPeriodEnd`; target ≠ current; no open anomaly; the plan-change **strategy policy** returns `NATIVE_UPDATE` (V1 strategies: `NATIVE_UPDATE`, `UNAVAILABLE`; a later `SWITCH` is added here, [IB-21](open-decisions.md#ib-21--plan-change-extensibility)) | `now` for upgrades, `cycle_end` for downgrades | Sync: plan (or pending change) equals target |
+| **Cancel** (customer) | user | `ACTIVE` → `CANCEL_AT_CYCLE_END`; `TRIALING` → `CANCEL_IMMEDIATELY`; `PENDING_AUTHENTICATION` → abandon; **`PAST_DUE` → `CANCEL_IMMEDIATELY`** (IB-1, decided); `HALTED`/`PAUSED` → immediate only; terminal → refused; pending scheduled change cancelled first (parent) | `cancelSubscription` | See [PAST_DUE cancellation](past-due-cancellation.md) for cycle-end |
 | **AdminCancelImmediately** | admin | Any open phase; reason | `cancelSubscription(false)` | Sync shows `cancelled` |
 | **Supersede** (`SUPERSEDE` → `CANCEL_IMMEDIATELY` → confirm → `CREATE_SUBSCRIPTION`) | user | Open sub is `HALTED`/`PAUSED`; request carries `supersedesSubscriptionId` + explicit confirmation | Immediate cancel, fetch, create | Old `CANCELLED` observed → `supersededById` + history `SUPERSESSION` → create |
 | **Recover (HALTED)** | user | — | none: client opens Razorpay's card-change Checkout; Kizunia offers "check now" = ConfirmCheckout-style sync trigger | Sync |
 | **Admin grant/revoke** | admin | Not a billing command: no BillingOperation, no provider | — | Grant audit ([admin grants](admin-grants.md)) |
 | **Sync now / bulk re-sync** | admin | Not a command: marks due (priority 1 / 3) | fetch only | Sync |
+
+**Operation-slot rules (IB-6, decided).** Admin commands take the same per-user root slot as customer commands. Every user-facing mutating endpoint requires an `Idempotency-Key` header, unique per `(userId, idempotencyKey)`. The app has no such convention yet, so billing introduces it; the key format is chosen at implementation time.
 
 **`OUTCOME_UNKNOWN` resolution** is always observation. The apply path settles a pending operation whenever an observation proves or disproves it (plan equals target; `cancelled`; `has_scheduled_changes=false`). Creates are settled by binding (orphan scan or webhook) or by the closed window. An operation still unresolved past the alert threshold emits `billing.alert OPERATION_OUTCOME_UNKNOWN`.
 

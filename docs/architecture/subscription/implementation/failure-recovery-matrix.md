@@ -8,7 +8,7 @@
 
 Every failure the design must survive, with how it is detected, what is persisted, how it is retried, what the user sees, and how it recovers.
 
-**Open decisions referenced here:** [IB-1](open-decisions.md#ib-1--past_due-cancellation). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+**Decisions referenced here:** [IB-1](open-decisions.md#ib-1--past_due-cancellation). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 
@@ -29,7 +29,7 @@ Every failure the design must survive, with how it is detected, what is persiste
 | Dashboard mutation | Webhook or next sync | Applied, `PROVIDER_OBSERVED` | — | New state | Automatic |
 | Abandoned checkout | `expireBy` checkpoint | `PENDING_AUTHENTICATION` → `EXPIRED` | — | Can resume until expiry | Automatic |
 | Failed payment | `subscription.pending` / checkpoint | `PAST_DUE` (still contributes) | Razorpay retries | "Payment failing — update payment method" | Razorpay |
-| PAST_DUE | as above | Contributing | — | Warning; plan change refused | Razorpay; cancel per IB-1 |
+| PAST_DUE | as above | Contributing | — | Warning; plan change refused | Razorpay; customer cancel is immediate (IB-1, decided) |
 | HALTED | `subscription.halted` / checkpoint | `HALTED` (no access); decaying heartbeat | — | "On hold: fix payment or start new" | Recovery (observed) or supersession |
 | PAUSED | `subscription.paused` | `PAUSED` (no access) | — | "Paused" | Resume at Razorpay / supersession |
 | Cancellation not effective | I-4 checks | Anomaly; `cancelAtPeriodEnd` cleared | — | "You are still subscribed" notice | Human; refund in Dashboard |

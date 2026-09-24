@@ -31,7 +31,7 @@ code change — see [`../plans.md`](../plans.md).
 
 ## SB-PL-03 — Project quotas count ownership only
 
-**Status:** Accepted
+**Status:** Amended — 2026-09-24 (soft-deleted projects do not count), see below
 
 **Decision:** The 5/10/20 owned-project limit counts only `ProjectMember` rows with
 `role = OWNER` for the acting user. Membership in any number of other projects never counts.
@@ -39,6 +39,19 @@ code change — see [`../plans.md`](../plans.md).
 **Rationale:** This distinction already exists in the codebase (`ProjectMember.role`) and is
 exactly what the authorization audit confirmed is ready to be queried for this purpose
 (`kizunia-authorization-compressed-wind.md` §6, §21). No new concept is introduced.
+
+**Amended (2026-09-24) — engineering decision (autonomous), decision close-out
+[IB-12](../../../../architecture/subscription/implementation/open-decisions.md#ib-12--soft-deleted-projects-and-the-quota):**
+
+- Only projects that are **not soft-deleted** (`Project.deletedAt IS NULL`) count, so deleting a
+  project frees a slot.
+- Any future path that brings a project back into the count (restore, ownership transfer; neither
+  exists today) must check the quota first.
+- Concurrent creates by one user are serialized so two requests cannot both pass the count.
+
+*Rationale:* this is what "until the owned count is back at or under the quota" already implies.
+Counting deleted projects would make deletion useless for freeing a slot, with no restore path to
+compensate.
 
 ## SB-PL-04 — The feature matrix is a starting configuration
 

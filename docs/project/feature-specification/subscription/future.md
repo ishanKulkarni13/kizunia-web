@@ -37,8 +37,17 @@ subscription is cancelled at the end of its period and a new one for the new pla
 to start then (for downgrades and cycle changes), possibly with a temporary grant bridging an upgrade
 until the new billing starts. That would need a deliberate product decision on upgrade pricing (the
 partial period), a second mandate authorization from the user, and one explicit relaxation of the
-"never a second open subscription" invariant for a linked successor. None of it is designed. See
-[open question B1](open-decisions.md#b-genuinely-open-product-questions).
+"never a second open subscription" invariant for a linked successor. None of it is designed.
+
+**Status (2026-09-24): DEFERRED, not rejected.** B1 was re-examined with UPI confirmed as a day-one
+payment method. The owner kept the V1 limitation ([B-resolved](open-decisions.md#b-resolved)), with
+one requirement: the V1 design must let this flow be added later **without restructuring**. The
+seams that guarantee it (a plan-change strategy policy, one open-subscription precondition, the
+existing `supersededById` link, and a provider boundary that already exposes every needed operation)
+are recorded in
+[IB-21](../../../architecture/subscription/implementation/open-decisions.md#ib-21--plan-change-extensibility).
+A later design must still make the product decisions listed above: upgrade pricing for the partial
+period, the second mandate, and the invariant relaxation.
 
 ## Undo cancellation
 

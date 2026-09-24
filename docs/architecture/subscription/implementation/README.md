@@ -19,9 +19,12 @@ The design documents stay authoritative for behavior and architecture:
 | Product behavior and the decision register | [`docs/project/feature-specification/subscription/`](../../../project/feature-specification/subscription/README.md) | *What* the system does and why |
 | Architecture | [`docs/architecture/subscription/`](../README.md) | *How* it is built so it can keep changing |
 | Conceptual domain model | [`docs/architecture/domain/subscription/`](../../domain/subscription/README.md) | The entities and their relationships |
-| **This directory** | `docs/architecture/subscription/implementation/` | *Where* each documented rule lands in the current code, *in what order* to build it, and *where the documents and the code disagree* |
+| **This directory** | `docs/architecture/subscription/implementation/` | *Where* each documented rule lands in the current code, and *where the documents and the code disagreed* (the IB findings and their rulings) |
+| **Engineering roadmap** | [`docs/architecture/subscription/implementation-plan/`](../implementation-plan/README.md) | *In what order* to build it: Phases I–IX, each with scope, acceptance criteria and blockers |
 
-Nothing here is implemented. No application code, Prisma schema or migration has been written or changed, and these documents do not change any architecture decision. Where a decision is unresolved it is recorded as open in [open decisions](open-decisions.md), never silently chosen.
+Nothing here is implemented. No application code, Prisma schema or migration has been written or changed.
+
+**Decision close-out (2026-09-24).** Every IB finding has been ruled, or explicitly deferred with a trigger. Each ruling records its **decision authority**: a *product decision (owner)* or an *architecture/technical decision (autonomous)*. See [open decisions](open-decisions.md) and [settled decisions](settled-decisions.md#rulings-from-the-2026-09-24-decision-close-out). Nothing is silently chosen in code: a question that is still open says so, together with the phase it blocks.
 
 ## Project status assumptions
 
@@ -42,8 +45,8 @@ Razorpay is the billing provider, not the foundation of membership. Kizunia owns
 | # | Document | Contents |
 | --- | --- | --- |
 | 1 | README.md | This index: scope, assumptions, reading order, conventions. |
-| 2 | [open-decisions.md](open-decisions.md) | Everything still unresolved: the IB findings, and the Razorpay, product and configuration items. |
-| 3 | [settled-decisions.md](settled-decisions.md) | Project-status assumptions applied at conversion, and the decisions the plan relies on. |
+| 2 | [open-decisions.md](open-decisions.md) | The IB findings with their 2026-09-24 rulings and status; the Razorpay, product and configuration items still open. |
+| 3 | [settled-decisions.md](settled-decisions.md) | Project-status assumptions; the decisions the plan relies on; the close-out rulings by decision authority. |
 | 4 | [architecture-fit.md](architecture-fit.md) | Where subscriptions fit in the existing architecture; dependency rules. |
 | 5 | [domain-model.md](domain-model.md) | The conceptual domain model. |
 | 6 | [database-design.md](database-design.md) | The mapping onto Prisma/PostgreSQL (descriptive; no schema). |
@@ -63,7 +66,7 @@ Razorpay is the billing provider, not the foundation of membership. Kizunia owns
 | 20 | [observability-and-operations.md](observability-and-operations.md) | Logs, metrics, alerts, runbook hooks. |
 | 21 | [failure-recovery-matrix.md](failure-recovery-matrix.md) | Failure and recovery matrix. |
 | 22 | [test-strategy.md](test-strategy.md) | Test strategy. |
-| 23 | [implementation-plan.md](implementation-plan.md) | Slices S0–S17 and the commit sequence. |
+| 23 | [implementation-plan.md](implementation-plan.md) | Historical: the blueprint's slices S0–S17, mapped to the phases. The roadmap itself is the [implementation-plan directory](../implementation-plan/README.md). |
 
 ## Blueprint section map
 
@@ -99,10 +102,11 @@ The blueprint was a single page with numbered sections. Cross-references such as
 
 ## Conventions used in these documents
 
-- **IB-n** identifies a finding from comparing the design documents with the code (for example [IB-1](open-decisions.md#ib-1--past_due-cancellation)). Every open IB item is defined once, in [open decisions](open-decisions.md). Numbers are kept stable: IB-8 is withdrawn and not reused.
-- **Provisional text.** A document that depends on an open IB item says so at the top ("Open decisions referenced here"). Text that follows the item's recommended resolution is provisional until the item is ruled.
+- **IB-n** identifies a finding from comparing the design documents with the code (for example [IB-1](open-decisions.md#ib-1--past_due-cancellation)). Every IB item is defined once, in [open decisions](open-decisions.md), with its ruling. Numbers are kept stable: IB-8 is withdrawn and not reused; IB-18 to IB-22 were added at the close-out.
+- **Decisions referenced here.** A document that depends on IB items names them at the top. Since the 2026-09-24 close-out, the text follows the ruling, not a recommendation.
+- **Status vocabulary.** DECIDED · DEFERRED · PROVIDER-DEPENDENT · LIVE BLOCKER · IMPLEMENTATION-TIME, defined in [open decisions](open-decisions.md#status-vocabulary).
 - **Rule IDs** (`SB-…`, `A…`, `B…`, `C…`, `D…`) refer to the [decision register](../../../project/feature-specification/subscription/decisions/README.md), the product [open decisions](../../../project/feature-specification/subscription/open-decisions.md) and the [Razorpay facts](../provider-boundary/razorpay-facts.md) ledger.
-- **Slices S0–S17** are the implementation slices in the [implementation order](implementation-plan.md).
+- **Phases I–IX** are the [phase-wise implementation plan](../implementation-plan/README.md). **Slices S0–S17** are the blueprint's older, finer-grained slices, mapped to phases in [implementation-plan.md](implementation-plan.md).
 - **Terminology** is the blueprint's and the design documents': `Subscription` is Kizunia's record of one Razorpay subscription; *phase* is Kizunia's state; *provider status* is Razorpay's; *contributing* and *open* phases are defined in the [state model](state-model.md). See also the product [glossary](../../../project/feature-specification/subscription/glossary.md).
 - Code paths such as `lib/entitlements/index.ts:32` were verified against the repository at the baseline commit and may drift; re-verify before relying on a line number.
 
@@ -110,12 +114,11 @@ The blueprint was a single page with numbered sections. Cross-references such as
 
 Build on what is there. `lib/entitlements` becomes the one read-side seam every feature consumes. A new `modules/billing` owns every write, the Razorpay boundary, commands, webhooks and sync. Background work rides the existing tick, using the notification queue's claim-with-lease pattern on the `subscription` row itself. The outbound budget uses the existing `rate_limit` table with one new conditional increment. Denials reuse the reserved `UPGRADE_REQUIRED` and `FEATURE_DISABLED` codes inside the existing `AuthorizationEvaluator` chains. Details: [architecture fit](architecture-fit.md).
 
-Before code, rule on the open decisions. Two matter first:
+The decisions are ruled (2026-09-24). Build in the order of the [phase-wise implementation plan](../implementation-plan/README.md), starting with Phase I (entitlements and admin grants), which needs no Razorpay at all. Things that are still open are tied to the phase they block:
 
-- [IB-1](open-decisions.md#ib-1--past_due-cancellation) — cancelling a past-due subscription (see [PAST_DUE cancellation](past-due-cancellation.md)).
-- [IB-2](open-decisions.md#ib-2--recommendation-gate-point) — where "recommendations" is actually gated.
-
-Then build in the slice order in the [implementation order](implementation-plan.md), starting with grants and entitlements, which need no Razorpay at all.
+- UPI enablement on the TEST account ([IB-18](open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)): UPI verification, Phases V–VII.
+- A stable TEST webhook URL ([IB-20](open-decisions.md#ib-20--a-public-test-webhook-endpoint)): Phase IV.
+- The LIVE blockers: Phase IX.
 
 ## Related documents
 

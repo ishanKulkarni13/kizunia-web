@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: root-only in-flight slot, `PAST_DUE` immediate cancel)
 
 Mechanism behind [SB-CM-01 through SB-CM-05](../../../project/feature-specification/subscription/decisions/commands-and-idempotency.md).
 
@@ -30,8 +30,13 @@ Razorpay to do this, and what happened?"
 
 **Invariants.**
 
-- **At most one `IN_FLIGHT` operation per user**, enforced by a database constraint (for example a
-  partial unique index on `userId` where `status = 'IN_FLIGHT'`) — never by a read-then-insert check.
+- **At most one `IN_FLIGHT` *root* operation per user**, enforced by a database constraint: a
+  partial unique index on `userId` where `status = 'IN_FLIGHT' AND "parentOperationId" IS NULL`. It
+  is never enforced by a read-then-insert check. Child operations of a composed command run under
+  their root's slot. Admin commands take the same per-user slot. (Decided 2026-09-24,
+  [IB-6](../implementation/open-decisions.md#ib-6--composed-commands-and-the-in-flight-constraint).
+  *History:* the invariant previously read "at most one `IN_FLIGHT` operation per user", which would
+  have made a parent and its child collide.)
 - **Never deleted, never rewritten** except the status transitions above. An operation is an audit
   record ([`../history-and-audit/README.md`](../history-and-audit/README.md)).
 - **Written in its own committed transaction before the provider call.** The provider call never
@@ -102,7 +107,7 @@ resolution window). An `OUTCOME_UNKNOWN` operation older than the alert threshol
 | --- | --- | --- | --- |
 | Start checkout (paid plan or trial) | No open Subscription, or reuse/supersede per [SB-UQ-03](../../../project/feature-specification/subscription/decisions/uniqueness-and-resubscription.md#sb-uq-03--a-new-purchase-while-a-paid-subscription-is-live-is-refused-not-duplicated); trial eligibility per [SB-LC-11](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-11--one-trial-per-account) | Create Subscription | Sync observes `authenticated` (trial) or `active` |
 | Change plan (paid→paid) | `ACTIVE` or `TRIALING` | Update Subscription (`now` for upgrades, `cycle_end` for downgrades), preceded by Cancel an Update if a change is pending | Sync observes the new plan |
-| Cancel (customer) | `ACTIVE`, `PAST_DUE` → cycle end; `TRIALING` → immediate | Cancel (`cancel_at_cycle_end` true / false) | Sync observes `cancelled` |
+| Cancel (customer) | `ACTIVE` → cycle end; `TRIALING` and `PAST_DUE` → immediate (`PAST_DUE` decided 2026-09-24, [IB-1](../implementation/open-decisions.md#ib-1--past_due-cancellation)); `HALTED`/`PAUSED` → immediate only | Cancel (`cancel_at_cycle_end` true / false) | Sync observes `cancelled` |
 | Cancel immediately (admin) | Any open phase | Cancel (`false`) | Sync observes `cancelled` |
 | Abandon checkout | `PENDING_AUTHENTICATION` | Cancel (`false`) — accepted for `created` in TEST mode ([A1](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)) | n/a |
 | Supersede | `HALTED` or `PAUSED`, user confirmed | Cancel (`false`), sync-confirmed, then Start checkout | Per the new subscription |
@@ -110,6 +115,14 @@ resolution window). An `OUTCOME_UNKNOWN` operation older than the alert threshol
 Composed commands (plan change after cancelling a scheduled change; supersession) run as a parent
 operation with child operations, sequentially, each recorded; a failed child stops the parent with
 nothing further sent.
+
+A composed command never outlives its request. When a step needs "confirmed by sync", it does one
+targeted fetch inside the request. If the confirmation is not visible yet, the root ends with the
+steps it completed and returns `CONFIRMING`, and the user's next request (new idempotency key)
+re-evaluates preconditions from local state. No background process continues a command
+([SB-RC-10](../../../project/feature-specification/subscription/decisions/reconciliation.md#sb-rc-10--synchronization-only-reads-it-never-changes-provider-state);
+[IB-6](../implementation/open-decisions.md#ib-6--composed-commands-and-the-in-flight-constraint)).
+User-facing mutating billing endpoints require an `Idempotency-Key` header.
 
 ## Why per-user, not per-subscription, serialization
 

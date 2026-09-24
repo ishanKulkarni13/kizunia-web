@@ -100,7 +100,7 @@ This directly resolves the original product doc's explicitly open downgrade-timi
 
 ## SB-LC-04 — Cancellation defaults to end-of-cycle
 
-**Status:** Amended — 2026-09-24, see the end of this ruling
+**Status:** Amended — 2026-09-24 (trial; final cycle), and again 2026-09-24 (`PAST_DUE` is immediate), see the end of this ruling
 
 **Decision:** Customer-initiated cancellation defaults to `cancel_at_cycle_end: true`. The user
 keeps paid access through the period already paid for, then falls back to Free.
@@ -124,6 +124,28 @@ Two customer cases are therefore defined explicitly rather than left to a provid
 
 Pro→Free is always this ruling, never a plan update ([SB-LC-03](#sb-lc-03--downgrades-take-effect-at-cycle-end)).
 A cycle-end cancellation cannot be revoked ([SB-LC-09](#sb-lc-09--a-requested-cycle-end-cancellation-cannot-be-undone)).
+
+**Amended (2026-09-24, second amendment) — product decision (owner), decision close-out
+[IB-1](../../../../architecture/subscription/implementation/open-decisions.md#ib-1--past_due-cancellation):**
+a customer cancellation of a **`PAST_DUE`** subscription (Razorpay `pending`) is **immediate**
+(`cancel_at_cycle_end: false`). Paid access ends when the cancellation is observed, and no further
+charge is attempted.
+
+*Why the default changes for this one phase:* the period being retried was never paid, so ending
+access now takes nothing the customer paid for. [TEST-OBSERVED] A cycle-end request on a `pending`
+subscription returns `200` with no observable effect (D2), whereas an immediate cancel of `pending` is
+observed to work (A1). Keeping cycle-end here would let a customer who asked to cancel be charged when
+a retry succeeds, or leave a recoverable `halted` subscription behind. The alternatives were:
+
+- refusing self-serve cancellation while payment fails, which blocks the exit exactly when it is most
+  wanted;
+- keeping cycle-end and detecting a charge after the request, which accepts charging someone who
+  asked to cancel.
+
+Both were rejected. The cycle-end default is unchanged for `ACTIVE`, and the invariants in
+[PAST_DUE cancellation](../../../../architecture/subscription/implementation/past-due-cancellation.md)
+apply. Not verified for UPI subscriptions (UPI has not yet been observed, see
+[A16](../open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)).
 
 ## SB-LC-05 — Immediate cancellation is an explicit admin/support action
 
@@ -163,7 +185,7 @@ from a customer's UPI app.
 
 ## SB-LC-07 — Razorpay decides whether a plan change is possible
 
-**Status:** Accepted — product decision, 2026-09-24
+**Status:** Accepted — product decision, 2026-09-24; reaffirmed for V1 on 2026-09-24 with an extensibility requirement, see below
 
 **Decision:** A paid→paid plan change (tier or billing cycle) is performed only through Razorpay's
 native Update Subscription capability, with Razorpay's native proration and timing semantics
@@ -181,8 +203,9 @@ Whether it is possible for a given subscription is decided by Razorpay:
   Kizunia-computed proration, no refund. The user can cancel
   ([SB-LC-04](#sb-lc-04--cancellation-defaults-to-end-of-cycle)), keep access until the period ends,
   and buy the new plan once the old subscription has ended. This limitation is recorded as future
-  scope ([`../future.md`](../future.md#plan-changes-razorpay-cannot-perform-natively)) and as open
-  product question [B1](../open-decisions.md#b-genuinely-open-product-questions).
+  scope ([`../future.md`](../future.md#plan-changes-razorpay-cannot-perform-natively)) and as
+  product question [B1](../open-decisions.md#b-resolved), which was open when this ruling was made
+  and was resolved for V1 on 2026-09-24 (see the reaffirmation below).
 
 Plan changes are also unavailable while the subscription is `PAST_DUE`, `HALTED`, `PAUSED` or not
 yet authenticated, because Razorpay refuses updates in those states.
@@ -201,6 +224,24 @@ reason the stored method can only ever be advisory.
 **Consequence:** For the payment methods most Indian customers use, self-serve paid→paid plan
 changes are unavailable in V1. This is deliberate and visible, not an oversight. See
 [R-06](reconciliations.md#r-06--the-update-api-does-not-support-plan-changes-for-most-indian-payment-methods).
+
+**Reaffirmed (2026-09-24) — product decision (owner), decision close-out
+[IB-21](../../../../architecture/subscription/implementation/open-decisions.md#ib-21--plan-change-extensibility):**
+the ruling was re-examined with UPI confirmed as a **day-one** payment method, and is kept unchanged
+for V1:
+
+- native Update where Razorpay supports it;
+- the documented limitation (cancel at cycle end, rebuy after the period) for UPI, e-mandate and
+  domestic cards;
+- no switch/successor flow in V1. The switch/successor flow was considered and **deferred**, not
+  rejected.
+
+**Added requirement:** the plan-change design must let a switch/successor flow be added later
+without restructuring. How the architecture guarantees that (a plan-change strategy seam, one
+open-subscription precondition policy, the existing successor link, a provider boundary that already
+has every needed operation) is recorded as an ENGINEERING decision in IB-21 and in
+[`upgrade-downgrade.md`](../../../../architecture/subscription/lifecycle/upgrade-downgrade.md#extensibility-a-later-switch-flow).
+Open question [B1](../open-decisions.md#b-resolved) is therefore resolved *for V1*.
 
 ## SB-LC-08 — At most one scheduled change, and cancellation always wins
 
@@ -235,7 +276,7 @@ question [B5](../open-decisions.md#b-genuinely-open-product-questions).
 
 ## SB-LC-10 — Subscription kind is recorded at creation, never inferred
 
-**Status:** Accepted
+**Status:** Amended — 2026-09-24 (conversion after `start_at`, bounded), see below
 
 **Decision:** Every Subscription records its `kind` — `STANDARD` or `TRIAL` — when Kizunia creates
 it. Phase `TRIALING` is assigned only to a `TRIAL` Subscription in Razorpay state `authenticated`
@@ -246,6 +287,17 @@ before its `start_at`. A `STANDARD` Subscription in `authenticated` never contri
 Inferring "trial" from `authenticated` plus a future `start_at` — as the original state mapping did —
 would grant free access to any future-start subscription, including one created from the Dashboard.
 Only Kizunia knows it offered a trial, so only Kizunia's own record may say so.
+
+**Amended (2026-09-24) — engineering decision (autonomous), decision close-out
+[IB-9](../../../../architecture/subscription/implementation/open-decisions.md#ib-9--trial-conversion-gap):**
+a `TRIAL` Subscription still reported `authenticated` **after** its `start_at` stays `TRIALING` until
+Razorpay reports any other status. This is bounded by a configured trial-conversion grace (C7); past
+it, the Subscription no longer contributes and a `TRIAL_CONVERSION_OVERDUE` anomaly is raised.
+
+*Rationale:* [TEST-OBSERVED] a subscription stayed `authenticated` 47 minutes after `start_at` (A7).
+Without this rule a converting trial user would lose access while Razorpay is slow to run the first
+charge. Without the bound, a first charge that never runs would mean free access indefinitely. To be
+revisited once A7 is resolved. `STANDARD` Subscriptions are unaffected.
 
 ## SB-LC-11 — One trial per account
 

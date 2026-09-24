@@ -2,7 +2,7 @@
 
 > **Status:** Live
 >
-> **Last Updated:** 2026-09-24 (TEST verification answered A1, A2, A5, A8, A13, A14 and parts of A4/A7; a same-day documentation research pass answered A9 and narrowed A3, A4, A6, A7, A10, A11, A12, A15)
+> **Last Updated:** 2026-09-24 (implementation decision close-out: B1 resolved for V1, A16 UPI added, C7 added; earlier the same day: TEST verification answered A1, A2, A5, A8, A13, A14 and parts of A4/A7; a same-day documentation research pass answered A9 and narrowed A3, A4, A6, A7, A10, A11, A12, A15)
 
 Questions that are **deliberately not answered yet** — either because they are genuinely open
 product questions, or because they require observing Razorpay's actual behavior in TEST mode (or
@@ -51,6 +51,7 @@ merely because it was not looked at. Labels: **[DOC]** documented, **[TEST]** ob
 | A11 | Exact e-mandate retry timing (count, interval, holiday effects) | SUPPORT | **[DOC]** retries occur "only when we get the confirmation or rejection of the last payment, as it may take more than 24 hours"; holiday rule: charge on T-1, or T-3 if T and T-1 are both holidays. **Not documented:** retry count, interval, when it becomes `halted`, configurability, timestamp guarantees (cards/UPI: T, T+1, T+2, T+3 are documented). **[TEST]** no banking calendar | Razorpay Support | Kizunia does not depend on the timing — access follows the reported phase | Support expectations only |
 | A12 | Kizunia's actual Razorpay API rate limits | SUPPORT | **[DOC]** a rate limiter exists; HTTP 429 "Throttling Error"; exponential backoff **with randomisation**; "use webhooks instead of polling"; increases are Support-reviewed case by case. **Not documented:** any number, per-API scope, test-vs-live difference, account scoping (**[INFERENCE]** only), `Retry-After`, 429 body shape. **[TEST]** no 429 encountered | Razorpay Support | Conservative configured budget adapting to observed 429s ([SB-RC-06](decisions/reconciliation.md#sb-rc-06--all-outbound-razorpay-calls-share-one-bounded-request-budget)) | Budget tuning before LIVE |
 | A15 | How Razorpay treats an active Offer when a subscription is upgraded (proration, existing offer, stacking) | TEST → SUPPORT | **[DOC]** FAQ: an upgrade is permitted with an offer linked; offers apply at cycle end while `active`. **Documentation conflict (D11):** the FAQ says a downgrade is not possible with an offer linked, the API page says it is possible at cycle end. **Not documented:** interaction with proration, what happens to the linked offer on an immediate upgrade, stacking. **[TEST]** not attempted — needs an international-card subscription (excluded) and a Dashboard-created Offer | An Offer + international-card TEST subscription (requires explicit approval), or Razorpay Support | Whatever state results is observed and applied; no assumption | Offer + upgrade UX |
+| A16 | **UPI lifecycle behavior** (UPI is a day-one payment method). Specifically: (a) UPI is actually offered for Subscriptions on the TEST and LIVE accounts; (b) a future-`start_at` (trial) subscription can be authorized by UPI AutoPay; (c) a cycle-end cancel of an `active` UPI subscription takes effect; (d) an immediate cancel of `pending`/`halted`/`paused` UPI subscriptions; (e) recovery of a `halted` UPI subscription by switching to a card; (f) what a customer-paused UPI subscription looks like when fetched; (g) the `payment_method` value reported for UPI | TEST → SUPPORT | **[DOC]** UPI AutoPay is a supported Subscriptions method; the update API refuses UPI; UPI retries follow T+1/T+2/T+3; a UPI subscription can switch only to a card to recover; a customer can cancel or pause the mandate in their UPI app. **[TEST]** 2026-09-24: the TEST account reports UPI **disabled** for Subscriptions (Checkout preferences `subscription.upi=false`; recurring methods card/e-mandate/NACH only); the FAQ calls UPI for Subscriptions "early access", enabled through Support. **Nothing UPI-specific has been observed** | Razorpay Support enabling UPI on TEST and LIVE, then TEST observation | Every UPI path is designed method-agnostically: refusals classified by code, state always from a fetch. The UPI recovery UX stays PROVIDER-DEPENDENT ([IB-22](../../../architecture/subscription/implementation/open-decisions.md#ib-22--upi-recovery-ux)) | No architecture and no phase's code. It blocks UPI **verification** (implementation-plan Phases V–VII) and a UPI launch (**LIVE blocker**, Phase IX); see [IB-18](../../../architecture/subscription/implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account) |
 
 ### A-resolved. Answered by TEST verification (2026-09-24)
 
@@ -79,7 +80,7 @@ and needs review.
 
 | # | Open decision | Class | Current V1 behavior | Blocks |
 | --- | --- | --- | --- | --- |
-| B1 | **Paid-to-paid plan changes for UPI, e-mandate and domestic-card subscriptions.** Razorpay cannot change the plan of these subscriptions ([R-06](decisions/reconciliations.md#r-06--the-update-api-does-not-support-plan-changes-for-most-indian-payment-methods)). Any solution requires a successor-subscription workflow that V1 deliberately does not build | PRODUCT | Unavailable; the user may cancel (keeping access to period end) and subscribe to the new plan once the old subscription has ended — see [SB-LC-07](decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible) | Self-serve upgrades for most Indian customers — **high business impact**, see [`future.md`](future.md#plan-changes-razorpay-cannot-perform-natively) |
+| B1 | ~~Paid-to-paid plan changes for UPI, e-mandate and domestic-card subscriptions~~ | PRODUCT | **Resolved for V1 on 2026-09-24**: see [B-resolved](#b-resolved) | — |
 | B2 | Whether a long-`halted` subscription should eventually be cancelled by Kizunia (a retention horizon) | PRODUCT | Never cancelled automatically ([SB-PF-03](decisions/payment-failure-and-recovery.md#sb-pf-03--halted-ends-paid-access-but-never-cancels-the-subscription)); sync frequency decays ([SB-PF-05](decisions/payment-failure-and-recovery.md#sb-pf-05--synchronization-of-a-halted-subscription-decays-it-never-stops)) | Nothing technical; affects surprise-recovery risk |
 | B3 | Retention period for billing records and raw webhook payloads after account removal (legal/tax) | PRODUCT | Billing records retained and pseudonymized; raw payloads kept 180 days ([SB-DP-04](decisions/data-preservation.md#sb-dp-04--billing-records-survive-account-removal)) | Account-removal implementation |
 | B4 | Whether a banned user's paid subscription is cancelled | PRODUCT | Not cancelled automatically; a support action | Moderation playbooks |
@@ -89,6 +90,18 @@ and needs review.
 | B8 | Whether MCP access grows beyond a single boolean before other entitlements do | PRODUCT | Single Pro+ boolean | [`future.md`](future.md)'s finer-grained MCP entitlement |
 | B9 | The purchase/ownership model for future one-time purchases (e.g. paid themes) | PRODUCT | — | [`future.md`](future.md) |
 | B10 | Coupon stacking policy, if ever built | PRODUCT | Not supported | [`future.md`](future.md) |
+
+### B-resolved
+
+Kept here, not deleted, so the decision history stays readable.
+
+| # | Question | Resolved | Decided by | Result |
+| --- | --- | --- | --- | --- |
+| B1 | Paid→paid plan changes for UPI, e-mandate and domestic-card subscriptions, which Razorpay cannot update natively ([R-06](decisions/reconciliations.md#r-06--the-update-api-does-not-support-plan-changes-for-most-indian-payment-methods)) | 2026-09-24 | Product decision (owner) | **V1 keeps [SB-LC-07](decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible).** Native Update where Razorpay supports it; elsewhere the documented limitation (cancel at cycle end, rebuy after the period). The switch/successor flow in [`future.md`](future.md#plan-changes-razorpay-cannot-perform-natively) is **deferred, not rejected**. The design must let it be added without restructuring; how is recorded in [IB-21](../../../architecture/subscription/implementation/open-decisions.md#ib-21--plan-change-extensibility). Re-examined with UPI confirmed as a day-one payment method |
+
+Original B1 entry, for reference:
+
+> **Paid-to-paid plan changes for UPI, e-mandate and domestic-card subscriptions.** Razorpay cannot change the plan of these subscriptions ([R-06](decisions/reconciliations.md#r-06--the-update-api-does-not-support-plan-changes-for-most-indian-payment-methods)). Any solution requires a successor-subscription workflow that V1 deliberately does not build. *Current V1 behavior:* unavailable; the user may cancel (keeping access to period end) and subscribe to the new plan once the old subscription has ended. *Blocks:* self-serve upgrades for most Indian customers — **high business impact**.
 
 ## C. Implementation-time configuration
 
@@ -103,6 +116,7 @@ next to the code, and tuned in TEST mode.
 | C4 | Sync batch size per drain and per `after()` invocation | [`sync-mechanism.md`](../../../architecture/subscription/reconciliation/sync-mechanism.md) |
 | C5 | Checkout `expire_by` horizon and `BillingOperation` lease duration | [`checkout-and-creation.md`](../../../architecture/subscription/commands/checkout-and-creation.md) |
 | C6 | Tick cadence in each deployment (target 5 min, upper bound 15 min) | [SB-PB-06](decisions/provider-boundary-and-environments.md#sb-pb-06--billing-execution-is-scheduler-agnostic) |
+| C7 | Trial-conversion grace: how long a `TRIAL` subscription still `authenticated` after `start_at` keeps contributing (IB-9) | [`trials.md`](../../../architecture/subscription/lifecycle/trials.md#conversion-is-not-a-separate-code-path) |
 
 ## B/C classification (research pass 2, 2026-09-24)
 
@@ -114,7 +128,7 @@ product/architecture documentation; **R** needs Razorpay documentation; **S** ne
 
 | # | Item | Kind | Notes |
 | --- | --- | --- | --- |
-| B1 | Paid→paid plan changes for UPI, e-mandate, domestic card | **D** | The provider constraint is confirmed by current documentation (update refused for these methods) — the *decision* whether to build a successor-subscription workflow is commercial. No conflict with SB-LC-07 |
+| B1 | Paid→paid plan changes for UPI, e-mandate, domestic card — *resolved for V1 2026-09-24, see [B-resolved](#b-resolved)* | **D** | The provider constraint is confirmed by current documentation (update refused for these methods) — the *decision* whether to build a successor-subscription workflow is commercial. No conflict with SB-LC-07 |
 | B2 | Retention horizon for a long-`halted` subscription | **D** | Razorpay documents no auto-cancel time for `halted` (checked again); so the choice is Kizunia's alone. Note the newly documented recovery path through an older unpaid invoice ([`razorpay-facts.md`](../../../architecture/subscription/provider-boundary/razorpay-facts.md#payment-retries)) is an input to that decision, not a resolution |
 | B3 | Retention period for billing records / raw payloads | **D** | Legal/tax; not a provider question |
 | B4 | Whether a banned user's paid subscription is cancelled | **D** | Moderation policy; the provider can cancel immediately (verified) so no technical blocker |
@@ -130,6 +144,7 @@ product/architecture documentation; **R** needs Razorpay documentation; **S** ne
 | C4 | Sync batch size | **E** | Implementation |
 | C5 | Checkout `expire_by` horizon and lease duration | **E** | Note for tuning: `created` can read `created` for ~3 minutes after `expire_by` (A8) |
 | C6 | Tick cadence per deployment | **E** | Deployment |
+| C7 | Trial-conversion grace | **E** (+ **S** for A7) | Added 2026-09-24 by the IB-9 ruling; default of the order of the documented retry window |
 
 ---
 

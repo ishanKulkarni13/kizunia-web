@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24 (rewritten around Razorpay's native capability — see
+> **Last Updated:** 2026-09-24 (extensibility section added by the decision close-out; earlier: rewritten around Razorpay's native capability — see
 > [R-06](../../../project/feature-specification/subscription/decisions/reconciliations.md#r-06--the-update-api-does-not-support-plan-changes-for-most-indian-payment-methods))
 
 Rulings: [SB-LC-02](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-02--upgrades-are-immediate),
@@ -26,7 +26,7 @@ payment mode is UPI or e-mandate, and allows domestic-card subscriptions to chan
 ([razorpay-facts](../provider-boundary/razorpay-facts.md#upgrade--downgrade)). Paid→paid changes are
 therefore available in practice for international-card subscriptions. For everyone else they are a
 documented V1 limitation ([SB-LC-07](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible),
-[open question B1](../../../project/feature-specification/subscription/open-decisions.md#b-genuinely-open-product-questions)).
+[B1, resolved for V1 on 2026-09-24](../../../project/feature-specification/subscription/open-decisions.md#b-resolved)).
 
 ## Capability: advisory in the UI, authoritative at Razorpay
 
@@ -90,6 +90,30 @@ downgrades ([SB-LC-03](../../../project/feature-specification/subscription/decis
 | Dashboard operator changes the plan | Observed by `subscription.updated` or the next checkpoint/heartbeat; applied like any change; history cause `provider_observed` |
 | Dashboard change to a plan ID not in the catalog | Not applied; `UNMAPPED_PROVIDER_PLAN` ([SB-PB-05](../../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-05--provider-plan-ids-map-to-kizunia-plans-through-a-per-mode-catalog-many-to-one)) |
 | Upgrade with an active Offer | Sent as usual; Razorpay's handling of the Offer across an upgrade is not documented — whatever state results is observed and applied |
+
+## Extensibility: a later switch flow
+
+**Decided 2026-09-24** ([IB-21](../implementation/open-decisions.md#ib-21--plan-change-extensibility)).
+
+*Product decision (owner):* V1 keeps [SB-LC-07](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-07--razorpay-decides-whether-a-plan-change-is-possible).
+UPI, the dominant rail, cannot be updated natively, so for most customers paid→paid changes remain the
+documented limitation. A switch/successor flow is **deferred**, and the V1 design must let it be added
+later without restructuring.
+
+*Architecture decision (autonomous):* that is guaranteed by five seams, all built in V1 with no extra
+behavior:
+
+| Seam | V1 | What a later switch adds |
+| --- | --- | --- |
+| **Plan-change strategy.** `ChangePlan` asks one pure policy which strategy applies to (subscription, target) | `NATIVE_UPDATE` or `UNAVAILABLE` (the UI explains the limitation) | A `SWITCH` strategy branch with its own child operations; the runner, controllers and callers are unchanged |
+| **Open-subscription precondition.** "Kizunia never creates a second open subscription" ([SB-UQ-02](../../../project/feature-specification/subscription/decisions/uniqueness-and-resubscription.md#sb-uq-02--kizunia-never-creates-a-second-open-subscription-for-a-user)) is evaluated in one policy function | Refuses any second open subscription | A relaxation for a *retiring, linked* predecessor is a change to that function only, plus a new ruling |
+| **Successor link.** `Subscription.supersededById` | Written by supersession | Reused for a switch; a replacement *reason* column or enum is additive |
+| **Operation kinds.** `CHANGE_PLAN` is a root kind | Children `CANCEL_SCHEDULED_CHANGE`, `UPDATE_PLAN` | Children `CANCEL_AT_CYCLE_END`, `CREATE_SUBSCRIPTION` already exist |
+| **Provider boundary** | create (with optional `startAt`), cancel (cycle-end or immediate), update, cancel scheduled change | Nothing new |
+
+The product decisions a switch still needs (partial-period pricing, a second mandate, the invariant
+relaxation) are listed in
+[`future.md`](../../../project/feature-specification/subscription/future.md#plan-changes-razorpay-cannot-perform-natively).
 
 ## What is not built
 

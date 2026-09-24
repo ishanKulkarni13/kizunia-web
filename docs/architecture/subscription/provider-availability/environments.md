@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-13)
 
 ---
 
@@ -19,9 +19,20 @@ resolveProviderMode():
   otherwise: fail fast at boot — an unrecognized key format is a configuration error, not a mode
 
 expectedBillingMode():            -- configured, independent of credentials (SB-EA-07)
-  production deployment -> "live"; every other deployment -> "test"
+  BILLING_EXPECTED_MODE if set ("test" | "live")
+  else VERCEL_ENV == "production" -> "live"; every other deployment -> "test"
   resolved mode must equal it, or be "disabled"; anything else fails fast at boot
 ```
+
+**Where it runs (decided 2026-09-24,
+[IB-13](../implementation/open-decisions.md#ib-13--boot-time-mode-validation-and-expected-mode)).**
+The repository has no env-validation module and no instrumentation hook. Billing configuration is
+therefore validated in `src/instrumentation.ts` `register()` at server start, the Next.js boot hook,
+which the billing phase adds. The expected mode now has an explicit source: an optional
+`BILLING_EXPECTED_MODE`, falling back to Vercel's `VERCEL_ENV` (which the application does not read
+anywhere yet). `.env.example` documents every billing variable. Missing credentials are not an error:
+they resolve to `disabled`, a supported production state
+([SB-PB-03](../../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-03--disabled-is-a-fully-supported-production-state)).
 
 See [SB-PB-02](../../../project/feature-specification/subscription/decisions/provider-boundary-and-environments.md#sb-pb-02--provider-mode-is-resolved-once-at-boot).
 The `rzp_test_`/`rzp_live_` prefixes are an established Razorpay convention relied on here; the

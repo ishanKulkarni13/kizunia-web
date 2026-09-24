@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24 (rewritten: the periodic sweep of every active subscription was
+> **Last Updated:** 2026-09-24 (decision close-out: IB-10)
 > replaced by due-based scheduling)
 
 *When* each Subscription is next observed. The mechanism that performs the observation is
@@ -70,6 +70,19 @@ the second with webhooks as the primary path — it never shortens access specul
 ## The `billing-sync` tick task
 
 Registered in the internal task registry; minimum interval ≤ the target cadence.
+
+**Ordering and budget (decided 2026-09-24,
+[IB-10](../implementation/open-decisions.md#ib-10--tick-time-budget)):**
+
+- The tick route has `maxDuration = 60` and runs its tasks sequentially, and `notifications:tick`
+  drained for up to 45 s. `billing:sync` is therefore registered **before** `notifications:tick` with
+  its own wall-clock budget, of the order of 10–12 s.
+- The notification drain default is lowered so that the tasks plus teardown headroom fit within 60 s.
+- Orphan discovery and payload pruning are separate, lower-frequency tasks.
+- Exact values are implementation-time and documented in
+  [`../../workflows/internal-jobs.md`](../../workflows/internal-jobs.md#the-tick-one-cron-entry-many-tasks).
+- Cadence: the only Vercel cron entry is daily on the Hobby plan. The 5-minute target needs an
+  external pinger before LIVE ([IB-19](../implementation/open-decisions.md#ib-19--tick-cadence-on-the-vercel-hobby-plan)).
 
 ```text
 run(deadline):

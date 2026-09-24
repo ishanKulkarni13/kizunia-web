@@ -82,6 +82,12 @@ subsystem's own Preference-vs-Entitlement distinction (see
 [`../notification/overview/glossary.md`](../notification/overview/glossary.md)) and is one of the
 [data-preservation](data-preservation.md) invariants.
 
+A user may switch on a notification they are not currently entitled to (a Free user enabling
+deadline notifications, for example): the preference is stored as chosen, the settings screen marks
+it "requires Pro" (or Pro+), and nothing is delivered until the user is entitled. A user who
+upgrades gets exactly what they had switched on, with no second step. (Decided 2026-09-24,
+[IB-16](../../../architecture/subscription/implementation/open-decisions.md#ib-16--preferences-for-non-entitled-intents).)
+
 ## Admin access is not a subscription tier
 
 A `PlatformRole` of `ADMIN`/`SUPER_ADMIN` bypasses feature gates the same way it bypasses
@@ -89,6 +95,15 @@ authorization generally — through the existing `platformOverride()` mechanism,
 as an entitlement source with effective access `PRO_PLUS`. An admin's *personal* effective access
 (as a customer) and their *administrative* bypass are two separate, non-conflated concepts. See
 [`../../../architecture/subscription/entitlements/authorization-integration.md`](../../../architecture/subscription/entitlements/authorization-integration.md).
+
+**Scope of the bypass (product decision, 2026-09-24,
+[IB-7](../../../architecture/subscription/implementation/open-decisions.md#ib-7--admin-bypass-of-entitlement-gates)):**
+the bypass covers the gates an administrator meets directly (creating projects beyond the quota,
+creating a portfolio, using MCP). It does **not** cover background eligibility: deadline and
+recommendation notifications are sent to an administrator only if their own effective access
+includes them, for example through an admin grant made by another administrator. A public
+portfolio's display always follows its owner's effective access. See
+[SB-EA-04](decisions/effective-access-and-grants.md#sb-ea-04--admin-platform-role-bypass-is-not-an-entitlement-source).
 
 ## Related rulings
 

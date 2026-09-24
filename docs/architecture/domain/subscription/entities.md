@@ -2,7 +2,7 @@
 
 > **Status:** Design — conceptual, not a schema
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-9, IB-17(d))
 
 ---
 
@@ -78,7 +78,7 @@ Every mutation Kizunia asks Razorpay to perform. See
 | Status | `IN_FLIGHT` → `SUCCEEDED` \| `REJECTED` \| `OUTCOME_UNKNOWN` (→ `SUCCEEDED` \| `NOT_APPLIED`) |
 | Request sent at, failure class, provider error | For the stale-apply guard and diagnosis |
 
-**Invariants.** At most one `IN_FLIGHT` per user (database-enforced). Written and committed before the
+**Invariants.** At most one `IN_FLIGHT` *root* operation per user (database-enforced); child operations of a composed command run under their root's slot ([IB-6](../../subscription/implementation/open-decisions.md#ib-6--composed-commands-and-the-in-flight-constraint), 2026-09-24). Written and committed before the
 provider call. Never deleted.
 
 ---
@@ -170,8 +170,15 @@ See [`../../subscription/history-and-audit/subscription-history.md`](../../subsc
 A situation synchronization detected and deliberately did not resolve automatically:
 `MULTIPLE_OPEN_SUBSCRIPTIONS`, `UNMATCHED_PROVIDER_SUBSCRIPTION`, `NOTES_CONFLICT`,
 `UNMAPPED_PROVIDER_PLAN`, `PROVIDER_MODE_MISMATCH`, `PROVIDER_SUBSCRIPTION_MISSING`,
-`CANCELLATION_NOT_EFFECTIVE`. Carries the user/subscriptions involved, first/last seen, and resolved
-at/by/reason. Resolving one records a human decision; it never changes billing state by itself.
+`CANCELLATION_NOT_EFFECTIVE`, and `TRIAL_CONVERSION_OVERDUE` (added 2026-09-24 by
+[IB-9](../../subscription/implementation/open-decisions.md#ib-9--trial-conversion-gap)). Carries the
+user/subscriptions involved, first/last seen, and resolved at/by/reason. Resolving one records a
+human decision; it never changes billing state by itself.
+
+`MALFORMED` provider responses and non-JSON signed webhook bodies are **not** anomalies. They are
+failure classes that raise a `billing.alert` and keep the last known state; nothing about them needs
+a human resolution record (decided 2026-09-24,
+[IB-17](../../subscription/implementation/open-decisions.md#ib-17--stale-documents-and-leftovers)(d)).
 
 ---
 

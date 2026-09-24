@@ -92,6 +92,24 @@ Three consequences worth stating:
 - **Every task keeps its own route.** The dedicated endpoints below still work
   and are still the way to run one job by hand.
 
+**Task order and time budgets (planned for Subscription & Billing; decided
+2026-09-24, [IB-10](../subscription/implementation/open-decisions.md#ib-10--tick-time-budget)).**
+The tick route has `maxDuration = 60` and runs tasks sequentially, and
+`notifications:tick` drains for up to 45 s (`JOB_CONFIG.wallClockBudgetMs`).
+When billing lands:
+
+- `billing:sync` is registered **before** `notifications:tick`, with its own
+  wall-clock budget of about 10–12 s.
+- The notification drain default is lowered so the tasks plus teardown
+  headroom fit within 60 s.
+- `billing:orphan-discovery` and `billing:payload-prune` run at low frequency.
+
+Exact values are chosen and recorded here when the billing phase is
+implemented. Reaching the billing target cadence (about 5 minutes) on the
+Hobby plan needs the external pinger described above; the choice is a
+LIVE-readiness item
+([IB-19](../subscription/implementation/open-decisions.md#ib-19--tick-cadence-on-the-vercel-hobby-plan)).
+
 ## Current state of every internal/scheduled endpoint
 
 | Endpoint | Convention | Wired into `vercel.json`? |

@@ -34,7 +34,8 @@ apply path ([`../reconciliation/sync-mechanism.md`](../reconciliation/sync-mecha
 | *(no provider ID yet)* | — | `PROVISIONING` (only ever set by creation; left by binding or `ABANDONED`) |
 | `created` | — | `PENDING_AUTHENTICATION` |
 | `authenticated` | `kind = TRIAL` and `start_at` in the future | `TRIALING` |
-| `authenticated` | otherwise (`STANDARD`; or a trial whose `start_at` has passed but first charge not yet reported) | `PENDING_AUTHENTICATION` |
+| `authenticated` | `kind = TRIAL`, `start_at` passed, within the trial-conversion grace (`now < start_at + C7`) | `TRIALING` (conversion pending; see below) |
+| `authenticated` | otherwise (`STANDARD`; or a trial past `start_at + C7` with no first charge reported) | `PENDING_AUTHENTICATION`; past the grace a `TRIAL_CONVERSION_OVERDUE` anomaly is raised |
 | `active` | — | `ACTIVE` |
 | `pending` | — | `PAST_DUE` |
 | `halted` | — | `HALTED` |
@@ -53,6 +54,15 @@ Razorpay has no trial object — a trial is simply `authenticated` with a future
 a trial from that shape would grant access to any future-start subscription, including one created
 in the Dashboard. Only a Subscription Kizunia itself created as `TRIAL` can be `TRIALING`
 ([SB-LC-10](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-10--subscription-kind-is-recorded-at-creation-never-inferred)).
+
+**Trial conversion (decided 2026-09-24, architecture decision (autonomous),
+[IB-9](../implementation/open-decisions.md#ib-9--trial-conversion-gap)).** Until 2026-09-24 a trial
+still `authenticated` after `start_at` mapped straight to `PENDING_AUTHENTICATION`, so a converting
+user would lose access while Razorpay was slow to run the first charge. [TEST-OBSERVED] 47 minutes
+after `start_at` a trial was still `authenticated` (A7). The mapping now keeps it `TRIALING` for a
+bounded conversion grace (configuration C7); past it, it stops contributing and raises
+`TRIAL_CONVERSION_OVERDUE`. The mapping is still a pure function of the observation, `kind` and the
+clock. It is revisited when A7 (the first post-trial charge failing) is resolved.
 
 ## Why `pending` has its own phase
 

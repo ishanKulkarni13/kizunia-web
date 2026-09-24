@@ -8,7 +8,7 @@
 
 The narrow Kizunia → Razorpay boundary: the operations Kizunia actually needs, and for each its input, output, errors, retryability, idempotency implications, whether the outcome can become unknown, and how the application recovers. It is deliberately not a generic payment-provider abstraction.
 
-**Open decisions referenced here:** [IB-1](open-decisions.md#ib-1--past_due-cancellation). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+**Decisions referenced here:** [IB-1](open-decisions.md#ib-1--past_due-cancellation). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 
@@ -22,7 +22,7 @@ One interface, one Razorpay implementation, one fake. No SDK: a ~150-line `fetch
 | `fetchSubscription` | provider ID | state | NOT_FOUND (mode mismatch / missing), MALFORMED | Backoff (sync) | Read | n/a (a failed read is not an observation) | Stays due; cooldown |
 | `updateSubscriptionPlan` | provider ID, target plan ID, `schedule_change_at` now \| cycle_end | state | REJECTED (payment method, state, below ₹0.5 proration, offer-downgrade D11), CONCURRENT_OPERATION | Never automatically | None; state observable | Yes | Next sync: plan or pending change equals target → SUCCEEDED, else NOT_APPLIED |
 | `cancelScheduledChange` | provider ID | state | REJECTED ("no pending update") | Never | Observable (`has_scheduled_changes=false`) | Yes | Next sync |
-| `cancelSubscription` | provider ID, `atCycleEnd` | state | REJECTED (terminal, no cycle running for cycle-end on created/authenticated) | Never | Immediate: observable. Cycle-end: **not observable** (A2); repeat harmless (A14) | Yes | Immediate: next sync shows `cancelled`. Cycle-end: resolved at period end or re-issue by user (see IB-1) |
+| `cancelSubscription` | provider ID, `atCycleEnd` | state | REJECTED (terminal, no cycle running for cycle-end on created/authenticated) | Never | Immediate: observable. Cycle-end: **not observable** (A2); repeat harmless (A14) | Yes | Immediate: next sync shows `cancelled`. Cycle-end: resolved at period end or re-issue by user. Cycle-end is sent only for `ACTIVE`; `PAST_DUE`, `HALTED` and `PAUSED` are always immediate (IB-1, decided) |
 | `listSubscriptions` | `from`, `to` (`created_at`, inclusive), `count ≤ 100`, `skip` | page of states incl. notes | RATE_LIMITED, UNAVAILABLE | Next run (watermark not advanced) | Read | n/a | Resume from watermark/skip |
 | `fetchAuthorizationPaymentMethod` | payment ID (from checkout confirm or `subscription.authenticated` payload's payment entity) | `{method, international?}` | NOT_FOUND | Best effort, never blocks | Read | n/a | Leave advisory null (UI says "may not be available") |
 | `verifyWebhookSignature` | raw bytes, header, `[current, previous?]` | `{valid, matched}` | — (no network) | — | — | — | — |

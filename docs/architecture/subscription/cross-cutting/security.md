@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-15 role assignment)
 
 Webhook-specific security is covered in [`../webhooks/security.md`](../webhooks/security.md). This
 page covers the rest of the subsystem's security surface.
@@ -22,6 +22,16 @@ page covers the rest of the subsystem's security surface.
 Platform-role bypass (`canBypassAuthorization`) never confers billing-admin actions implicitly; the
 billing actions are explicit permissions, so the bypass does not become a way to grant or cancel
 subscriptions without an audit trail.
+
+**Role assignment (decided 2026-09-24, product decision (owner),
+[IB-15](../implementation/open-decisions.md#ib-15--billing-admin-roles)):**
+
+| Action | `SUPER_ADMIN` | `ADMIN` | `MODERATOR` |
+| --- | --- | --- | --- |
+| Manage entitlement grants | yes | — | — |
+| Manage billing (immediate cancel, resolve anomaly, bulk re-sync) | yes | — | — |
+| View billing (history, events metadata, anomalies, explain) and "sync now" (reads from Razorpay only) | yes | yes | — |
+| View raw webhook payloads | yes | — | — |
 
 ## Tenant isolation
 

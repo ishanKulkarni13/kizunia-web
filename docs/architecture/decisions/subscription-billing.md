@@ -2,8 +2,10 @@
 
 ## Status
 
-Accepted — 2026-09-21. **Amended — 2026-09-24** (see [Amendments](#amendments)). Not implemented.
-Documentation-only phase; no code, schema, or migration exists yet.
+Accepted — 2026-09-21. **Amended — 2026-09-24** (see [Amendments](#amendments)), twice: the
+architecture hardening and the implementation decision close-out. Not implemented. No code, schema or
+migration exists yet. Implementation follows the
+[phase-wise implementation plan](../subscription/implementation-plan/README.md).
 
 ---
 
@@ -127,6 +129,10 @@ implementation. Before implementation begins, the P1 items the authorization aud
 Portfolio and admin-grant UI are two of the surfaces this subsystem directly gates. See
 [`../subscription/verification-checklist.md`](../subscription/verification-checklist.md).
 
+**Update (2026-09-24):** both prerequisites **are done**. They landed in `c956336`
+("stabilize portfolio & admin auth before subscriptions"), and that audit is now marked stale.
+Nothing else from the authorization side blocks Phase I.
+
 ---
 
 # Alternatives considered
@@ -187,6 +193,50 @@ separate webhook-processing queue beside reconciliation; background processes th
 state; and any provider call outside the shared request budget. It extends "Accepted costs" with: a
 `BillingOperation` record per provider mutation, sync bookkeeping on every Subscription, and a
 low-priority orphan-discovery scan.
+
+## 2026-09-24 — Implementation decision close-out
+
+Before implementation, every finding from comparing the design with the code (the IB items in
+[`implementation/open-decisions.md`](../subscription/implementation/open-decisions.md)) was ruled.
+The founding decision and the five hardening commitments are unchanged. Rulings are recorded by
+decision authority in
+[`implementation/settled-decisions.md`](../subscription/implementation/settled-decisions.md#rulings-from-the-2026-09-24-decision-close-out).
+
+**Product decisions (owner):**
+
+1. **Plan changes stay native-only in V1** (`SB-LC-07` reaffirmed). This was re-examined with UPI
+   confirmed as a day-one payment method, the dominant rail that Razorpay cannot update. The
+   switch/successor flow is **deferred, not rejected**, and the design must let it be added without
+   restructuring (IB-21).
+2. **Cancelling while payment is failing (`PAST_DUE`) is immediate** (`SB-LC-04` amended; IB-1).
+3. **Admins bypass interactive entitlement gates only**; background notification eligibility has no
+   bypass (`SB-EA-04` amended; IB-7).
+4. **Billing admin roles:** `SUPER_ADMIN` manages grants and billing; `ADMIN` views (IB-15).
+
+**Architecture decisions (autonomous; the owner may override):**
+
+- the notification-intent gate point (IB-2);
+- a new async per-user resolver, with rate limiting unchanged (IB-3);
+- the portfolio create and public-eligibility wiring (IB-4, IB-5);
+- root-only in-flight operations with no hidden continuation (IB-6);
+- bounded trial conversion (IB-9);
+- the tick budget (IB-10);
+- the quota counting non-deleted projects under a per-user advisory lock (IB-12);
+- boot-time mode validation in `instrumentation.ts` (IB-13);
+- `Restrict` + pseudonym storage, with the removal workflow deferred (IB-14);
+- stored preferences for non-entitled intents (IB-16).
+
+**Recorded as deferred, provider-dependent, or LIVE blockers:**
+
+- the alert channel (IB-11);
+- UPI disabled on the TEST account, and the unverified UPI behaviors (IB-18, A16);
+- the tick cadence on Vercel Hobby (IB-19);
+- the UPI recovery UX (IB-22, provider-dependent);
+- pricing (B6);
+- Razorpay rate limits (A12).
+
+This extends "Explicitly not accepted" with: an admin role counted as an entitlement for background
+jobs, and treating unverified UPI behavior as settled.
 
 ---
 

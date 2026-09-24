@@ -6,15 +6,17 @@
 >
 > **Blueprint section:** §11 (see the [section map](README.md#blueprint-section-map))
 
-Records the TEST-observed Razorpay behavior (ledger item D2) that a cycle-end cancellation request on a past-due subscription is accepted with HTTP 200 yet has no observable effect. It covers where that affects the architecture, what the current design says, the invariants that hold regardless, and the open decision ([IB-1](open-decisions.md#ib-1--past_due-cancellation)). No option is chosen here.
+Records the TEST-observed Razorpay behavior (ledger item D2) that a cycle-end cancellation request on a past-due subscription is accepted with HTTP 200 yet has no observable effect. It covers where that affects the architecture, what the design said before, the invariants that hold regardless, and the decision ([IB-1](open-decisions.md#ib-1--past_due-cancellation)).
 
-**Open decisions referenced here:** [IB-1](open-decisions.md#ib-1--past_due-cancellation). Text that follows a recommended resolution is provisional until that item is ruled; see [open decisions](open-decisions.md).
+> **DECIDED 2026-09-24 — product decision (owner): option A.** A customer cancellation of a `PAST_DUE` subscription is **immediate**. The options table below is kept as the record of what was weighed.
+
+**Decisions referenced here:** [IB-1](open-decisions.md#ib-1--past_due-cancellation). All were ruled on 2026-09-24; see [open decisions](open-decisions.md) for each ruling and who made it (product decision (owner) or architecture decision (autonomous)).
 
 ---
 
 **What TEST showed (A1, D2):** on a `pending` subscription, `cancel_at_cycle_end: true` returned **200** with no state change, no scheduled-change visibility and no observable effect. Whether Razorpay recorded it or silently ignored it is unknown. On `pending`, an **immediate** cancel is verified to work (→ `cancelled`).
 
-**What the docs say today:** customer cancel for `ACTIVE` **and** `PAST_DUE` is cycle-end (`cancellation.md`, SB-LC-04). The review flag in `cancellation.md` says the result "cannot be presumed effective" and that `CANCELLATION_NOT_EFFECTIVE` is "its only backstop". The operation model resolves `CANCEL_AT_CYCLE_END` "when observed `cancelled` at period end, or offered to the user to re-issue".
+**What the docs said before the decision:** customer cancel for `ACTIVE` **and** `PAST_DUE` was cycle-end (`cancellation.md`, SB-LC-04). The review flag in `cancellation.md` says the result "cannot be presumed effective" and that `CANCELLATION_NOT_EFFECTIVE` is "its only backstop". The operation model resolves `CANCEL_AT_CYCLE_END` "when observed `cancelled` at period end, or offered to the user to re-issue".
 
 **Where it bites the architecture:**
 
@@ -28,20 +30,27 @@ Records the TEST-observed Razorpay behavior (ledger item D2) that a cycle-end ca
 **Invariants to hold regardless of the decision:**
 
 - **I-1** A cycle-end cancel response is never evidence of cancellation. `cancelAtPeriodEnd` records Kizunia's *request*, never an observation. Display copy says "cancellation requested".
-- **I-2** Kizunia never sends cycle-end cancellation in a phase where TEST showed a silent no-op: `HALTED` and `PAUSED` (already settled). `PAST_DUE` is IB-1.
+- **I-2** Kizunia never sends cycle-end cancellation in a phase where TEST showed a silent no-op: `HALTED`, `PAUSED`, and (by the IB-1 decision) `PAST_DUE`.
 - **I-3** `cancelAtPeriodEnd` is cleared only by an observed `CANCELLED`, or by raising `CANCELLATION_NOT_EFFECTIVE` (which also alerts and tells the user they are still subscribed).
-- **I-4** While `cancelAtPeriodEnd` is set, every applied observation is checked for contradiction. `CANCELLATION_NOT_EFFECTIVE` is raised when any of these hold: (i) still `active`/`pending` after `requested currentPeriodEnd` + margin; (ii) a `CHARGE` fact dated after the cancel request's `requestSentAt`; (iii) the phase becomes `HALTED` with the flag set. (ii) and (iii) **extend** the documented rule and need sign-off as part of IB-1.
+- **I-4** While `cancelAtPeriodEnd` is set, every applied observation is checked for contradiction. `CANCELLATION_NOT_EFFECTIVE` is raised when any of these hold: (i) still `active`/`pending` after `requested currentPeriodEnd` + margin; (ii) a `CHARGE` fact dated after the cancel request's `requestSentAt`; (iii) the phase becomes `HALTED` with the flag set. (ii) and (iii) **extend** the documented rule. They are adopted with IB-1 and protect `ACTIVE` cycle-end cancellations.
 - **I-5** Access is never cut on the strength of a cancel request, and never extended beyond what observations show.
 
-**Options for IB-1 (decision required; none chosen here):**
+**Options that were weighed for IB-1 (option A chosen 2026-09-24):**
 
 | Option | Effect | Trade-off |
 | --- | --- | --- |
-| A. `PAST_DUE` customer cancel = **immediate** (verified to work) | Ends access now. The current period was not paid, so nothing paid-for is lost | Changes SB-LC-04 for one phase; needs clear copy |
+| **A. `PAST_DUE` customer cancel = immediate (verified to work) — CHOSEN** | Ends access now. The current period was not paid, so nothing paid-for is lost | Changes SB-LC-04 for one phase; needs clear copy |
 | B. Refuse customer cancel in `PAST_DUE` ("fix payment, or cancel after it resolves"; support can cancel immediately) | No unverifiable request is ever sent | Blocks self-serve exit while payment fails |
 | C. Keep cycle-end, and adopt I-4 (ii)/(iii) detection + "requested, unconfirmed" UI | Matches the current docs | The customer may still be charged; relies on detection after the fact |
 
-Interim rule for implementation until decided: slice S10 ships `ACTIVE` (cycle-end) and `TRIALING` (immediate) customer cancel plus admin immediate cancel; the `PAST_DUE` branch returns a typed `CANCEL_UNAVAILABLE_PAST_DUE` pointing to support. That interim behavior itself needs a product nod.
+*Superseded interim rule (historical):* before the decision, slice S10 would have shipped `ACTIVE` and `TRIALING` cancel only, with the `PAST_DUE` branch returning a typed `CANCEL_UNAVAILABLE_PAST_DUE`. With option A decided, [Phase VI](../implementation-plan/phase-VI/README.md) ships `PAST_DUE` customer cancel as an immediate cancellation.
+
+**Consequences of option A:**
+
+- The command settles like any immediate cancel: access ends when `cancelled` is observed.
+- `cancelAtPeriodEnd` is never set for `PAST_DUE`.
+- The UI copy says access ends now and no further charge will be made.
+- Not verified for UPI subscriptions (UPI has not been observed, [IB-18](open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)). A `REJECTED` response is handled like any refused cancel.
 
 ---
 

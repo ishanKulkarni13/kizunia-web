@@ -2,14 +2,14 @@
 
 > **Status:** Design — conceptual, not a schema
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-6, IB-14)
 
 ```text
 User 1 ────── 0..n  Subscription            (one per Razorpay subscription, ever; history across
                                               cancel -> resubscribe is simply several Subscriptions.
                                               Kizunia never creates a second OPEN one — see below)
 User 1 ────── 0..n  EntitlementGrant         (multiple may be simultaneously valid)
-User 1 ────── 0..n  BillingOperation         (at most one IN_FLIGHT at a time)
+User 1 ────── 0..n  BillingOperation         (at most one IN_FLIGHT *root* operation at a time)
 
 Subscription 1 ──── 0..1  ProviderReference          (bound once, when Razorpay confirms creation)
 Subscription 1 ──── 0..n  SubscriptionHistoryEntry   (append-only)
@@ -33,7 +33,7 @@ EffectiveAccess(user, now) = max(tier)
 | **Open** Subscriptions (`PROVISIONING`, `PENDING_AUTHENTICATION`, `TRIALING`, `ACTIVE`, `PAST_DUE`, `PAUSED`, `HALTED`) | Kizunia creates at most one; more than one is an anomaly | Command-time check under the user's single in-flight operation; detection on every phase change ([`../../subscription/lifecycle/multiple-subscriptions.md`](../../subscription/lifecycle/multiple-subscriptions.md)) |
 | **Contributing** Subscriptions (`TRIALING`, `ACTIVE`, `PAST_DUE`) | Normally ≤ 1 | Follows from the above; effective access takes the maximum regardless |
 | Pending scheduled plan changes on one Subscription | ≤ 1 | [SB-LC-08](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-08--at-most-one-scheduled-change-and-cancellation-always-wins) |
-| `IN_FLIGHT` BillingOperations | ≤ 1 | Database constraint |
+| `IN_FLIGHT` **root** BillingOperations (no parent) | ≤ 1 | Database constraint (partial unique index). Child operations of a composed command run under their root's slot ([IB-6](../../subscription/implementation/open-decisions.md#ib-6--composed-commands-and-the-in-flight-constraint), 2026-09-24; previously stated as "`IN_FLIGHT` BillingOperations ≤ 1", which would have blocked composed commands) |
 
 ## Boundaries with other domains
 
@@ -60,4 +60,14 @@ resolves to, why, and the record of every billing interaction with Razorpay that
 These relationships describe cardinality and ownership, not tables or foreign keys. How
 `ProviderReference` is stored, whether facts share a table, and exact Prisma shapes are left to
 implementation — with three constraints that are **not** optional: the unique provider ID per mode,
-the one-`IN_FLIGHT`-per-user constraint, and no cascading delete from `User` into billing records.
+the one-`IN_FLIGHT`-root-operation-per-user constraint, and no cascading delete from `User` into
+billing records.
+
+**Decided 2026-09-24** ([IB-14](../../subscription/implementation/open-decisions.md#ib-14--account-removal-storage),
+architecture decision): the "no cascading delete" constraint is realised as a **nullable** `userId`
+foreign key with `onDelete: Restrict` on every billing and entitlement record, plus a
+`subjectPseudonym` column. Actor references (who granted, who performed) are plain identifiers, not
+foreign keys. Pseudonymization later nulls `userId` and stamps the pseudonym in one transaction. That
+workflow is deferred until the platform has account deletion; the storage shape is not. The Prisma
+mapping is in
+[`../../subscription/implementation/database-design.md`](../../subscription/implementation/database-design.md).

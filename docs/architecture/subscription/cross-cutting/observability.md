@@ -2,7 +2,7 @@
 
 > **Status:** Design — not implemented
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-24 (decision close-out: IB-11, IB-9 alert)
 
 Billing is financially sensitive. Every question support or an engineer will ask about a user's
 billing must be answerable from durable records, not from reproducing the bug.
@@ -81,3 +81,13 @@ open anomalies by type; Subscriptions by phase.
 | Drift found by checkpoint/heartbeat syncs above baseline | Systemic webhook delivery problem | Medium |
 | A subscription `HALTED` past an observation window | Support outreach candidate (not an automatic action) | Low |
 | Provider mode `disabled` in production | Expected before live credentials exist; must be a deliberate state | Low (Medium once `live` has been used) |
+| `TRIAL_CONVERSION_OVERDUE` ([IB-9](../implementation/open-decisions.md#ib-9--trial-conversion-gap)) | A trial passed `start_at` + grace with no first charge observed | Medium |
+
+**Delivery channel: DEFERRED, a LIVE BLOCKER** ([IB-11](../implementation/open-decisions.md#ib-11--alerting-channel)).
+The repository has structured `console` logs only: no metrics, no pager. From implementation-plan
+Phase IV onward, every condition above emits one structured `billing.alert` log event (the
+`[billing] {json}` sibling of the notifications log), carrying the condition, the severity and
+correlation IDs, never secrets or payloads. The channel that turns those events into a notification
+(Vercel log-drain alert, e-mail, or an in-app admin notice) is chosen in
+[Phase IX](../implementation-plan/phase-IX/README.md) and must exist before LIVE billing is enabled.
+Until then "Page" and "High" describe urgency, not a delivery mechanism.

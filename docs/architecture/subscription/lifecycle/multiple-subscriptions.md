@@ -76,6 +76,13 @@ For a user whose open Subscription is `HALTED` or `PAUSED`
 If step 7 never completes (user abandons checkout), the old subscription stays cancelled: that is
 what the user confirmed in step 1. The user is Free until they complete a new checkout.
 
+A `halted` subscription can also become live again without the customer touching Kizunia **and
+without a card change**: Razorpay documents that a successful charge of an older unpaid invoice moves
+`pending` and `halted` subscriptions back to `active`
+([`razorpay-facts.md`](../provider-boundary/razorpay-facts.md#payment-retries)). This does not change
+the design — supersession already re-checks state by sync before acting — but it is a recovery path the
+earlier ledger did not list.
+
 **Verified 2026-09-24 (TEST mode, card subscriptions; [A1](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)).**
 Razorpay's Cancel API **accepts an immediate cancellation of both `halted` and `paused`**
 subscriptions (`200`, then `cancelled` on refetch; `halted` on two subscriptions), so step 4 is

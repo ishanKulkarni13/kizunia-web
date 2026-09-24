@@ -22,6 +22,11 @@ documentation or TEST observation; listed in
 requiring TEST-mode verification (or a question to Razorpay Support). An OPEN item is never
 silently treated as a fact anywhere else in this design.
 
+The second research pass ([below](#research-pass-2-2026-09-24)) uses inline evidence labels that map
+onto these tags: **[RAZORPAY DOC]** = FACT; **[TEST OBSERVED]** = TEST-OBSERVED; **[INFERENCE]** =
+INTERPRETATION (follows logically, is not documented, and is never promoted to FACT);
+**[UNVERIFIED]** = OPEN.
+
 **2026-09-24 re-verification changed three earlier conclusions**, recorded in
 [`reconciliations.md`](../../../project/feature-specification/subscription/decisions/reconciliations.md):
 plan updates are refused for UPI, e-mandate and domestic-card subscriptions
@@ -193,9 +198,22 @@ UPI/e-mandate subscription can switch only to a card. Previously missed charges 
 automatically — "Only future payments are charged automatically." Sources: same, and
 [Subscription States](https://razorpay.com/docs/payments/subscriptions/states/).
 
+**[RAZORPAY DOC] (research pass 2, 2026-09-24) — a second recovery path.** Razorpay documents that
+`pending` and `halted` subscriptions can also return to `active` **without a card change**: for
+`pending`, the customer can "manually attempt a charge on the same card by attempting to charge any
+of the older unpaid invoices"; for `halted`, the merchant or customer can "manually attempt a charge
+on an older unpaid invoice. If the older invoice is successfully charged, the Subscription will
+automatically move to the `active` state." Also: "We automatically charge the last invoice if the
+customer changes the card when the Subscription is in the `pending` state." Documented reasons for a
+failed charge include "The card has expired", "The bank has blocked the card", "The customer's
+account has insufficient balance" and "The customer has cancelled the mandate from their end".
+Sources: [Subscription States](https://razorpay.com/docs/payments/subscriptions/states/),
+[Payment Retries](https://razorpay.com/docs/payments/subscriptions/payment-retries/).
+
 **INTERPRETATION.** A halted subscription can return to `active` at any time through a path that
 never touches Kizunia's UI (the Razorpay-sent email link, since `customer_notify` defaults to
-`true`). Kizunia must detect this rather than assume it cannot happen — see
+`true`, or a manual charge of an older invoice). Kizunia must detect this rather than assume it
+cannot happen — see
 [`../lifecycle/multiple-subscriptions.md`](../lifecycle/multiple-subscriptions.md).
 
 **TEST-OBSERVED (2026-09-24) — retry progression under Dashboard-simulated failures (card).** With
@@ -206,8 +224,16 @@ attempt the subscription became `halted` with `halted_at` set and `auth_attempts
 matches the documented "3 retries after the original attempt" (4 failures total). The retry schedule
 here is a *simulation* driven by manual clicks, not Razorpay's real T+1/T+2/T+3 clock.
 
+**[RAZORPAY DOC] (research pass 2) — e-mandate timing, exactly as documented.** "In failure scenarios,
+we attempt to retry only when we get the confirmation or rejection of the last payment, as it may take
+more than 24 hours. If the charge day (T) is a bank holiday, we will charge on T-1 days. If the charge
+day (T) and the previous day (T-1) are bank holidays, we will charge on T-3 days." Unlike cards and
+UPI, **no e-mandate retry count, retry interval or halt rule is documented**, no merchant
+configuration is documented, and no exact retry timestamp is guaranteed. Source:
+[Payment Retries](https://razorpay.com/docs/payments/subscriptions/payment-retries/).
+
 **OPEN (not reproducible in TEST).** Real-world e-mandate retry timing under Indian banking holidays
-(A11): TEST mode has no banking calendar. The halted-state behavior of a UPI/e-mandate subscription
+(A11): TEST mode has no banking calendar, and the documentation stops at the rules quoted above. The halted-state behavior of a UPI/e-mandate subscription
 whose mandate the customer has revoked (A10): TEST mode offers no way to revoke a mandate. An e-mandate
 registration was started in TEST mode but stayed `created` (see
 [TEST verification](#test-verification-2026-09-24)), so no e-mandate lifecycle beyond registration was
@@ -248,6 +274,15 @@ updates are notified via `subscription.updated`. Source: same.
 **FACT.** "Subscriptions with active offers can only be downgraded at the end of the billing cycle."
 Source: [Update a Subscription (API)](https://razorpay.com/docs/api/payments/subscriptions/update-subscription/).
 
+**[RAZORPAY DOC] — CONTRADICTION (D11, flagged for review; research pass 2, 2026-09-24).** The
+Subscriptions FAQ says something different from the API page: "Yes. You can upgrade a Subscription
+even it has an offer linked to it. However, you cannot downgrade a Subscription when an offer is
+linked to it. To downgrade the Subscription, you will have to remove the offer linked to it, downgrade
+the Subscription and then reapply the offer to it." The API page allows a downgrade at cycle end; the
+FAQ says a downgrade is not possible until the offer is removed. Neither is TEST-verified. Kizunia
+must not rely on either reading (see [`open-decisions.md` A15](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)).
+Source: [Subscriptions FAQs](https://razorpay.com/docs/payments/subscriptions/faqs/).
+
 **FACT.** A concurrent mutation is rejected: "Request failed because another subscription operation
 is in progress." Source: same.
 
@@ -271,12 +306,65 @@ description, which Kizunia must not parse. A refused update left the subscriptio
 (`has_scheduled_changes` stayed `false`). **Not verified:** the UPI and e-mandate refusals (UPI cannot
 be authorized through Checkout in TEST; an e-mandate registration did not complete, see below).
 
-**OPEN (not verified).** Whether any webhook fires when a `cycle_end` change is *applied* (A3):
-a *successful* native plan change needs an international-card subscription (domestic cards allow
-only offer updates) and a registered webhook endpoint; the first was ruled out for this verification
-and the second was not available (see [TEST verification](#test-verification-2026-09-24)). How Razorpay
+**[RAZORPAY DOC vs TEST OBSERVED] (research pass 2, 2026-09-24) — update refusals compared.** The
+Update API page documents these `400 BAD_REQUEST_ERROR` refusals (source:
+[Update a Subscription (API)](https://razorpay.com/docs/api/payments/subscriptions/update-subscription/)).
+An API-only TEST check on 2026-09-24 reproduced every one that could be reproduced without a UPI,
+e-mandate or international-card subscription:
+
+| Documented refusal | TEST OBSERVED on 2026-09-24 |
+| --- | --- |
+| "Can't update Subscription when Subscription is not in Authenticated or Active state" | Reproduced on a `created` subscription for both `schedule_change_at: now` and `cycle_end`: `400 BAD_REQUEST_ERROR`, "Can't update subscription when subscription is not in Authenticated or Active state" (lower-case *s*, no trailing period), `field: "status"` |
+| "Parameters to update can't be empty" | Reproduced, exact text, no `field` |
+| "The remaining count must be at least 1" | Reproduced with `remaining_count: 0`: "The remaining count must be at least 1." (trailing period), `field: "remaining_count"` |
+| "{field} is/are not required and should not be sent" | Reproduced with `total_count`: "total_count is/are not required and should not be sent", no `field` |
+| "subscriptions cannot be updated when payment mode is UPI" / "…is emandate" | **Not reproduced** — UPI is not offered in TEST Checkout and an e-mandate registration stayed `created` |
+| "Request failed because another subscription operation is in progress" | Not provoked |
+| "Subscriptions with active offers can only be downgraded at the end of the billing cycle" | Not tested (needs an Offer, created only in the Dashboard, and a native downgrade) |
+| *Not in the API page's list:* domestic-card refusals | **Observed** with the two strings tabulated above ("Can't update subscription immediately when card mandate is applicable"; "Only offers can be updated for subscriptions when payment mode is domestic card.") — **DOCUMENTATION GAP (D10)**: the API page lists UPI and e-mandate refusals but not the card-mandate ones; the guide states the domestic-card rule only in prose |
+
+Conclusions: every documented and observed refusal is HTTP 400 with code `BAD_REQUEST_ERROR`; the
+documentation names **no other error code** and no error code that distinguishes one refusal from
+another, and no documented error covers "the prorated charge failed" — the guide says only "If the
+charge fails, the Subscription is not updated". Free-text descriptions differ in case and punctuation
+between the documentation and the API, so Kizunia must never match on them; the code-level
+classification already decided ("any `BAD_REQUEST_ERROR` from an update is `REJECTED`") is supported.
+A refusal for an unsupported payment method and a refusal for state are **not distinguishable by
+code**.
+
+**[RAZORPAY DOC] (research pass 2) — what Razorpay documents about scheduled-change events (A3).**
+
+- `subscription.updated`: "Sent when a subscription is successfully updated. There is no state change
+  when a subscription is updated." The update guide says of *immediate* updates: "You will be notified
+  via the `subscription.updated` webhook." ([Subscription webhook events](https://razorpay.com/docs/webhooks/subscriptions/),
+  [Update a Subscription (guide)](https://razorpay.com/docs/payments/subscriptions/update/))
+- For `cycle_end`: "The Subscription is updated with the new values when the current billing cycle
+  ends." **No page documents an event for scheduling a change, for the change being applied, or for a
+  scheduled change being cancelled** (the Cancel-an-Update page documents none either).
+- The `subscription.updated` payload carries the subscription entity only, including
+  `has_scheduled_changes` and `change_scheduled_at`; the sample shows no previous-plan or new-plan
+  field beyond the entity's current `plan_id`
+  ([Subscription payloads](https://razorpay.com/docs/webhooks/payloads/subscriptions/)).
+- Pending changes are fetchable: `GET /v1/subscriptions/:id/retrieve_scheduled_changes` returns the
+  pending `plan_id`, `quantity`, `offer_id`, `remaining_count` and `change_scheduled_at`
+  ([Fetch Pending Update](https://razorpay.com/docs/api/payments/subscriptions/fetch-pending-update-details/)).
+- **[INFERENCE]** A webhook alone cannot tell Kizunia the *previous* plan; Kizunia's own record
+  (its `BillingOperation`) is the source of that. The existing event catalog's outcome for
+  `subscription.updated` ("refreshed scheduled-change state") is likewise an inference, not documented.
+
+**OPEN (not verified).** Whether any webhook fires when a `cycle_end` change is *scheduled*, *applied*
+or *cancelled* (A3): a *successful* native plan change needs an international-card subscription
+(domestic cards allow only offer updates) and a registered webhook endpoint; the first was ruled out
+for this verification and the second was not available (see
+[TEST verification](#test-verification-2026-09-24)). Ordering and delivery guarantees are documented
+generically (see [Webhooks](#webhooks)); nothing is documented specific to plan changes. How Razorpay
 treats an active Offer on upgrade (A15) is open for the same reasons, plus Offers can be created only
-from the Dashboard.
+from the Dashboard. What *is* documented for A15: an upgrade with an offer linked is permitted per the
+FAQ (see D11 above); an Offer is applied "at the end of the current billing cycle" and only while the
+subscription is `active` ([Link an Offer](https://razorpay.com/docs/payments/subscriptions/offers/link/));
+the documentation does **not** say whether a linked offer survives, is recalculated, or interacts with
+proration on an immediate upgrade, and states **no stacking rule** (whether more than one offer can be
+linked to a subscription is not addressed on any page read — [UNVERIFIED]).
 
 ---
 
@@ -374,6 +462,28 @@ their UPI app"; merchants learn of a cancellation through the `subscription.canc
 UPI Subscriptions, you cannot resume a Subscription paused by your customer. If your customer pauses
 a Subscription, only they can resume it." Source: [Subscriptions FAQs](https://razorpay.com/docs/payments/subscriptions/faqs/).
 
+**[RAZORPAY DOC] (research pass 2, 2026-09-24) — mandate revocation, per payment method (A10).** All
+quotes from [Subscriptions FAQs](https://razorpay.com/docs/payments/subscriptions/faqs/) unless noted.
+
+| Method | What Razorpay documents | Not documented |
+| --- | --- | --- |
+| **UPI AutoPay** | Customers "can manage, modify or cancel their mandates anytime directly from their UPI app (Google Pay, Paytm, PhonePe and so on) or by contacting your business." "Once cancelled, no further payments are processed." "You can set up the subscription.cancelled webhook event to get a notification when your customer cancels their Subscription." A subscription paused by a UPI customer can be resumed only by that customer | Whether a revoked mandate can be restored or re-registered; whether a new subscription is required; the fetched status other than the `subscription.cancelled` notification |
+| **E-mandate (netbanking)** | "No, your customer cannot pause or cancel a Subscription that is authorised via Emandate. However, they can directly contact the bank and cancel a Subscription, and the subsequent payment will fail for such Subscriptions." | Any status change or webhook at the moment of cancellation; the resulting status (only that the *next payment fails*, which then follows the pending/halted rules above); restoration |
+| **Cards** | "Yes, cardholders can pause, resume and cancel active Subscriptions from the portal provided by the bank to manage them." "You will get notifications through multiple webhooks when a cardholder initiates any such changes to the Subscriptions." | Which webhooks; the resulting statuses |
+
+Also documented: "The customer has cancelled the mandate from their end" is listed among the reasons a
+charge can fail ([Payment Retries](https://razorpay.com/docs/payments/subscriptions/payment-retries/)).
+
+**[INFERENCE]** For e-mandate (and possibly cards) a revocation is *not* documented to change status
+at the moment it happens; it is documented to make the next charge fail, after which the ordinary
+`pending → halted` progression applies. For UPI the documented signal is `subscription.cancelled`.
+These are readings of the pages above, not statements on them. **[UNVERIFIED]** — needs Razorpay
+Support or a LIVE observation (TEST mode cannot revoke a mandate): the exact resulting status for each
+method, and whether restoration exists. The `token.cancelled` / `token.paused` events belong to
+Razorpay's separate *Recurring Payments* product, not Subscriptions
+([Recurring Payments webhooks](https://razorpay.com/docs/api/payments/recurring-payments/webhooks/)); a
+search-result summary that conflated the two was not used.
+
 **FACT.** Subscriptions and Subscription Links can be created from the Dashboard as well as the API,
 and Dashboard users can pause, resume, cancel (immediately or at cycle end) and update
 subscriptions. Sources: [Create Subscriptions](https://razorpay.com/docs/payments/subscriptions/create/),
@@ -420,9 +530,23 @@ immediately (see [Cancellation](#cancellation)). In TEST mode the subscription w
 scheduled first charge promptly (or at all within the window), and the Dashboard's "Charge this now" is
 documented only for `active`/`pending` subscriptions.
 
-**OPEN (not reproducible in TEST).** What happens when the first real charge at `start_at` **fails**
-(presumed the ordinary `pending → halted` path, unchanged). The state before `start_at` is settled;
-the failure path needs the first charge to run, which TEST mode did not do.
+**[RAZORPAY DOC] (research pass 2, 2026-09-24; A7).** Razorpay documents the trial mechanism only:
+"To create a trial period for your customers, provide a future start date when creating the
+Subscription", "The actual billing cycle automatically starts at the specified date", and the ₹5
+auto-refunded authentication charge
+([Create Subscriptions](https://razorpay.com/docs/payments/subscriptions/create/),
+[How Subscriptions Work](https://razorpay.com/docs/payments/subscriptions/workflow/)). The retry and
+`halted` rules are documented for "an auto-charge" failing in general
+([Payment Retries](https://razorpay.com/docs/payments/subscriptions/payment-retries/),
+[Subscription States](https://razorpay.com/docs/payments/subscriptions/states/)). **No page read
+documents the first post-trial charge failing** — neither the resulting status, nor whether the
+pending/retry/halted rules apply identically, nor any trial-specific notification.
+
+**OPEN (not reproducible in TEST; not documented).** What happens when the first real charge at
+`start_at` **fails**. The existing design presumes the ordinary `pending → halted` path — that is an
+**[INFERENCE]** from the general auto-charge rules and remains one. The state before `start_at` is
+settled; the failure path needs the first charge to run, which TEST mode did not do. Next: Razorpay
+Support, or a LIVE-mode observation.
 
 ---
 
@@ -438,6 +562,24 @@ Source: [Webhooks FAQ](https://razorpay.com/docs/webhooks/faqs/).
 
 **FACT.** `x-razorpay-event-id` "is unique per event and can help you determine the duplicity of a
 webhook event." Source: [Webhooks Best Practices](https://razorpay.com/docs/webhooks/best-practices/).
+
+**[RAZORPAY DOC] (research pass 2, 2026-09-24; A6).** Razorpay both documents the header and recommends
+using it for de-duplication: "Check the value of `x-razorpay-event-id` in the webhook request header.
+The value for this header is unique per event", alongside "Razorpay follows at-least-once delivery
+semantics" and "we recommend you to follow idempotency"
+([Best Practices](https://razorpay.com/docs/webhooks/best-practices/),
+[Webhooks FAQ](https://razorpay.com/docs/webhooks/faqs/)). On secret changes: "If you have changed your
+webhook secret, remember to use the old secret for webhook signature validation while retrying older
+requests" and "The new secret can only be used for all events generated after the secret is updated"
+([Webhooks FAQ](https://razorpay.com/docs/webhooks/faqs/),
+[Validate and Test Webhooks](https://razorpay.com/docs/webhooks/validate-test/)) — i.e. a **retry of
+an event generated before the change is signed with the old secret**; the documentation gives no
+duration for how long such retries continue beyond the 24-hour retry window. **Not documented:** that
+the header is present on *every* delivery, and that a *retry* of one event carries the *same* value —
+the best-practices page is silent on retries. **[INFERENCE]** equality across retries follows from
+"unique per event" plus the recommendation to use it for duplicate detection; it is not stated.
+Engineering reading: using the header as the primary de-duplication key, with a hash-of-raw-body
+fallback, is consistent with the documentation; nothing documented makes it *guaranteed*.
 
 **OPEN — NOT VERIFIED (A6).** Whether the header is present on every delivery and identical across
 retries of one event (implied, not stated). Observing it needs a public HTTPS endpoint registered in
@@ -461,10 +603,10 @@ days old, and only if the webhook was enabled at the time. Source: [Webhooks FAQ
 
 | Event | Fires when |
 | --- | --- |
-| `subscription.authenticated` | Authentication transaction completes |
+| `subscription.authenticated` | Authentication transaction completes (Razorpay's wording: "Sent when the first payment is made on the subscription") |
 | `subscription.activated` | Transition to `active` (from `authenticated`, `pending` or `halted`) |
 | `subscription.charged` | Every successful recurring charge |
-| `subscription.completed` | Subscription reaches `completed` |
+| `subscription.completed` | Subscription reaches `completed` (Razorpay's wording: "Sent when all the invoices are generated for a subscription" — slightly earlier than "reaches `completed`" may suggest; status is always taken from the fetch, never the event) |
 | `subscription.updated` | Subscription updated (documented for immediate updates) |
 | `subscription.pending` | Enters `pending`; re-fires on continued failure |
 | `subscription.halted` | `pending → halted` |
@@ -488,6 +630,28 @@ separately configured webhook URLs and secrets. Source:
 
 **FACT.** Razorpay publishes its webhook source IP addresses. Source:
 [IP whitelisting](https://razorpay.com/docs/security/whitelists/).
+
+**[RAZORPAY DOC] (research pass 2, 2026-09-24; A9).** Razorpay's invoice webhook page documents three
+events — `invoice.partially_paid` ("Triggered when a partial payment is made against an invoice"),
+`invoice.paid` ("Triggered when an invoice is successfully paid") and `invoice.expired` ("Triggered when
+an invoice expires") — for the Invoices product
+([Invoice events](https://razorpay.com/docs/webhooks/invoices/),
+[Invoice payloads](https://razorpay.com/docs/webhooks/payloads/invoices/)). **Neither the invoice pages
+nor the subscription pages say that subscription-generated invoices emit them**; the sample payloads
+carry `order_id`, `payment_id` and `subscription_status: null`, with no `subscription_id`. There is
+**no invoice-creation event and no invoice-payment-failure event** in that list. The subscription
+events already cover the lifecycle: `subscription.charged` (successful charge; payload has subscription
+and payment), `subscription.pending`, `subscription.halted`, and so on — per the payload page,
+`activated`, `charged` and `completed` carry a payment entity and the rest carry the subscription only
+([Subscription payloads](https://razorpay.com/docs/webhooks/payloads/subscriptions/)).
+**[INFERENCE]** Subscription webhooks alone are sufficient for Kizunia's lifecycle because every state
+change is re-derived from an authoritative fetch
+([SB-WH-03](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-03--state-changing-events-trigger-an-authoritative-refetch));
+no documented `invoice.*` event carries information that fetch does not. **Recommendation, no
+architecture change:** the V1 subscription set already chosen in
+[SB-WH-08](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-08--kizunia-subscribes-only-to-the-events-it-acts-on)
+— the ten `subscription.*` events, `refund.processed` and `payment.dispute.created` — is the minimum
+required; `invoice.*`, `payment.*` and `order.paid` need not be added.
 
 **OPEN — NOT VERIFIED (A9).** Whether `invoice.*` *webhook events* fire for subscription invoices
 (same endpoint limitation as A6). **TEST-OBSERVED (2026-09-24):** the invoices *themselves* exist and
@@ -515,7 +679,20 @@ retryability list and no client timeout guidance are documented. Source: [Common
 configuration with a conservative default that adapts to observed 429s — see
 [`../reconciliation/provider-rate-limits.md`](../reconciliation/provider-rate-limits.md).
 
-**OPEN.** Kizunia's actual account limits (ask Razorpay Support before LIVE).
+**[RAZORPAY DOC] (research pass 2, 2026-09-24; A12).** Re-checked against the current pages. Documented:
+a "request Rate Limiter" that "helps maintain system stability during heavy traffic loads"; HTTP 429 as
+a "Throttling Error"; "Use an exponential backoff/stepped backoff strategy to reduce request volume and
+stay within the limit" with "some randomisation within the backoff schedule"; "reduce the frequency of
+API calls, particularly for polling-based implementations"; "Use webhooks instead of polling"; and
+that limit increases are requested from Support and "reviewed case-by-case and approved only for
+legitimate use cases" ([API overview](https://razorpay.com/docs/api/understand/),
+[Common errors](https://razorpay.com/docs/errors/common/)). **Not documented anywhere read:** any
+numeric limit, any per-API or per-subscription-API difference, any test-vs-live difference, whether the
+limit is per account, a `Retry-After` header, or a 429 body shape. **[INFERENCE]** that the limit is
+account-specific rests only on "contact Support to raise it"; it is not stated.
+
+**OPEN.** Kizunia's actual account limits (ask Razorpay Support before LIVE). Razorpay Support is the
+only source: nothing public gives the numbers, and TEST mode produced no 429 to observe.
 
 ---
 
@@ -646,3 +823,43 @@ either side.** "Safe to rely on" states the conservative reading the current des
 | D7 | `paused → cancelled` in the state diagram; Cancel page silent on other states | Consistent for immediate cancel; see D2 for cycle-end | as D1/D2 |
 | D8 | Update refusal for domestic card documented as "you can update only the offer" | Confirmed; descriptions differ by request (see the A4 table) and are all `BAD_REQUEST_ERROR` | Classify by code only, as the current fallback already does |
 | D9 | — | **Unexplained anomaly.** Once, on one subscription, `resume` returned `200`/`active` and an immediate `cancel` returned `400` (body not captured), after which the entity read `paused`. Four attempts to reproduce the sequence — including the same call order — all behaved normally. Separately, one halted subscription was later observed `pending` with a higher `paid_count` while Dashboard actions were being taken | A command's response body is never authoritative; only a subsequent `GET`. This is already the design ([SB-WH-03](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-03--state-changing-events-trigger-an-authoritative-refetch)) |
+| D10 | The Update API page lists refusals for UPI and e-mandate (and state, empty params, `remaining_count`, offer-downgrade) but **not** the domestic-card refusals | Domestic-card updates are refused with "Can't update subscription immediately when card mandate is applicable" / "Only offers can be updated for subscriptions when payment mode is domestic card." (`400 BAD_REQUEST_ERROR`); the four documented refusals that could be reproduced matched in substance, differing only in case, a trailing period, and a `field` value | Classify by HTTP status + code only; never match on the description text (research pass 2, 2026-09-24) |
+| D11 | The Update API page: "Subscriptions with active offers can only be downgraded at the end of the billing cycle." The Subscriptions FAQ: "you cannot downgrade a Subscription when an offer is linked to it… remove the offer… downgrade… then reapply" | Not tested (needs a Dashboard-created Offer and a native downgrade) | Rely on neither reading; treat a downgrade with an offer as *possibly refused* (research pass 2, 2026-09-24). Kizunia never removes and re-links an offer to work around it |
+
+## Research pass 2 (2026-09-24)
+
+A documentation-focused second pass over the questions still open after the TEST pass. Evidence
+hierarchy: current official Razorpay pages, opened and read (not search snippets); no secondary
+sources were relied on. Labels: **[RAZORPAY DOC]**, **[TEST OBSERVED]**, **[INFERENCE]**,
+**[UNVERIFIED]**. No Razorpay page carried a visible last-updated date; every quote below is from the
+page as served on 2026-09-24. One small API-only TEST check was added (A4 state/parameter refusals, see
+[Upgrade / downgrade](#upgrade--downgrade)); the throw-away subscription was cancelled afterwards.
+
+| Q | Outcome of this pass | Where recorded | What is needed next |
+| --- | --- | --- | --- |
+| A3 | Documentation names **no** event for scheduling, applying, or cancelling a scheduled plan change; `subscription.updated` is documented for immediate updates only; the pending change is fetchable and the entity carries `has_scheduled_changes`/`change_scheduled_at`; the payload has no previous-plan field. **Still open** for actual delivery | [Upgrade / downgrade](#upgrade--downgrade) | Webhook endpoint + international-card TEST subscription, or Support |
+| A4 | Documented refusals compared against TEST (table). UPI/e-mandate refusals documented but not reproduced. Classification by code (`BAD_REQUEST_ERROR`) is sufficient. **Partly open** | [Upgrade / downgrade](#upgrade--downgrade), D10 | A UPI or e-mandate subscription (LIVE, or a TEST e-mandate that completes) |
+| A6 | Header documented as unique per event and recommended for de-duplication; equality across retries and presence on every delivery **not documented** (inference only); retries of pre-change events use the old secret. **Still open** | [Webhooks](#webhooks) | Webhook endpoint that can fail deliveries, or Support |
+| A7 | Trial mechanism documented; **first post-trial charge failure not documented anywhere read**. **Still open** | [Trials](#trials) | Support, or a LIVE observation |
+| A9 | Invoice events documented (`invoice.partially_paid`/`paid`/`expired`); not documented for subscription invoices; not needed. **Resolved as a documentation question** (recommendation: subscribe to nothing more) | [Webhooks](#webhooks) | Delivery for subscription invoices stays unverified (endpoint needed) — no Kizunia impact |
+| A10 | Documented per method (table): UPI → `subscription.cancelled`; e-mandate → next payment fails; cards → "multiple webhooks". Resulting statuses and restoration **not documented**. **Still open** | [Payment methods…](#payment-methods-and-customer-originated-changes) | Support or a LIVE observation (TEST cannot revoke) |
+| A11 | Holiday rule documented (T-1 / T-3 charge date; retry only after bank confirmation/rejection); **no retry count, interval, halt rule, configurability or timestamp guarantee**. **Still open** for exact timing | [Payment retries](#payment-retries) | Support |
+| A12 | Rate limiter, 429, backoff-with-jitter, webhooks-over-polling, Support-reviewed increases documented; **no numbers, scope, test/live difference or `Retry-After`**. **Still open (SUPPORT)** | [API rate limits and errors](#api-rate-limits-and-errors) | Razorpay Support |
+| A15 | Upgrade with an offer permitted per the FAQ; offers apply at cycle end while `active`; the FAQ and API page **contradict** each other on downgrade (D11); proration/existing-offer/stacking behavior **not documented**. **Still open** | [Upgrade / downgrade](#upgrade--downgrade) | Offer + international-card TEST subscription (needs explicit approval), or Support |
+
+**Rejected evidence.** A search-result summary asserted that a customer-revoked mandate "moves the
+Subscription to pending" and that a "token cancelled" webhook alerts the merchant. On the actual pages,
+the pending inference rests only on the failure-reasons list in *Payment Retries*, and
+`token.cancelled` belongs to Razorpay's separate *Recurring Payments* product. Neither was used as
+evidence of Subscriptions behavior.
+
+**Official sources used** (all under `razorpay.com/docs`): `webhooks/subscriptions/`,
+`webhooks/payloads/subscriptions/`, `webhooks/best-practices/`, `webhooks/faqs/`,
+`webhooks/validate-test/`, `webhooks/invoices/`, `webhooks/payloads/invoices/`,
+`api/payments/recurring-payments/webhooks/`, `api/payments/subscriptions/update-subscription/`,
+`api/payments/subscriptions/fetch-pending-update-details/`, `payments/subscriptions/update/`,
+`payments/subscriptions/states/`, `payments/subscriptions/payment-retries/`,
+`payments/subscriptions/faqs/`, `payments/subscriptions/create/`, `payments/subscriptions/workflow/`,
+`payments/subscriptions/test/`, `payments/subscriptions/offers/link/`,
+`payments/subscriptions/offers/update/`, `payments/subscriptions/subscribe-to-webhooks/`,
+`api/understand/`, `errors/common/`.

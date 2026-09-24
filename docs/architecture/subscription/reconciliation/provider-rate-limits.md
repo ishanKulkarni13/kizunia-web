@@ -49,7 +49,11 @@ A caller that cannot acquire:
 - **user command (priority 1):** fails fast, `REJECTED(BUDGET_EXHAUSTED)`, "billing is temporarily
   busy, try again shortly"; nothing was sent, nothing changes.
 
-**Why it cannot be per caller.** Razorpay's limit is per account. Reconciliation and a webhook storm
+**Why it cannot be per caller.** Razorpay's limit is *presumed* to be per account — an **inference**:
+the documentation does not state the scope, only that increases are requested from Support
+([A12](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)).
+The design does not depend on the presumption being exactly right: bounding the sum of Kizunia's own
+traffic is the safe reading under any scope. Reconciliation and a webhook storm
 each staying under their own limit can still exceed Razorpay's together
 (`docs/temp/suscriptions-issues.md`). One budget is the only thing that bounds the sum.
 

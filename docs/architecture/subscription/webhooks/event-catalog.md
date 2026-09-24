@@ -27,7 +27,7 @@ fetch usually shows, for orientation only.
 | `subscription.cancelled` | `CANCELLED` (Kizunia-, Dashboard- or UPI-app-originated) |
 | `subscription.completed` | `COMPLETED` |
 | `subscription.paused` / `subscription.resumed` | `PAUSED` / `ACTIVE` |
-| `subscription.updated` | New plan (immediate update) or refreshed scheduled-change state |
+| `subscription.updated` | New plan (immediate update — documented). "Refreshed scheduled-change state" is an **inference**: Razorpay documents `subscription.updated` for immediate updates only and names no event for scheduling, applying or cancelling a `cycle_end` change ([A3](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support)); the sync fetch is what shows the truth either way |
 
 **Not covered by any documented event:** a *requested* cycle-end cancellation, a *requested*
 `cycle_end` plan change, and the moment a scheduled change is *applied*. Kizunia learns the first two
@@ -45,6 +45,11 @@ reconciliation at the scheduled time
 
 `payment.authorized`/`captured`/`failed`, `order.paid` and `invoice.*` are not subscribed
 ([SB-WH-08](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-08--kizunia-subscribes-only-to-the-events-it-acts-on)).
+The 2026-09-24 documentation research (A9) confirms this is the minimum set: Razorpay documents only
+`invoice.partially_paid`/`paid`/`expired` (for the Invoices product, with no statement that
+subscription invoices emit them) and no invoice-creation or payment-failure event, and every lifecycle
+change is re-derived from the authoritative fetch
+([`razorpay-facts.md`](../provider-boundary/razorpay-facts.md#webhooks)).
 
 ## Events for subscriptions Kizunia does not know
 

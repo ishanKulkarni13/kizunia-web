@@ -290,6 +290,7 @@ enum CompetitionPreferenceDimension {
   categories
   technologies
   eligibilities
+  competitionType
   location
   registrationPlatform
   registrationType
@@ -1059,7 +1060,7 @@ model Portfolio {
   phone              String?
   publicContactEmail String?
   location           String?
-  visibility         PortfolioVisibility      @default(PUBLIC)
+  visibility         PortfolioVisibility      @default(PRIVATE)
   createdAt          DateTime                 @default(now())
   updatedAt          DateTime                 @updatedAt
   deletedAt          DateTime?
@@ -1078,7 +1079,6 @@ model Portfolio {
   technologies       PortfolioTechnology[]
   testimonials       Testimonial[]            @relation("portfolioTestimonials")
 
-  @@index([userId])
   @@index([visibility])
   @@index([deletedAt])
   @@map("portfolio")

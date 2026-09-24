@@ -261,6 +261,12 @@ Walks a competition suggestion from submission to a reviewer's push.
    the new notice, and — with Firebase configured (§3) and a real subscription
    (§4) — a browser notification should appear. `pnpm notifications:diagnose`
    prints exactly what happened at the database level; see §7.
+7. **Click the notification** (#93). The target should open (an existing Kizunia tab is
+   focused or navigated; otherwise a new window). Then `/user/notifications` should show that
+   row read, and `pnpm notifications:diagnose` / §7 should show `readAt` and `respondedAt` both
+   set. Repeat with the session expired or the network off: the target must still open, and the
+   row stays unread. In DevTools -> Application -> Service Workers, the worker's console shows the
+   `PATCH /api/v1/me/notifications/<id>/responded` request.
 
 ---
 

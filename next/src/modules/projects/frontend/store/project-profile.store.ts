@@ -8,6 +8,7 @@ import { ProjectDetailsDto } from "../../backend/dto/output";
 import { ProjectErrorCode } from "../../backend/errors/error-code";
 import { UpdateProjectProfileSchema } from "../../schemas/update-project-profile.schema";
 import { useProjectStore } from "./project.store";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 type ProfileFieldErrors = Partial<Record<keyof UpdateProjectProfileDto, string>>;
 
@@ -202,3 +203,7 @@ export const useProjectProfileStore =
       });
     },
   }));
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => useProjectProfileStore.getState().reset());

@@ -63,6 +63,15 @@ const projectSummarySelect = {
   },
 
   technologies: {
+    // A soft-deleted Technology behaves as if it does not exist outside the
+  // admin surface (docs/architecture/domain/technology.md), so display reads
+  // omit it. The relationship row is untouched; the editor's own list
+  // (ProjectTechnologyRepository) still returns it, flagged, so it can be removed.
+    where: {
+      technology: {
+        deletedAt: null,
+      },
+    },
     orderBy: {
       displayOrder: "asc",
     },
@@ -137,6 +146,15 @@ const projectDetailsInclude = {
   },
 
   technologies: {
+    // A soft-deleted Technology behaves as if it does not exist outside the
+  // admin surface (docs/architecture/domain/technology.md), so display reads
+  // omit it. The relationship row is untouched; the editor's own list
+  // (ProjectTechnologyRepository) still returns it, flagged, so it can be removed.
+    where: {
+      technology: {
+        deletedAt: null,
+      },
+    },
     orderBy: {
       displayOrder: "asc",
     },

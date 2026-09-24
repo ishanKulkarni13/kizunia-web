@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin, mcp, username } from "better-auth/plugins";
 import prisma from "./prisma";
+import { isReservedUsername } from "./reserved-usernames";
 import { displayUsernameSchema, usernameSchema } from "./validation";
 import { nextCookies } from "better-auth/next-js";
 import { sendEmail } from "./auth/email";
@@ -76,7 +77,10 @@ export const auth = betterAuth({
 
     username({
       usernameValidator(username) {
-        if (username === "admin") {
+        // Validated as typed, before Better Auth lowercases it, so this is
+        // case-insensitive (`Admin` must not slip past). See
+        // reserved-usernames.ts for why these names are unavailable.
+        if (isReservedUsername(username)) {
           return false;
         }
 

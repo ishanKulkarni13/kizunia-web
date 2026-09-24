@@ -3,6 +3,7 @@ import {
   CompetitionMode,
   CompetitionPreferenceDimension,
   CompetitionStatus,
+  CompetitionType,
   DifficultyLevel,
   EligibilityType,
   OrganizerType,
@@ -36,6 +37,7 @@ const ENUM_BACKED_DIMENSIONS: Partial<Record<DimensionId, readonly string[]>> = 
   [DimensionId.CERTIFICATE_TYPE]: Object.values(CertificateType),
   [DimensionId.STATUS]: Object.values(CompetitionStatus),
   [DimensionId.ELIGIBILITIES]: Object.values(EligibilityType),
+  [DimensionId.COMPETITION_TYPE]: Object.values(CompetitionType),
 };
 
 /** `teamSize` isn't backed by an enum or another table — any positive integer string is valid. */

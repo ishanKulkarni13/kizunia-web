@@ -20,6 +20,7 @@ Independent of any individual user's own weighting
 | `technologies` | 0.90 | Topical, but noisier — stacks are often partially listed. |
 | `location` | 0.80 | Feasibility — a real, practical barrier for offline events. |
 | `eligibilities` | 0.80 | Feasibility, and often genuinely disqualifying. |
+| `competitionType` | 0.80 | What *kind* of competition this is — as strong a topical signal as category, not a feasibility one. |
 | `mode` | 0.70 | Feasibility, coarser-grained than location/eligibility. |
 | `registrationFeeType` | 0.60 | Real constraint for many users, but only three possible values. |
 | `difficulty` | 0.50 | Fit signal, weaker and more often unset. |
@@ -55,7 +56,7 @@ decision. See [`candidate-selection.md`](candidate-selection.md).
 
 ## Enabled dimensions
 
-All thirteen registered dimensions are enabled by default
+All fourteen registered dimensions are enabled by default
 (`ENABLED_DIMENSIONS` = every `DimensionId`). Disabling one is removing its
 id from this set — no code deletion required, and re-enabling it is
 re-adding the id.

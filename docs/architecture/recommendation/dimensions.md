@@ -27,7 +27,7 @@ The engine (`eligibility.ts`, `scoring.ts`, `pipeline.ts`) never branches on
 
 ## Registry — `engine/dimensions/registry.ts`
 
-Thirteen dimensions, verified against `next/prisma/schema.prisma`:
+Fourteen dimensions, verified against `next/prisma/schema.prisma`:
 
 | Dimension id | Shape | Implementation |
 | --- | --- | --- |
@@ -35,6 +35,7 @@ Thirteen dimensions, verified against `next/prisma/schema.prisma`:
 | `categories` | list (relation slugs) | `listDimension` |
 | `technologies` | list (relation slugs) | `listDimension` |
 | `eligibilities` | list (enum) | `listDimension` |
+| `competitionType` | list (enum relation, `CompetitionTypeRelation`) | `listDimension` |
 | `location` | list (`SearchArea` ids) | `location.ts`, still `listDimension` underneath |
 | `registrationPlatform` | scalar enum | `scalarDimension` |
 | `registrationType` | scalar enum | `scalarDimension` |
@@ -45,7 +46,7 @@ Thirteen dimensions, verified against `next/prisma/schema.prisma`:
 | `status` | scalar enum | `scalarDimension` |
 | `teamSize` | two nullable ints | `team-size.ts`, custom `match` (containment) |
 
-Nine of the thirteen are one call each to `scalarDimension`/`listDimension`
+Ten of the fourteen are one call each to `scalarDimension`/`listDimension`
 (`engine/dimensions/set-dimension.ts`) — no bespoke code. `location`
 reuses the same generic list matcher; its file exists to document *why*
 `searchAreaIds` is the right extraction (see
@@ -85,8 +86,13 @@ Reintroducing one later as a scored dimension is additive:
 
 No change to `eligibility.ts`, `scoring.ts`, or `pipeline.ts` is required.
 
-## Not available: `registrationFee`, `competitionType`
+## Not available: `registrationFee`
 
 See
 [`docs/project/feature-specification/recommendation/relevance/dimensions.md`](../../project/feature-specification/recommendation/relevance/dimensions.md)
-for why. Neither has a registry entry; there is nothing to disable.
+for why. It has no registry entry; there is nothing to disable.
+
+`competitionType` was listed here as unavailable as of this document's last
+update; it has since been added as a dimension (see the registry table
+above) once `CompetitionType`/`CompetitionTypeRelation` existed in the
+schema.

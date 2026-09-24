@@ -52,8 +52,8 @@ export interface PortfolioProjectSummaryDto {
 
   displayOrder: number;
 
-  /** When the project was added to the portfolio. */
-  createdAt: Date;
+  /** When the project was added to the portfolio (ISO 8601). */
+  createdAt: string;
 }
 
 export interface PortfolioProjectAssetDto {

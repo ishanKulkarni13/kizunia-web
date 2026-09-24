@@ -9,6 +9,7 @@ import type {
   AddPortfolioProjectInput,
   UpdatePortfolioProjectInput,
 } from "../../schemas/portfolio-project.schema";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 interface PortfolioProjectsStore {
   projects: PortfolioProjectSummaryDto[];
@@ -146,3 +147,7 @@ async function run(
     }
   }
 }
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => usePortfolioProjectsStore.getState().reset());

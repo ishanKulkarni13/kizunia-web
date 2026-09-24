@@ -2,7 +2,7 @@
 
 > **Status:** Direction — not implemented
 >
-> **Last Updated:** 2026-09-12
+> **Last Updated:** 2026-09-24 (Subscription & Billing decisions IB-2 and IB-16 recorded)
 
 The architecture should leave room for notification functionality to become:
 
@@ -39,6 +39,25 @@ entitlement or flag check belongs is identified **before** there is anything to 
 simply avoids designs that would obstruct one later
 ([`open-decisions.md`](../../../project/feature-specification/notification/open-decisions.md)).
 
+**Subscription & Billing fills this seam (decided 2026-09-24,
+[IB-2](../../subscription/implementation/open-decisions.md#ib-2--recommendation-gate-point)):**
+
+| Intent | Required capability | Plans |
+| --- | --- | --- |
+| `REGISTRATION_CLOSING` (deadline notifications) | deadline notifications | Pro, Pro+ |
+| `TOP_RELEVANT_COMPETITION` (competition recommendations) | recommendations | Pro+ |
+| `FEATURE_ANNOUNCEMENT`, `ADMIN_COMPETITION_SUGGESTION` | none (unchanged) | all |
+
+- The **primary** check is here, at user eligibility: a set-based predicate in the scheduler's
+  eligible-user query, so users who are not entitled produce no candidates.
+- The job handler / `NotificationPolicyService` and delivery **re-check** it, exactly as they already
+  re-check the preference. This is a guard against entitlement lost between scheduling and sending,
+  not the gate, so it does not contradict "at delivery" in the wrong-places table below.
+- A failed check is suppressed with the new reason `NOT_ENTITLED`.
+- The recommendation engine itself is never gated: it also serves the Pro deadline intent.
+- There is no admin bypass, because a background job has no actor
+  ([IB-7](../../subscription/implementation/open-decisions.md#ib-7--admin-bypass-of-entitlement-gates)).
+
 ---
 
 ## Why user eligibility is the right place
@@ -73,6 +92,14 @@ The distinction must survive into storage
 Both produce "no notification", which is exactly why they get collapsed into one flag and should
 not be. A user who loses an entitlement and regains it should find their preference as they left
 it.
+
+**Decided 2026-09-24 ([IB-16](../../subscription/implementation/open-decisions.md#ib-16--preferences-for-non-entitled-intents)):**
+"Absence means cannot be enabled" above describes the *effect*, not a storage rule.
+
+- A user may store a preference for an intent they are not entitled to; the toggle is always saved.
+- The preferences DTO carries a server-computed `entitled` flag per intent, and the UI shows
+  "requires Pro / Pro+".
+- Nothing is delivered until the user is entitled.
 
 ---
 

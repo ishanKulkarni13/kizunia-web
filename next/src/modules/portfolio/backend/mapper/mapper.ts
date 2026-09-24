@@ -4,9 +4,11 @@
  * Responsible for mapping between entities and DTOs.
  */
 
+import type { AssetCategory } from "@/generated/prisma";
+import { buildAssetViewUrl } from "@/modules/assets/backend/download-url";
+
 import type { CreatePortfolioDto, PortfolioEditorDto } from "../../dtos";
 import type { PortfolioPublicDto } from "../../dtos";
-import type { PortfolioSummaryDto } from "../../dtos";
 
 import type { PortfolioProjectSummaryDto } from "../../dtos";
 import type { PortfolioTestimonialSummaryDto } from "../../dtos";
@@ -15,16 +17,26 @@ import type { PortfolioTechnologySummaryDto } from "../../dtos";
 import type {
   PortfolioEditorEntity,
   PortfolioPublicDetailsEntity,
-  PortfolioSummaryEntity,
 } from "../repository";
 
 import type { PortfolioProjectSummaryEntity } from "../portfolio-project.repository";
 import type { PortfolioTestimonialEntity } from "../portfolio-testimonial.repository";
 import type { PortfolioTechnologyEntity } from "../portfolio-technology.repository";
 
+/**
+ * The one place a Portfolio asset becomes a client-facing URL.
+ *
+ * Never `asset.secureUrl` directly: for a DOCUMENT (the resume) that URL is
+ * undeliverable, and the Assets module owns the rule for what is — see
+ * `buildAssetViewUrl`. Images come back unchanged. `publicId`/`category` are
+ * inputs to that call only and are never copied into the result. The URL may
+ * be signed and short-lived, so the result must not be persisted or cached.
+ */
 function toPublicAssetDto(
   asset: {
     id: string;
+    publicId: string;
+    category: AssetCategory;
     secureUrl: string;
     width: number | null;
     height: number | null;
@@ -38,7 +50,7 @@ function toPublicAssetDto(
 
   return {
     id: asset.id,
-    url: asset.secureUrl,
+    url: buildAssetViewUrl(asset),
     width: asset.width,
     height: asset.height,
     format: asset.format,
@@ -203,8 +215,38 @@ export class PortfolioMapper {
     };
   }
 
+  /**
+   * Maps to the editor contract. Every field is picked explicitly — the
+   * entity carries authorization inputs (userId, deletedAt) and a raw asset
+   * row that are not part of it.
+   */
   static toEditorDto(portfolio: PortfolioEditorEntity): PortfolioEditorDto {
-    return portfolio;
+    return {
+      id: portfolio.id,
+
+      displayName: portfolio.displayName,
+      headline: portfolio.headline,
+      bio: portfolio.bio,
+
+      phone: portfolio.phone,
+      publicContactEmail: portfolio.publicContactEmail,
+      location: portfolio.location,
+
+      visibility: portfolio.visibility,
+
+      user: {
+        username: portfolio.user.username,
+      },
+
+      resumeAsset: portfolio.resumeAsset
+        ? {
+            id: portfolio.resumeAsset.id,
+            url: buildAssetViewUrl(portfolio.resumeAsset),
+            format: portfolio.resumeAsset.format,
+            mimeType: portfolio.resumeAsset.mimeType,
+          }
+        : null,
+    };
   }
 
   // ===========================================================================
@@ -249,7 +291,7 @@ export class PortfolioMapper {
 
       displayOrder: entry.displayOrder,
 
-      createdAt: entry.createdAt,
+      createdAt: entry.createdAt.toISOString(),
     };
   }
 
@@ -279,7 +321,7 @@ export class PortfolioMapper {
 
       image: toPublicAssetDto(entry.imageAsset),
 
-      createdAt: entry.createdAt,
+      createdAt: entry.createdAt.toISOString(),
     };
   }
 
@@ -308,6 +350,10 @@ export class PortfolioMapper {
       description: entry.description,
 
       displayOrder: entry.displayOrder,
+
+      // The editor keeps a retired catalog entry listed so the owner can
+      // still see and remove it; the public DTO never renders one.
+      unavailable: entry.technology.deletedAt !== null,
     };
   }
 
@@ -315,16 +361,6 @@ export class PortfolioMapper {
     entries: PortfolioTechnologyEntity[],
   ): PortfolioTechnologySummaryDto[] {
     return entries.map((entry) => this.toTechnologySummaryDto(entry));
-  }
-
-  static toSummaryDto(portfolio: PortfolioSummaryEntity): PortfolioSummaryDto {
-    return portfolio;
-  }
-
-  static toSummaryDtos(
-    portfolios: PortfolioSummaryEntity[],
-  ): PortfolioSummaryDto[] {
-    return portfolios.map(this.toSummaryDto);
   }
 
   // ===========================================================================

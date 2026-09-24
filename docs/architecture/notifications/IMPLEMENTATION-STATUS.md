@@ -105,6 +105,12 @@ later) and `PushProvider` (FCM today, anything later).
   - [x] `public/firebase-messaging-sw.js`, `public/manifest.json`, manifest linked from the layout
   - [x] `lib/push/firebase-client.ts` — browser wrapper, config passed to the worker via the
         registration URL
+  - [x] **#93 — push click acknowledges its notification.** The worker keeps `notificationId` in
+        the banner's click data and, on click, calls the existing `/responded` (or `/read` when there
+        is no action) endpoint in parallel with navigation. Session-cookie auth, idempotent,
+        failure-isolated, intent-agnostic; the competition page is untouched. See
+        [`delivery/clients-and-channels.md`](delivery/clients-and-channels.md#push-click-lifecycle-93).
+        Also fixed: `markResponded` overwrote an existing `readAt`.
 
 - [x] **Phase E — Admin announcements**
   - [x] `PlatformAction.MANAGE_NOTIFICATION_ANNOUNCEMENTS`, granted to ADMIN + SUPER_ADMIN
@@ -235,6 +241,9 @@ fix below).
 | File | Covers |
 | --- | --- |
 | `delivery/push-provider.factory.test.ts` | **New.** `getPushProvider()` falls back to the fake when unconfigured; resolves a real, constructible `FcmPushProvider` when credentials are present (the regression test for the bug fixed below); caches across calls |
+| `lib/push/firebase-messaging-sw.test.ts` | **New (#93).** Loads the real service worker in a `vm`: id and link kept in click data; exact-id `responded`/`read` request; per-intent parity; malformed id → no request; offline / 401 / throw / hung request → still navigates; tab focus / navigate / `openWindow`; off-origin link refused |
+| `modules/notifications/competition-page-agnostic.test.ts` | **New (#93).** The competition route mentions no notifications and stays `revalidate`d, not dynamic |
+| `backend/push-click-acknowledgement.integration.test.ts` | **New (#93).** Responded implies read; repeat is a no-op; original `readAt` preserved; exact-notification scope; every intent; another user's or an unknown id → 404 and unchanged. **Written but not yet run** — the database available when it was written lacked the notification tables |
 | `jobs/backoff.test.ts` | Curve, cap, additive-upward jitter, spread across simultaneous failures |
 | `jobs/postgres-work-queue.integration.test.ts` | **Cases 1, 2, 3** — lease recovery, disjoint concurrent claims, duplicate enqueue |
 | `jobs/job-runner.integration.test.ts` | **Case 4** — handler throws; plus classification, payload rejection, fault isolation, continuation, budget |
@@ -346,6 +355,8 @@ every `__vitest`-prefixed user is empty.
 Worth a look by whoever owns those two areas, separately from notifications.
 
 ### Next recommended action
+
+**Manual, for #93** (needs a real browser and FCM): click a real push with Kizunia closed, with a tab open on another page, with a tab already on the target, signed out, and offline; confirm the inbox row ends read and responded (or is untouched when signed out/offline) and the target always opens. Also confirm FCM accepts the site-relative `webpush.fcmOptions.link` the server sends — FCM documents that field as HTTPS-only — and that the banner shown by the Firebase SDK is replaced by the worker's (same `tag`), since only the worker's carries the id.
 
 Firebase is now configured in local development and a real push has been verified end to end
 against the `kizunia-dev` project (see "Fixed: `getPushProvider()` never actually constructed the

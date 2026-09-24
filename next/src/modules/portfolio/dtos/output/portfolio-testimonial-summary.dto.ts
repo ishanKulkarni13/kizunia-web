@@ -1,10 +1,8 @@
 /**
  * A testimonial as the Portfolio *editor* sees it — a deliberate,
- * hand-mapped contract, never a raw entity/Prisma passthrough (unlike
- * `PortfolioEditorEntity`/`PortfolioEditorDto`, which is a raw passthrough
- * for every still-unbuilt section). Testimonials get their own dedicated
- * endpoint and DTO so the editor never has to read raw `Testimonial` +
- * `imageAsset` rows through the generic `/portfolio/mine` payload.
+ * hand-mapped contract, never a raw entity/Prisma passthrough. Testimonials
+ * get their own dedicated endpoint and DTO; the editor aggregate
+ * (`PortfolioEditorDto`) deliberately does not carry them.
  *
  * Never exposed: raw Asset internals (`publicId`, provider fields),
  * `portfolioId` (implicit — always the acting user's own portfolio),
@@ -27,7 +25,8 @@ export interface PortfolioTestimonialSummaryDto {
 
   image: PortfolioTestimonialAssetDto | null;
 
-  createdAt: Date;
+  /** ISO 8601. */
+  createdAt: string;
 }
 
 export interface PortfolioTestimonialAssetDto {

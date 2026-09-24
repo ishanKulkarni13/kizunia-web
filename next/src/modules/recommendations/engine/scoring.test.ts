@@ -11,6 +11,7 @@ const SYSTEM_WEIGHTS = {
   [DimensionId.TECHNOLOGIES]: 0.9,
   [DimensionId.LOCATION]: 0.8,
   [DimensionId.ELIGIBILITIES]: 0.8,
+  [DimensionId.COMPETITION_TYPE]: 0.8,
   [DimensionId.MODE]: 0.7,
   [DimensionId.REGISTRATION_FEE_TYPE]: 0.6,
   [DimensionId.DIFFICULTY]: 0.5,
@@ -179,5 +180,27 @@ describe("WeightedCoverageScorer", () => {
     expect(result.score).toBe(1);
     expect(result.contributions[0].signal.outcome).toBe("MATCH");
     expect(result.contributions[0].signal.strength).toBe(1);
+  });
+
+  it("scores a competitionType match at 1", () => {
+    const result = score(
+      [entry(DimensionId.COMPETITION_TYPE, "HACKATHON", 0.8)],
+      buildCandidate({ competitionTypes: ["HACKATHON"] }),
+    );
+    expect(result.score).toBe(1);
+  });
+
+  it("a competitionType mismatch scores the same as missing competition data", () => {
+    const mismatch = score(
+      [entry(DimensionId.COMPETITION_TYPE, "HACKATHON", 0.8)],
+      buildCandidate({ competitionTypes: ["QUIZ"] }),
+    );
+    const missing = score(
+      [entry(DimensionId.COMPETITION_TYPE, "HACKATHON", 0.8)],
+      buildCandidate({ competitionTypes: [] }),
+    );
+
+    expect(mismatch.score).toBe(0);
+    expect(missing.score).toBe(mismatch.score);
   });
 });

@@ -76,8 +76,12 @@ async function main(): Promise<void> {
     const created = await portfolioService.create({ actor });
 
     report(
-      "the created portfolio is returned with the editor shape (has user.name)",
-      typeof created.user.name === "string",
+      "the created portfolio is returned with the editor shape (explicit DTO: username, no raw user/userId)",
+      "username" in created.user && !("name" in created.user) && !("userId" in created),
+    );
+    report(
+      "a new portfolio starts PRIVATE",
+      created.visibility === "PRIVATE",
     );
 
     console.log("\n== Invariant: a normal duplicate create maps to PortfolioAlreadyExistsError -> 409 ==");

@@ -7,3 +7,9 @@ export async function POST(
 ) {
   return PortfolioController.create(request);
 }
+
+export async function DELETE(
+  request: NextRequest,
+) {
+  return PortfolioController.delete(request);
+}

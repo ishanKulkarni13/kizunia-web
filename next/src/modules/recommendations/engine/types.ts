@@ -34,6 +34,7 @@ export const DimensionId = {
   CATEGORIES: "categories",
   TECHNOLOGIES: "technologies",
   ELIGIBILITIES: "eligibilities",
+  COMPETITION_TYPE: "competitionType",
   LOCATION: "location",
   REGISTRATION_PLATFORM: "registrationPlatform",
   REGISTRATION_TYPE: "registrationType",
@@ -114,6 +115,7 @@ export interface RecommendationCandidate {
   readonly categorySlugs: readonly string[];
   readonly technologySlugs: readonly string[];
   readonly eligibilityTypes: readonly string[];
+  readonly competitionTypes: readonly string[];
   /** Reachable `SearchArea` ids for this competition's location(s). Empty = unknown. */
   readonly searchAreaIds: readonly string[];
   /** Tiebreakers only — see the module docstring above. */

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
+import { PortfolioDeletedState } from "@/modules/portfolio/frontend/components/portfolio-deleted-state";
 import { PortfolioEmptyState } from "@/modules/portfolio/frontend/components/portfolio-empty-state";
 import { PortfolioEditorLoading } from "@/modules/portfolio/frontend/components/editor/portfolio-editor-loading";
 import { usePortfolioStore } from "@/modules/portfolio/frontend/store/portfolio.store";
@@ -13,6 +14,9 @@ import { usePortfolioCreationFlow } from "@/modules/portfolio/frontend/hooks/use
 export default function PortfolioPage() {
   const portfolio = usePortfolioStore((state) => state.portfolio);
   const isLoading = usePortfolioStore((state) => state.isLoading);
+  const isDeleted = usePortfolioStore((state) => state.isDeleted);
+  const isMutating = usePortfolioStore((state) => state.isMutating);
+  const restorePortfolio = usePortfolioStore((state) => state.restorePortfolio);
   const getMine = usePortfolioStore((state) => state.getMine);
 
   const {
@@ -33,7 +37,12 @@ export default function PortfolioPage() {
 
   return (
     <>
-      {!portfolio ? (
+      {isDeleted ? (
+        <PortfolioDeletedState
+          isRestoring={isMutating}
+          onRestore={() => void restorePortfolio()}
+        />
+      ) : !portfolio ? (
         <PortfolioEmptyState isCreating={isCreating} onCreate={requestCreate} />
       ) : (
         <div className="flex min-h-[60vh] items-center justify-center px-6">

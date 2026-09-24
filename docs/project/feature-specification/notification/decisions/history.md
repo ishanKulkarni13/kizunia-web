@@ -226,6 +226,11 @@ read,    responded     the notification worked
 unread,  responded     clicked straight through from a push banner
 ```
 
+> **Amended by #93:** clicking through a push banner acknowledges it with `responded`, which also
+> marks it read (as opening it from the inbox always did) — otherwise the badge keeps counting
+> something the user already opened. The fourth combination is therefore not produced by the API;
+> the two bits remain independent otherwise (`read` alone never implies `responded`).
+
 **Rationale:** A-8 asked whether these should ever diverge. They must: the inbox needs "what needs
 my attention?", which is read state, while the product needs "did this notification achieve
 anything?", which is response. Collapsing them means either the unread badge lies after a user

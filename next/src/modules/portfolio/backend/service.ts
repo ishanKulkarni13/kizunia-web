@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Portfolio Module - Service
  *
  * Responsible for all business rules:
@@ -11,7 +11,6 @@
  */
 
 import {
-  AuthorizationActor,
   AuthorizationCode,
   StrictAuthorizationActor,
 } from "@/authorization";
@@ -24,13 +23,26 @@ import { AssetPurpose } from "@/generated/prisma";
 import { assertAssetReferenceAllowed } from "@/modules/assets/backend/reference-policy";
 import { assetService } from "@/modules/assets/backend/service";
 
-import { PortfolioAuthorizer, PortfolioContextResolver } from "./authorization";
+import {
+  PortfolioAction,
+  PortfolioAuthorizer,
+  PortfolioContextResolver,
+  PortfolioPolicy,
+} from "./authorization";
+import type { PortfolioContext } from "./authorization";
 
 import { PortfolioProfileUpdateData, PortfolioRepository } from "./repository";
+import type { PortfolioAuthorizationEntity } from "./repository";
 import { PortfolioEditorDto, PortfolioPublicDto } from "../dtos";
-import { PortfolioAlreadyExistsError } from "../errors";
+import {
+  PortfolioAlreadyExistsError,
+  PortfolioDeletedError,
+  PortfolioNotDeletedError,
+  PortfolioNotFoundError,
+} from "../errors";
 import { PortfolioMapper } from "./mapper/mapper";
 import { UpdatePortfolioProfileDto } from "../dtos/input/update.dto";
+import type { ChangePortfolioVisibilityInput } from "../schemas/portfolio-visibility.schema";
 
 export class PortfolioService {
   private readonly repository = new PortfolioRepository();
@@ -44,6 +56,35 @@ export class PortfolioService {
   }: {
     username: string;
   }): Promise<PortfolioPublicDto> {
+    // PortfolioPolicy is the authoritative decision here. The repository's
+    // SQL pre-filter on findPublicByUsername (visibility PUBLIC / deletedAt
+    // null / owner not banned) is retained as defence-in-depth and as a
+    // data-scoping optimisation — the same pattern as
+    // publiclyListableProjectWhere for Projects — but it cannot express the
+    // public-display eligibility axis, which is a runtime value (see
+    // authorization/public-eligibility.ts). So the policy runs first, and is
+    // what actually decides.
+    const authorizationRow = await this.repository.findForAuthorizationByUsername({
+      username,
+    });
+
+    if (!authorizationRow) {
+      throw new PortfolioNotFoundError();
+    }
+
+    const context = PortfolioContextResolver.forPublicRead({
+      portfolio: authorizationRow,
+    });
+
+    // Deliberately `.can(...).allowed` rather than PortfolioAuthorizer.read:
+    // this is an unauthenticated endpoint, so every denial reason — private,
+    // owner banned, soft-deleted, or not publicly eligible — must be
+    // indistinguishable from "no such portfolio". A 403 here would leak the
+    // existence of a private or plan-gated portfolio that a 404 does not.
+    if (!PortfolioPolicy.can(context, PortfolioAction.VIEW).allowed) {
+      throw new PortfolioNotFoundError();
+    }
+
     const portfolio = await this.repository.findPublicByUsernameOrThrow({
       username,
     });
@@ -56,14 +97,6 @@ export class PortfolioService {
   }: {
     actor: StrictAuthorizationActor;
   }): Promise<PortfolioEditorDto | null> {
-    // if (!actor.id) {
-    //   throw new AuthorizationError({
-    //     code: AuthorizationCode.UNAUTHORIZED,
-    //     status: 401,
-    //     message: "Authentication is required.",
-    //   });
-    // }
-
     const portfolio = await this.repository.findEditorByUserId({
       userId: actor.id,
     });
@@ -72,11 +105,11 @@ export class PortfolioService {
       return null;
     }
 
-    PortfolioAuthorizer.read({
-      actor,
-      portfolio,
-      isOwner: portfolio.userId === actor.id,
-    });
+    // A soft-deleted portfolio is refused here (403 RESOURCE_DELETED) rather
+    // than returned or reported as missing: the owner's editor keys on that
+    // code to offer a restore, and it stays distinguishable from "you have no
+    // portfolio yet" (404), which offers creation.
+    PortfolioAuthorizer.read(this.ownerContext({ actor, portfolio }));
 
     return PortfolioMapper.toEditorDto(portfolio);
   }
@@ -133,6 +166,8 @@ export class PortfolioService {
 
     const displayName: string = user.name;
 
+    // `visibility` is deliberately not set: the column default (PRIVATE) is
+    // the single source of truth for what a new portfolio starts as.
     const portfolio = await prisma.$transaction(async (tx) => {
       const repository = new PortfolioRepository(tx);
 
@@ -170,29 +205,14 @@ export class PortfolioService {
     actor: StrictAuthorizationActor;
     dto: UpdatePortfolioProfileDto;
   }): Promise<PortfolioEditorDto> {
-    // if (!actor.id) {
-    //   throw new AuthorizationError({
-    //     code: AuthorizationCode.UNAUTHORIZED,
-    //     status: 401,
-    //     message: "Authentication is required.",
-    //   });
-    // }
+    // Only what authorizing the edit and driving the resume swap needs —
+    // never the portfolio's content.
+    const portfolio =
+      await this.repository.findForProfileUpdateByUserIdOrThrow({
+        userId: actor.id,
+      });
 
-    const portfolio = await this.repository.findByUserIdOrThrow({
-      userId: actor.id,
-    });
-
-    const context = PortfolioContextResolver.fromData({
-      actor,
-      portfolio: {
-        id: portfolio.id,
-        userId: portfolio.userId,
-        visibility: portfolio.visibility,
-        deletedAt: portfolio.deletedAt,
-      },
-    });
-
-    PortfolioAuthorizer.edit(context);
+    PortfolioAuthorizer.edit(this.ownerContext({ actor, portfolio }));
 
     // Target-domain authorization (above) only establishes that this actor
     // may edit this portfolio. It says nothing about whether the specific
@@ -251,22 +271,135 @@ export class PortfolioService {
 
     return PortfolioMapper.toEditorDto(updatedPortfolio);
   }
+
+  // ===========================================================================
+  // Visibility & lifecycle
+  //
+  // Stored visibility is the owner's preference (PUBLIC | PRIVATE). It is a
+  // different axis from public-display eligibility (an entitlement, computed
+  // at read time and never written here) and from deletion, which overrides
+  // visibility for everyone but the owner. Nothing below touches the
+  // portfolio's child rows or Asset references, so none of it needs a
+  // transaction: each operation is a single write.
+  // ===========================================================================
+
+  async changeVisibility({
+    actor,
+    dto,
+  }: {
+    actor: StrictAuthorizationActor;
+    dto: ChangePortfolioVisibilityInput;
+  }): Promise<PortfolioEditorDto> {
+    const portfolio =
+      await this.repository.findForAuthorizationByUserIdOrThrow({
+        userId: actor.id,
+      });
+
+    PortfolioAuthorizer.changeVisibility(
+      this.ownerContext({ actor, portfolio }),
+    );
+
+    const updated = await this.repository.updateVisibility({
+      id: portfolio.id,
+      visibility: dto.visibility,
+    });
+
+    return PortfolioMapper.toEditorDto(updated);
+  }
+
+  async delete({
+    actor,
+  }: {
+    actor: StrictAuthorizationActor;
+  }): Promise<void> {
+    const portfolio =
+      await this.repository.findForAuthorizationByUserIdOrThrow({
+        userId: actor.id,
+      });
+
+    // Refuses an already-deleted portfolio (RESOURCE_DELETED), like every
+    // other owner action.
+    PortfolioAuthorizer.delete(this.ownerContext({ actor, portfolio }));
+
+    await this.repository.softDelete({ id: portfolio.id });
+  }
+
+  async restore({
+    actor,
+  }: {
+    actor: StrictAuthorizationActor;
+  }): Promise<PortfolioEditorDto> {
+    const portfolio =
+      await this.repository.findForAuthorizationByUserIdOrThrow({
+        userId: actor.id,
+      });
+
+    PortfolioAuthorizer.restore(this.ownerContext({ actor, portfolio }));
+
+    if (!portfolio.deletedAt) {
+      throw new PortfolioNotDeletedError();
+    }
+
+    const restored = await this.repository.restore({ id: portfolio.id });
+
+    return PortfolioMapper.toEditorDto(restored);
+  }
+
   // ===========================================================================
   // Helpers
   // ===========================================================================
+
+  /**
+   * The authorization context for the actor's OWN portfolio.
+   *
+   * The actor IS the owner here (the row was looked up by their own userId),
+   * so their ban state — already known from the session — is what
+   * PortfolioContextResolver.fromData uses for `ownerBanned`; no extra fetch
+   * of `user.banned` is needed for these owner-only paths.
+   */
+  private ownerContext({
+    actor,
+    portfolio,
+  }: {
+    actor: StrictAuthorizationActor;
+    portfolio: Pick<
+      PortfolioAuthorizationEntity,
+      "id" | "userId" | "visibility" | "deletedAt"
+    >;
+  }): PortfolioContext {
+    return PortfolioContextResolver.fromData({
+      actor,
+      portfolio: {
+        id: portfolio.id,
+        userId: portfolio.userId,
+        visibility: portfolio.visibility,
+        deletedAt: portfolio.deletedAt,
+        user: { banned: actor.banned },
+      },
+    });
+  }
 
   private async ensurePortfolioDoesNotExist({
     userId,
   }: {
     userId: string;
   }): Promise<void> {
-    const exists = await this.repository.existsByUserId({
+    const existing = await this.repository.findForAuthorizationByUserId({
       userId,
     });
 
-    if (exists) {
-      throw new PortfolioAlreadyExistsError();
+    if (!existing) {
+      return;
     }
+
+    // `Portfolio.userId` is unique and nothing is hard-deleted, so a
+    // soft-deleted portfolio still occupies the user's one slot. Say so,
+    // rather than a generic "already exists" the owner cannot act on.
+    if (existing.deletedAt) {
+      throw new PortfolioDeletedError();
+    }
+
+    throw new PortfolioAlreadyExistsError();
   }
 }
 

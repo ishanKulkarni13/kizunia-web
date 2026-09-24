@@ -3,7 +3,6 @@ import { TriangleAlertIcon } from "lucide-react";
 
 import { PlatformAction } from "@/authorization/platform/actions";
 import { PlatformAuthorizer } from "@/authorization/platform/authorizer";
-import type { StrictAuthorizationActor } from "@/authorization";
 import PageWrapper from "@/components/page-wrapper";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,7 +14,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { SessionService } from "@/lib/auth/session";
-import { AppError, AuthenticationError } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
 import type { RawSearchParams } from "@/lib/search";
 import { SearchPagination } from "@/lib/search/react";
 
@@ -42,23 +41,9 @@ interface Props {
 export default async function AdminAssetReconciliationPage({ searchParams }: Props) {
   const params = await searchParams;
 
-  const actor = await SessionService.getActor();
+  const actor = await SessionService.getStrictActor();
 
-  if (!actor || !actor.role || !!actor.banned || !actor.id) {
-    throw new AuthenticationError({
-      code: "UNAUTHORIZED",
-      message: "You are not authorized to access this page.",
-      status: 401,
-    });
-  }
-
-  const strictActor: StrictAuthorizationActor = {
-    id: actor.id,
-    role: actor.role,
-    banned: actor.banned ?? true,
-  };
-
-  PlatformAuthorizer.can({ actor: strictActor }, PlatformAction.MANAGE_MEDIA);
+  PlatformAuthorizer.can({ actor }, PlatformAction.MANAGE_MEDIA);
 
   let previewOutcome:
     | { status: "fulfilled"; value: Awaited<ReturnType<typeof assetAdminService.previewReconciliation>> }
@@ -67,7 +52,7 @@ export default async function AdminAssetReconciliationPage({ searchParams }: Pro
   try {
     previewOutcome = {
       status: "fulfilled",
-      value: await assetAdminService.previewReconciliation(strictActor, params),
+      value: await assetAdminService.previewReconciliation(actor, params),
     };
   } catch (error) {
     previewOutcome = { status: "rejected", reason: error };

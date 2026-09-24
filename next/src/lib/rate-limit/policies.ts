@@ -100,6 +100,20 @@ export const RateLimitPolicyId = {
    * write budget, and vice versa.
    */
   MCP_TOOLS_WRITE: "mcp:tools-write",
+  /**
+   * The signed-in owner reading their own portfolio editor state: the
+   * aggregate (`GET /portfolio/me`) and the three section lists (projects,
+   * testimonials, technologies). Distinct from PORTFOLIO_READ_PUBLIC, which
+   * guards the anonymous, IP-keyed public read.
+   */
+  PORTFOLIO_READ_OWN: "portfolio:read-own",
+  PORTFOLIO_CREATE: "portfolio:create",
+  PORTFOLIO_PROFILE_WRITE: "portfolio:profile-write",
+  /** Visibility change, delete and restore. */
+  PORTFOLIO_LIFECYCLE_WRITE: "portfolio:lifecycle-write",
+  PORTFOLIO_PROJECTS_WRITE: "portfolio:projects-write",
+  PORTFOLIO_TESTIMONIALS_WRITE: "portfolio:testimonials-write",
+  PORTFOLIO_TECHNOLOGIES_WRITE: "portfolio:technologies-write",
 } as const;
 
 export type RateLimitPolicyId =
@@ -372,5 +386,68 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "closed",
     description:
       "create_competition and update_competition, called through MCP. A tighter ceiling than mcp:tools-read: these writes mutate real competition rows attributed to a real user, and are far more consequential if a misbehaving or runaway agent loops. Fails closed, like every other write-capable MCP-adjacent policy (assets:upload-intent, auth:sign-up) — a limiter outage must not become an uncapped write window.",
+  },
+  [RateLimitPolicyId.PORTFOLIO_READ_OWN]: {
+    id: RateLimitPolicyId.PORTFOLIO_READ_OWN,
+    limit: 120,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Reading one's own portfolio editor state — the aggregate and the projects/testimonials/technologies lists (each route already requires a session). Indexed reads scoped to one portfolio, local DB cost only. The editor makes several of these per page load, so 120/min sits well above a real session while still stopping a stuck client — fails open.",
+  },
+  [RateLimitPolicyId.PORTFOLIO_CREATE]: {
+    id: RateLimitPolicyId.PORTFOLIO_CREATE,
+    limit: 5,
+    windowSeconds: 3600,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Creating one's own portfolio. The one-per-user unique constraint already makes a second success impossible, so this is not a fairness limit; it only caps a stuck client hammering a route that can succeed once (and otherwise 409s). 5/hour is far above any real retry rhythm. Local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.PORTFOLIO_PROFILE_WRITE]: {
+    id: RateLimitPolicyId.PORTFOLIO_PROFILE_WRITE,
+    limit: 30,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Saving one's portfolio profile. Heavier than a bare write: with a resume it takes an Asset lock, re-validates the asset and may detach the previous one inside a transaction, so the ceiling matches competition-preferences:write. Local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.PORTFOLIO_LIFECYCLE_WRITE]: {
+    id: RateLimitPolicyId.PORTFOLIO_LIFECYCLE_WRITE,
+    limit: 30,
+    windowSeconds: 3600,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Changing portfolio visibility, deleting it, or restoring it. Rare, deliberate, single-row writes; nothing legitimate flips these many times an hour, but 30/hour tolerates a user testing the switch. Local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.PORTFOLIO_PROJECTS_WRITE]: {
+    id: RateLimitPolicyId.PORTFOLIO_PROJECTS_WRITE,
+    limit: 60,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Adding, featuring, reordering or removing portfolio projects. Small composite-key writes; reorders are interactive so the ceiling is higher than the asset-bearing sections. Local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.PORTFOLIO_TESTIMONIALS_WRITE]: {
+    id: RateLimitPolicyId.PORTFOLIO_TESTIMONIALS_WRITE,
+    limit: 30,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Adding, editing, reordering or removing portfolio testimonials. Creates unbounded user-authored text and can attach or replace an image, which takes an Asset lock inside a transaction, so the ceiling matches profile writes. Local DB cost only — fails open.",
+  },
+  [RateLimitPolicyId.PORTFOLIO_TECHNOLOGIES_WRITE]: {
+    id: RateLimitPolicyId.PORTFOLIO_TECHNOLOGIES_WRITE,
+    limit: 60,
+    windowSeconds: 60,
+    subjectStrategies: ["user"],
+    failureMode: "open",
+    description:
+      "Adding, editing, reordering or removing portfolio technologies. Small composite-key writes validated against the catalog; reorders are interactive, so the ceiling matches projects. Local DB cost only — fails open.",
   },
 } as const;

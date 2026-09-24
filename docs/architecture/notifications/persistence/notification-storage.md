@@ -135,8 +135,9 @@ tables, because collapsing them lost information the product needs:
 
 Read and responded are independent
 ([ND-H-10](../../../project/feature-specification/notification/decisions/history.md#nd-h-10--read-and-responded-are-separate-states)),
-and neither is evidence about delivery. All four combinations occur — including unread-but-responded,
-which is what clicking straight through a push banner produces.
+and neither is evidence about delivery. Responding **implies** read (`markResponded` sets both, each
+once), which is what clicking through a push banner or an inbox row produces (#93), so
+unread-but-responded is not reachable through the API.
 
 **Nothing in this model claims the user saw anything.** For push, the strongest available statement
 is that the provider accepted the message. That is `SENT`, and it is deliberately not `DELIVERED`

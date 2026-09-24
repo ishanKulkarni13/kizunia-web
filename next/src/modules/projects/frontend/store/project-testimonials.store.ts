@@ -8,6 +8,7 @@ import type {
   CreateProjectTestimonialInput,
   UpdateProjectTestimonialInput,
 } from "../../schemas/project-testimonial.schema";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 interface ProjectTestimonialsStore {
   testimonials: ProjectTestimonialDto[];
@@ -122,3 +123,7 @@ async function run(
     }
   }
 }
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => useProjectTestimonialsStore.setState({ testimonials: [], initializedProjectId: null, busy: false }));

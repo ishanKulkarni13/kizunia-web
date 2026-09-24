@@ -56,6 +56,15 @@ export function PortfolioTechnologyCard({
 
           <Badge variant="secondary">{technology.type}</Badge>
 
+          {technology.unavailable && (
+            <Badge
+              variant="outline"
+              title="This technology was retired from the catalog. It is hidden from your public portfolio; remove it to clear it here."
+            >
+              No longer available
+            </Badge>
+          )}
+
           {technology.startedUsingAt && (
             <Badge variant="outline">
               Since {DATE_FORMATTER.format(new Date(technology.startedUsingAt))}

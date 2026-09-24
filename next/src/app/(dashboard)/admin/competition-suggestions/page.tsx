@@ -1,6 +1,5 @@
 import { PlatformAction } from "@/authorization/platform/actions";
 import { PlatformAuthorizer } from "@/authorization/platform/authorizer";
-import type { StrictAuthorizationActor } from "@/authorization";
 import PageWrapper from "@/components/page-wrapper";
 import {
   Empty,
@@ -9,7 +8,6 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { SessionService } from "@/lib/auth/session";
-import { AuthenticationError } from "@/lib/errors";
 import type { RawSearchParams } from "@/lib/search";
 import { SearchPagination } from "@/lib/search/react";
 
@@ -39,29 +37,15 @@ export default async function AdminCompetitionSuggestionsPage({
 }: Props) {
   const params = await searchParams;
 
-  const actor = await SessionService.getActor();
-
-  if (!actor || !actor.role || !!actor.banned || !actor.id) {
-    throw new AuthenticationError({
-      code: "UNAUTHORIZED",
-      message: "You are not authorized to access this page.",
-      status: 401,
-    });
-  }
-
-  const strictActor: StrictAuthorizationActor = {
-    id: actor.id,
-    role: actor.role,
-    banned: actor.banned ?? true,
-  };
+  const actor = await SessionService.getStrictActor();
 
   PlatformAuthorizer.can(
-    { actor: strictActor },
+    { actor },
     PlatformAction.VIEW_COMPETITION_SUGGESTIONS,
   );
 
   const { items, pagination } = await CompetitionSuggestionService.searchForReview({
-    actor: strictActor,
+    actor,
     params,
   });
 

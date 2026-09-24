@@ -63,43 +63,132 @@ if (config.apiKey && config.projectId && config.messagingSenderId) {
       badge: "/icons/notification-badge.png",
       tag,
       renotify: false,
+      // Both survive to `notificationclick`, which is the only place they are
+      // needed. `notificationId` is the authoritative identity — the click must
+      // never re-derive it from the link, title or anything else. `link` is
+      // null when the notification carries no action of its own, so the click
+      // can tell "opened its action" from "fell back to the inbox".
       data: {
-        link: payload.fcmOptions?.link || data.link || "/user/notifications",
+        notificationId: data.notificationId || null,
+        link: payload.fcmOptions?.link || data.link || null,
       },
     });
   });
 }
 
+const INBOX_PATH = "/user/notifications";
+const NOTIFICATIONS_API = "/api/v1/me/notifications";
+const ACK_TIMEOUT_MS = 8000;
+
+// Notification ids are opaque cuids. A conservative shape check rather than a
+// cuid-specific one: it only has to keep a malformed value out of a URL path.
+const NOTIFICATION_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * Tells the server this notification was acted on.
+ *
+ * Uses the existing inbox endpoints, authenticated by the session cookie a
+ * same-origin fetch carries. No user id is sent and none is trusted: the server
+ * derives the actor from the session and scopes the update to that user, so
+ * this can only ever touch the signed-in user's own notification.
+ *
+ * - has an action  -> `responded` (which also marks it read, as in the inbox)
+ * - inbox fallback -> `read` (nothing was opened, so nothing was responded to)
+ *
+ * Best effort by design. It never throws and its outcome is never inspected:
+ * an expired session, an offline click or a server error leaves the
+ * notification unread in the inbox, which reconciles on the next visit.
+ * Both endpoints are idempotent, so a duplicate click is harmless.
+ */
+function acknowledge(notificationId, hasAction) {
+  if (typeof notificationId !== "string") return Promise.resolve();
+  if (!NOTIFICATION_ID_PATTERN.test(notificationId)) return Promise.resolve();
+
+  const kind = hasAction ? "responded" : "read";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ACK_TIMEOUT_MS);
+
+  try {
+    return fetch(
+      `${NOTIFICATIONS_API}/${encodeURIComponent(notificationId)}/${kind}`,
+      {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: controller.signal,
+      },
+    )
+      .catch(() => undefined)
+      .finally(() => clearTimeout(timer));
+  } catch {
+    clearTimeout(timer);
+    return Promise.resolve();
+  }
+}
+
+/**
+ * Where a click goes.
+ *
+ * Same-origin only. The server already guarantees this for push links; the
+ * check is here so the worker does not depend on it to keep a click inside
+ * Kizunia.
+ */
+function resolveTarget(link) {
+  const fallback = new URL(INBOX_PATH, self.location.origin).href;
+
+  if (!link) return fallback;
+
+  try {
+    const url = new URL(link, self.location.origin);
+    return url.origin === self.location.origin ? url.href : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Focuses an existing Kizunia tab where possible rather than opening another
+ * one. Someone who already has the site open in a tab does not want a second.
+ */
+function openTarget(target) {
+  return self.clients
+    .matchAll({ type: "window", includeUncontrolled: true })
+    .then((clientList) => {
+      for (const client of clientList) {
+        if (client.url === target && "focus" in client) {
+          return client.focus();
+        }
+      }
+
+      for (const client of clientList) {
+        if ("navigate" in client && "focus" in client) {
+          return client.navigate(target).then((navigated) => navigated?.focus());
+        }
+      }
+
+      return self.clients.openWindow(target);
+    });
+}
+
 /**
  * Opening a notification.
  *
- * Focuses an existing Kizunia tab where possible rather than opening another
- * one. Someone who already has the site open in a tab does not want a second.
+ * Two independent jobs: acknowledge the notification, and take the user to its
+ * target. They start together and neither waits for the other, so a failed or
+ * slow acknowledgement can never strand someone on a banner. Nothing here knows
+ * what kind of notification it is — the id and the link are all it needs.
  */
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const link = event.notification.data?.link ?? "/user/notifications";
-  const target = new URL(link, self.location.origin).href;
+  const data = event.notification.data ?? {};
 
   event.waitUntil(
-    self.clients
-      .matchAll({ type: "window", includeUncontrolled: true })
-      .then((clientList) => {
-        for (const client of clientList) {
-          if (client.url === target && "focus" in client) {
-            return client.focus();
-          }
-        }
-
-        for (const client of clientList) {
-          if ("navigate" in client && "focus" in client) {
-            return client.navigate(target).then((navigated) => navigated?.focus());
-          }
-        }
-
-        return self.clients.openWindow(target);
-      }),
+    Promise.allSettled([
+      acknowledge(data.notificationId, Boolean(data.link)),
+      openTarget(resolveTarget(data.link)),
+    ]),
   );
 });
 

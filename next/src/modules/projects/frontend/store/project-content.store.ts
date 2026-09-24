@@ -7,6 +7,7 @@ import { UpdateProjectContentDto } from "../../backend/dto/input";
 import { ProjectDetailsDto } from "../../backend/dto/output";
 import { UpdateProjectContentSchema } from "../../backend/dto/input/update-project-content.schema";
 import { useProjectStore } from "./project.store";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 interface ProjectContentStore {
   content: string;
@@ -144,3 +145,7 @@ export const useProjectContentStore =
       });
     },
   }));
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => useProjectContentStore.getState().reset());

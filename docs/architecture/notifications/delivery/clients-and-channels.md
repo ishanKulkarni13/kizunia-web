@@ -108,6 +108,83 @@ push at all, and it is paid explicitly rather than discovered later.
 
 ---
 
+## Push click lifecycle (#93)
+
+Clicking a browser push acknowledges *that* notification and opens its target. The two are
+independent jobs, and nothing about the notification's kind is known to either.
+
+```text
+DeliveryService -- PushMessage { link: actionPath, collapseKey: id,
+                                 data: { notificationId, intent } }
+      |
+      v
+FcmPushProvider -- FCM message: data.*, webpush.fcmOptions.link, webpush tag = id
+      |
+      v
+firebase-messaging-sw.js  onBackgroundMessage
+      |   showNotification({ tag: id, data: { notificationId, link } })
+      v
+notificationclick
+      |-- acknowledge -- PATCH /api/v1/me/notifications/{notificationId}/responded   (or /read)
+      `-- navigate    -- focus matching tab -> navigate a Kizunia tab -> openWindow
+```
+
+**Identity.** `data.notificationId` is the authoritative identity. It was already in the FCM
+payload; the worker used it as the banner `tag` and then discarded it, leaving `notificationclick`
+with only a URL. It is now kept in the notification's `data`. Nothing derives identity from the
+link, the title or the occurrence key.
+
+**Acknowledgement.** The worker calls the existing inbox endpoints — no new API. A same-origin
+`fetch` carries the better-auth session cookie; that cookie is the only credential. No user id is
+sent, and none would be trusted: the controller takes the actor from the session and the
+repository puts `userId` in the `where` of every update. Someone else's id, or an unknown one, is a
+`404` that changes nothing. `HttpClient` is not used — it is bundled app code and the worker is a
+plain script in `public/`.
+
+**Read vs responded** follows the inbox exactly (ND-H-10):
+
+| Click data | Request | Effect |
+| --- | --- | --- |
+| has a `link` | `PATCH .../responded` | `respondedAt` set, and `readAt` with it if it was unset |
+| no `link` (inbox fallback) | `PATCH .../read` | `readAt` only — nothing was opened, so nothing was responded to |
+
+Each timestamp is written once: repeated clicks, or a click on something already read, move
+neither. The service worker never sends "read *and* responded"; the server rule that responding
+implies reading produces that.
+
+**Failure isolation.** Acknowledgement and navigation start together in one
+`waitUntil(Promise.allSettled([...]))`; navigation never waits for the request. An offline click,
+an expired session (`401`), a `5xx`, a hung request (aborted after 8 s) or a malformed id all end
+the same way: the target still opens, and the notification simply stays unread until the inbox is
+next loaded. There is deliberately no retry queue — the inbox is the source of truth and
+reconciles itself, and Background Sync is not available in every browser. A missing or malformed id
+(anything outside `[A-Za-z0-9_-]{1,128}`) sends no request at all; a notification shown by an older
+worker (link only) degrades the same way.
+
+**Navigation.** Unchanged in behaviour: focus a tab already on the target, else navigate an open
+Kizunia tab, else `openWindow`. The target must resolve to Kizunia's own origin, otherwise the
+inbox opens instead. That is defence in depth — push links are already validated server-side
+(`isSafeActionPath` and the `actionPath` CHECK constraint; an external announcement URL is never
+put in `actionPath`).
+
+**Reuse.** Every producer goes through `DeliveryService`, so `TOP_RELEVANT_COMPETITION`,
+`REGISTRATION_CLOSING`, `ADMIN_COMPETITION_SUGGESTION` and `FEATURE_ANNOUNCEMENT` all get this with
+no code of their own. A new intent needs only a notification with an `actionPath`. The worker does
+not read `data.intent`.
+
+**Why competition pages stay notification-agnostic.** `/competitions/[slug]` is statically
+revalidated and CDN-cached. If it learned which notification opened it, it would have to vary per
+user and per request. The acknowledgement therefore happens in the worker, on the click, before
+and independent of any page load. `competition-page-agnostic.test.ts` fails if the page starts
+mentioning notifications or stops being revalidated.
+
+**Limits.** Best-effort by design (above). The inbox tab is not told: a tab open on
+`/user/notifications` shows the row as unread until its next load or the bell's next poll. A push
+that arrives while a Kizunia tab is visible is forwarded to the page by the SDK rather than shown
+as a banner, so there is nothing to click.
+
+---
+
 ## What to keep avoiding
 
 | Avoid | Because |

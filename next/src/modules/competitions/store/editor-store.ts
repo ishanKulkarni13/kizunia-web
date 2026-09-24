@@ -15,6 +15,7 @@ import {
 import { normalizeEditorPatch } from "../editor/normalize";
 import { slugify } from "@/utils/utils";
 import { ApiError } from "@/lib/http";
+import { registerSessionReset } from "@/lib/session/reset-registry";
 
 type FieldErrors = Partial<Record<EditableScalarKey, string>>;
 
@@ -423,3 +424,7 @@ export const useCompetitionEditorStore = create<CompetitionEditorStore>(
       })),
   }),
 );
+
+// Holds the signed-in account's data: cleared when the account changes so
+// it can never be shown, or saved, as another account's.
+registerSessionReset(() => useCompetitionEditorStore.setState({ competition: null, original: null, saving: false, deleting: false, lastSavedAt: null, fieldErrors: {} }));

@@ -15,6 +15,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
   CompetitionStatus,
+  CompetitionType,
   CompetitionVisibility,
   NotificationIntent,
 } from "@/generated/prisma";
@@ -85,6 +86,21 @@ async function preferFreeCompetitions(userId: string) {
   });
 }
 
+async function preferCompetitionType(userId: string, type: CompetitionType, weight: number) {
+  await prisma.competitionPreference.create({
+    data: {
+      userId,
+      dimension: DimensionId.COMPETITION_TYPE as never,
+      value: type,
+      weight,
+    },
+  });
+}
+
+async function attachCompetitionType(competitionId: string, type: CompetitionType) {
+  await prisma.competitionTypeRelation.create({ data: { competitionId, type } });
+}
+
 /** One full tick: schedule the day's evaluations, then drain everything. */
 async function runTick() {
   await NotificationSchedulerService.scheduleDueEvaluations({
@@ -137,6 +153,39 @@ describe("notification pipeline", () => {
     expect(notification.readAt).toBeNull();
     expect(notification.respondedAt).toBeNull();
     expect(notification.targets).toHaveLength(1);
+  });
+
+  it("carries a CompetitionType preference through recommendation into the notification", async () => {
+    // The full chain the CompetitionType dimension exists to support:
+    // preference -> engine candidate -> ranked recommendation -> notification
+    // payload, proven end to end rather than at any single layer.
+    const user = await createUser("competition-type-match");
+    await enableIntent(user.id, NotificationIntent.TOP_RELEVANT_COMPETITION);
+    await preferCompetitionType(user.id, CompetitionType.HACKATHON, 1);
+    const competition = await createOpenCompetition("hackathon-match");
+    await attachCompetitionType(competition.id, CompetitionType.HACKATHON);
+
+    await runTick();
+
+    const inbox = await NotificationService.getInbox({ userId: user.id });
+
+    expect(inbox.items).toHaveLength(1);
+    const [notification] = inbox.items;
+    expect(notification.intent).toBe(NotificationIntent.TOP_RELEVANT_COMPETITION);
+    expect(notification.actionPath).toMatch(new RegExp(`/${competition.slug}$`));
+  });
+
+  it("stays silent when the competition's type doesn't match a hard CompetitionType preference", async () => {
+    const user = await createUser("competition-type-mismatch");
+    await enableIntent(user.id, NotificationIntent.TOP_RELEVANT_COMPETITION);
+    await preferCompetitionType(user.id, CompetitionType.HACKATHON, 1);
+    const competition = await createOpenCompetition("quiz-mismatch");
+    await attachCompetitionType(competition.id, CompetitionType.QUIZ);
+
+    await runTick();
+
+    const inbox = await NotificationService.getInbox({ userId: user.id });
+    expect(inbox.items).toHaveLength(0);
   });
 
   it("stays silent for a user who has not enabled the intent", async () => {

@@ -31,4 +31,11 @@ export interface ProjectTechnologyDto {
   iconAsset: ProjectTechnologyAssetDto | null;
 
   displayOrder: number;
+
+  /**
+   * True when the catalog entry has been retired (soft-deleted). Display
+   * reads omit such a technology; this editor list keeps it so the project
+   * can still remove it. The relationship row is never deleted for them.
+   */
+  unavailable: boolean;
 }

@@ -1,6 +1,6 @@
 # Subscription & Billing — Phase-wise Implementation Plan
 
-> **Status:** Engineering roadmap — Phases I, II and III implemented; Phase IV is next (it opens with a decision on detecting a missing provider subscription, from a Phase III contract-suite finding)
+> **Status:** Engineering roadmap — Phases I, II and III implemented; Phase IV in progress (the missing-subscription detection is ruled in IB-23)
 >
 > **Created:** 2026-09-24, after the implementation decision close-out
 >

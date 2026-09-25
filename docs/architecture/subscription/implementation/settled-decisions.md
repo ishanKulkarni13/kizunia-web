@@ -86,6 +86,13 @@ The close-out ruled every open IB finding before implementation. The full findin
 | [IB-21](open-decisions.md#ib-21--plan-change-extensibility) (seam) | `ChangePlan` strategy policy (`NATIVE_UPDATE` / `UNAVAILABLE`); single open-subscription precondition policy; `supersededById` link reused; provider interface already sufficient | U-1's extensibility requirement |
 | [IB-22](open-decisions.md#ib-22--upi-recovery-ux) (capability only) | Both UPI recovery routes are supported by the architecture; **the UX is PROVIDER-DEPENDENT** until UPI is verified | UPI never observed ([IB-18](open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)) |
 
+### Architecture/technical decisions (autonomous) — 2026-09-25 (Phase IV)
+
+| Item | Ruling (short form) | Rationale |
+| --- | --- | --- |
+| [IB-23](open-decisions.md#ib-23--detecting-a-missing-provider-subscription) | A sync `fetchSubscription` of a stored ID failing `REJECTED` or `NOT_FOUND` raises `PROVIDER_SUBSCRIPTION_MISSING` (operation context); classification unchanged; mode mismatch detected locally only | A GET of a stored ID has no business refusal (D12); no description matching |
+| [IB-24](open-decisions.md#ib-24--phase-iv-implementation-rulings) | `TERMINAL_STATE_CONTRADICTED` anomaly; `parseWebhookEvent` on the interface; `ON CONFLICT` dedupe; unmatched backstop in `billing:sync`; terminal events linked not marked; two self-resolving anomaly types; tick budgets 10 s / 30 s; admin sync-now shape; ngrok for IB-20; TEST plans with temporary TEST-only prices | Details the Phase IV design left open |
+
 ### Still open for the owner (not blocking before the named phase)
 
 - Trial length: before [Phase VII](../implementation-plan/phase-VII/README.md).

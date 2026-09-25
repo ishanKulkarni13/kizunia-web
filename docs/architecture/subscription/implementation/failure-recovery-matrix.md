@@ -37,7 +37,8 @@ Every failure the design must survive, with how it is detected, what is persiste
 | Reconciliation failure | Task error / backlog age | Rows stay due | Next tick | None | Tick retries; manual route |
 | DB transaction failure | Exception | Webhook: nothing (500, Razorpay retries). Command tx A: nothing sent. Tx B: op stays `IN_FLIGHT` → unknown → observed | As listed | Error or confirming | Lease + observation |
 | Auth failure (401/403) | `AUTH_FAILURE` | Cooldown pinned to key fingerprint | None until keys change | "Billing unavailable" | Rotate keys, deploy; alert |
-| Unmapped plan / mode mismatch | Apply validation / 404 | Last state kept; anomaly | Backoff | Unchanged | Catalog fix / data review |
+| Unmapped plan / mode mismatch | Apply validation (plan catalog, row mode, `notes.kz_env`) | Last state kept; anomaly | Backoff | Unchanged | Catalog fix / data review |
+| Provider subscription missing | Sync fetch of a stored ID `REJECTED`/`NOT_FOUND` ([IB-23](open-decisions.md#ib-23--detecting-a-missing-provider-subscription)) | Last state kept; `PROVIDER_SUBSCRIPTION_MISSING` | Capped backoff | Unchanged | Data review; resolves itself on a later successful fetch |
 
 ---
 

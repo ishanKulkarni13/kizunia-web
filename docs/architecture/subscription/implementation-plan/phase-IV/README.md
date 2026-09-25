@@ -1,6 +1,6 @@
 # Phase IV — Synchronization, Reconciliation and Webhooks
 
-> **Status:** Not started
+> **Status:** In progress (started 2026-09-25). The missing-subscription rule is decided: operation context ([IB-23](../../implementation/open-decisions.md#ib-23--detecting-a-missing-provider-subscription)); the other open details are ruled in [IB-24](../../implementation/open-decisions.md#ib-24--phase-iv-implementation-rulings).
 >
 > **Depends on:** Phase III · **Razorpay needed:** TEST, plus a stable public webhook URL · **Old slices:** S6, S7
 
@@ -11,7 +11,7 @@ Build the **one synchronization mechanism** that turns Razorpay's authoritative 
 ## Scope
 
 - **The remaining provider-boundary piece:** `parseWebhookEvent` and the `ProviderWebhookEvent` catalog, deferred from Phase III because they need the event catalog ([webhooks](../../implementation/webhooks.md)). Phase III's `razorpay/mapping.ts` is wire-shape translation only; everything that turns a provider status into a Kizunia phase starts here.
-- **How a missing provider subscription is detected: a decision to rule on first.** Phase III's contract suite observed that an unknown ID is a `400` (`REJECTED`), not the `404` (`NOT_FOUND`) the design assumed (D12 in [Razorpay facts](../../provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior)). So `PROVIDER_SUBSCRIPTION_MISSING` and `PROVIDER_MODE_MISMATCH` cannot be keyed on the `NOT_FOUND` class. The options are **operation context** (a `fetchSubscription` of a stored ID can only be refused because the ID is unknown) or a second documented description-match exception. Rule on it, and record the ruling, before the apply path depends on either ([Phase III open items](../phase-III/README.md#open-items)).
+- **How a missing provider subscription is detected: a decision to rule on first.** *Ruled 2026-09-25: operation context ([IB-23](../../implementation/open-decisions.md#ib-23--detecting-a-missing-provider-subscription)).* Phase III's contract suite observed that an unknown ID is a `400` (`REJECTED`), not the `404` (`NOT_FOUND`) the design assumed (D12 in [Razorpay facts](../../provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior)). So `PROVIDER_SUBSCRIPTION_MISSING` and `PROVIDER_MODE_MISMATCH` cannot be keyed on the `NOT_FOUND` class. The options are **operation context** (a `fetchSubscription` of a stored ID can only be refused because the ID is unknown) or a second documented description-match exception. Rule on it, and record the ruling, before the apply path depends on either ([Phase III open items](../phase-III/README.md#open-items)).
 - **State mapping** (`policy/state-mapping.ts`, pure), including the IB-9 trial-conversion rule, whose grace C7 is exercised in Phase VII ([state mapping](../../lifecycle/state-mapping.md#the-mapping)).
 - **`nextDue`** (`policy/next-due.ts`, pure): checkpoints and heartbeats per phase, with `HALTED` decay ([reconciliation](../../implementation/reconciliation.md)).
 - **`SyncService`** ([synchronization](../../implementation/synchronization.md)):
@@ -52,7 +52,7 @@ Paths are relative to `next/src/`.
 
 ## Database and schema work
 
-None beyond Phase III. If a new `SyncReason`/`HistoryTrigger` value proves necessary, add it in its own `ALTER TYPE` migration and name it here.
+None beyond Phase III, except one enum value: `BillingAnomalyType.TERMINAL_STATE_CONTRADICTED`, in its own `ALTER TYPE … ADD VALUE` migration, for a terminal-out transition ([IB-24](../../implementation/open-decisions.md#ib-24--phase-iv-implementation-rulings)).
 
 ## Domain and application work
 

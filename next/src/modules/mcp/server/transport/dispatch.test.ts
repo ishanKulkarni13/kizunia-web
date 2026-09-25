@@ -28,6 +28,22 @@ vi.mock("../context/build-request-context", () => ({
   buildMcpRequestContext: (...args: unknown[]) => buildContextMock(...args),
 }));
 
+// The subscription gate reads effective access from the database. Dispatch is
+// unit-tested with the answer stubbed; the real resolver is exercised by
+// `mcp-access.integration.test.ts` against real grants.
+const hasCapabilityMock = vi.fn();
+
+vi.mock("@/lib/entitlements", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/entitlements")>(
+    "@/lib/entitlements",
+  );
+
+  return {
+    ...actual,
+    hasCapability: (...args: unknown[]) => hasCapabilityMock(...args),
+  };
+});
+
 // `rateLimitService` is normally a module-level singleton backed by
 // Postgres. Dispatch is unit-tested against a fresh, in-memory-store-backed
 // `RateLimitService` instead — reassigned per test in `beforeEach` so every
@@ -136,6 +152,10 @@ beforeEach(() => {
     actor: { id: "user-1", role: "user", banned: false },
     requestId: "req-1",
   });
+
+  // Entitled by default, so the protocol and rate-limit suites below test
+  // exactly what they tested before the subscription gate existed.
+  hasCapabilityMock.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -464,5 +484,155 @@ describe("dispatchMcpRequest — tool rate limiting", () => {
     }
 
     expect(unclassifiedTool.execute).not.toHaveBeenCalled();
+  });
+});
+
+describe("dispatchMcpRequest — subscription gate (MCP requires Pro+)", () => {
+  function contextFor(role: string, banned = false) {
+    return {
+      principal: { userId: "user-1", clientId: "client-1", grantedScopes: new Set() },
+      actor: { id: "user-1", role, banned },
+      requestId: "req-1",
+    };
+  }
+
+  async function callEcho() {
+    return dispatchMcpRequest(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "echo", arguments: { value: "hi" } },
+      },
+      token(),
+    );
+  }
+
+  function failureOf(response: Awaited<ReturnType<typeof dispatchMcpRequest>>) {
+    if (!("result" in response)) throw new Error("expected a JSON-RPC result");
+    const result = response.result as { isError?: boolean; content: Array<{ text: string }> };
+    expect(result.isError).toBe(true);
+    return JSON.parse(result.content[0].text) as { code: string; message: string };
+  }
+
+  it("refuses a tool call with UPGRADE_REQUIRED when the actor lacks the MCP capability, without running the tool", async () => {
+    hasCapabilityMock.mockResolvedValue(false);
+
+    const failure = failureOf(await callEcho());
+
+    expect(failure.code).toBe("UPGRADE_REQUIRED");
+    expect(failure.message).toBe("MCP access requires Pro+.");
+    expect(echoTool.execute).not.toHaveBeenCalled();
+    expect(hasCapabilityMock).toHaveBeenCalledWith("user-1", "MCP");
+    expect(
+      events.some(
+        (e) => e.name === "mcp.tool.failed" && e.outcome === "forbidden" && e.code === "UPGRADE_REQUIRED",
+      ),
+    ).toBe(true);
+  });
+
+  it("gates every tool through the same single check (no per-tool subscription logic)", async () => {
+    hasCapabilityMock.mockResolvedValue(false);
+
+    const failure = failureOf(
+      await dispatchMcpRequest(
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "always_fails" } },
+        token(),
+      ),
+    );
+
+    expect(failure.code).toBe("UPGRADE_REQUIRED");
+    expect(failingTool.execute).not.toHaveBeenCalled();
+  });
+
+  it("allows a tool call when the actor holds the MCP capability", async () => {
+    hasCapabilityMock.mockResolvedValue(true);
+
+    const response = await callEcho();
+
+    if (!("result" in response)) throw new Error("expected a JSON-RPC result");
+    const result = response.result as { isError?: boolean; content: Array<{ text: string }> };
+    expect(result.isError).toBeUndefined();
+    expect(JSON.parse(result.content[0].text)).toEqual({ echoed: "hi" });
+  });
+
+  it.each(["admin", "superadmin"])(
+    "lets a platform %s through without the capability (interactive bypass, IB-7)",
+    async (role) => {
+      buildContextMock.mockResolvedValue(contextFor(role));
+      hasCapabilityMock.mockResolvedValue(false);
+
+      const response = await callEcho();
+
+      if (!("result" in response)) throw new Error("expected a JSON-RPC result");
+      const result = response.result as { isError?: boolean };
+      expect(result.isError).toBeUndefined();
+      expect(echoTool.execute).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not let a moderator through without the capability", async () => {
+    buildContextMock.mockResolvedValue(contextFor("moderator"));
+    hasCapabilityMock.mockResolvedValue(false);
+
+    expect(failureOf(await callEcho()).code).toBe("UPGRADE_REQUIRED");
+  });
+
+  it("still refuses a banned actor as banned, before the subscription question", async () => {
+    buildContextMock.mockResolvedValue(contextFor("user", true));
+    hasCapabilityMock.mockResolvedValue(true);
+
+    expect(failureOf(await callEcho()).code).toBe("ACCOUNT_BANNED");
+  });
+
+  it("still applies the rate limit before the gate, unchanged", async () => {
+    hasCapabilityMock.mockResolvedValue(false);
+
+    const failure = failureOf(
+      await dispatchMcpRequest(
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "unclassified" } },
+        token(),
+      ),
+    );
+
+    expect(failure.code).toBe("MCP_TOOL_RATE_LIMIT_UNCLASSIFIED");
+  });
+
+  it("lists no tools to an actor without the capability (honest discovery)", async () => {
+    hasCapabilityMock.mockResolvedValue(false);
+
+    const response = await dispatchMcpRequest(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      token(),
+    );
+
+    if (!("result" in response)) throw new Error("expected a JSON-RPC result");
+    expect(response.result).toEqual({ tools: [] });
+  });
+
+  it("lists every tool to an admin without the capability", async () => {
+    buildContextMock.mockResolvedValue(contextFor("admin"));
+    hasCapabilityMock.mockResolvedValue(false);
+
+    const response = await dispatchMcpRequest(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      token(),
+    );
+
+    if (!("result" in response)) throw new Error("expected a JSON-RPC result");
+    expect((response.result as { tools: unknown[] }).tools).toHaveLength(3);
+  });
+
+  it("keeps authentication failures on tools/list a protocol error", async () => {
+    const { McpUnauthorizedError } = await import("../../errors/mcp-error");
+    buildContextMock.mockRejectedValue(new McpUnauthorizedError("Token rejected."));
+
+    const response = await dispatchMcpRequest(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      token(),
+    );
+
+    expect("error" in response && response.error.code).toBe(-32000);
+    expect(hasCapabilityMock).not.toHaveBeenCalled();
   });
 });

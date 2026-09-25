@@ -1,7 +1,7 @@
 import { Authorization } from "@/authorization";
 
 import { ProjectAction } from "./actions";
-import type { ProjectContext } from "./context";
+import type { ProjectContext, ProjectOwnershipQuotaContext } from "./context";
 import { ProjectPolicy } from "./policy";
 
 import { PlatformAction } from "@/authorization/platform/actions";
@@ -28,6 +28,19 @@ export class ProjectAuthorizer {
         context,
         PlatformAction.CREATE_PROJECT,
       ),
+    );
+  }
+
+  /**
+   * The owned-project quota gate. A refusal carries `{ limit, owned }` so the
+   * client can explain it without counting anything itself.
+   */
+  static createOwned(
+    context: ProjectOwnershipQuotaContext,
+  ): void {
+    Authorization.assert(
+      ProjectPolicy.canCreateOwned(context),
+      { details: { limit: context.limit, owned: context.owned } },
     );
   }
 

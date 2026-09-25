@@ -34,6 +34,12 @@ export interface TopRelevantCompetitionInput {
   readonly userId: string;
   /** Whether the user has this intent enabled. Opt-in: absent means `false`. */
   readonly enabled: boolean;
+  /**
+   * Whether the user's effective access includes the capability this intent
+   * requires (`intent-capability.ts`). Resolved by the caller; there is no
+   * admin bypass — background evaluation has no actor (IB-7).
+   */
+  readonly entitled: boolean;
   /** The recommendation engine's output for this user — consumed, not recomputed. */
   readonly recommendations: readonly RecommendationItemDTO[];
   /** Established once per evaluation by the caller. */
@@ -46,9 +52,12 @@ export interface TopRelevantCompetitionInput {
  * 1. Intent disabled → suppressed. Checked *first* so a user who opted out is
  *    reported as opted out rather than as "we found nothing" — the reason has
  *    to be the true one, because a future layer may surface or count it.
- * 2. No recommendations → suppressed. Silence is a valid and frequent outcome
+ * 2. Not entitled → suppressed with `NOT_ENTITLED`. After the preference, so
+ *    an opted-out user is still reported as opted out; before the
+ *    recommendations, which a non-entitled user is never given.
+ * 3. No recommendations → suppressed. Silence is a valid and frequent outcome
  *    (`decisions/intents.md`, ND-I-05).
- * 3. Otherwise → exactly one competition: the highest-ranked recommendation
+ * 4. Otherwise → exactly one competition: the highest-ranked recommendation
  *    (ND-I-06 — one competition, not a user-configurable volume).
  *
  * There is deliberately no separate "preference profile exists" check, though
@@ -61,7 +70,7 @@ export interface TopRelevantCompetitionInput {
 export function evaluateTopRelevantCompetition(
   input: TopRelevantCompetitionInput,
 ): NotificationDecision {
-  const { userId, enabled, recommendations, now } = input;
+  const { userId, enabled, entitled, recommendations, now } = input;
 
   if (!enabled) {
     return {
@@ -70,6 +79,16 @@ export function evaluateTopRelevantCompetition(
       userId,
       evaluatedAt: now,
       reason: "INTENT_DISABLED",
+    };
+  }
+
+  if (!entitled) {
+    return {
+      eligible: false,
+      intent: INTENT,
+      userId,
+      evaluatedAt: now,
+      reason: "NOT_ENTITLED",
     };
   }
 

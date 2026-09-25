@@ -10,6 +10,8 @@
  *
  * 1. Is the intent on? An opted-out user is reported as opted out, before
  *    anything else is examined.
+ * 1a. Is the user entitled to it (the deadline-notifications capability)?
+ *    If not, `NOT_ENTITLED` — the preference is left as it is.
  * 2. Which of the competitions closing in this window does the user actually
  *    care about — relevant **or** bookmarked (ND-I-11)?
  * 3. Minus anything they have told us they already registered for.
@@ -46,6 +48,12 @@ export interface DeadlineCandidate {
 export interface RegistrationClosingInput {
   readonly userId: string;
   readonly enabled: boolean;
+  /**
+   * Whether the user's effective access includes the capability this intent
+   * requires (`intent-capability.ts`). No admin bypass: background
+   * evaluation has no actor (IB-7).
+   */
+  readonly entitled: boolean;
   /** Everything closing in this sweep's window. */
   readonly candidates: readonly DeadlineCandidate[];
   /**
@@ -96,6 +104,16 @@ export function evaluateRegistrationClosing(
       userId,
       evaluatedAt: now,
       reason: "INTENT_DISABLED",
+    };
+  }
+
+  if (!input.entitled) {
+    return {
+      eligible: false,
+      intent: INTENT,
+      userId,
+      evaluatedAt: now,
+      reason: "NOT_ENTITLED",
     };
   }
 

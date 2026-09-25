@@ -5,6 +5,7 @@ import {
 } from "@/authorization";
 
 import { PortfolioVisibility } from "@/generated/prisma";
+import { Capability, minimumPlanFor, PLAN_DISPLAY_NAME } from "@/lib/entitlements/catalog";
 
 import { PortfolioAction } from "./actions";
 import type { PortfolioContext } from "./context";
@@ -63,6 +64,15 @@ export class PortfolioPolicy {
         (ctx) => Boolean(ctx.actor.id),
         AuthorizationCode.UNAUTHORIZED,
         "Authentication is required.",
+      )
+
+      // `CREATE_PORTFOLIO` stays in the BASELINE permission set ("this role
+      // may create portfolios"); whether this user's plan includes it is
+      // this separate entitlement step (IB-4). Admins passed above (IB-7).
+      .require(
+        (ctx) => ctx.actorCanCreatePortfolio,
+        AuthorizationCode.UPGRADE_REQUIRED,
+        `Creating a portfolio requires ${PLAN_DISPLAY_NAME[minimumPlanFor(Capability.PORTFOLIO)]}.`,
       )
 
       .grant()

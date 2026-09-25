@@ -12,7 +12,8 @@
  * Responsibilities
  * ----------------
  * ✓ Establish "now" once per evaluation
- * ✓ Read the intent's enabled state, and relevance from the Phase 0 engine
+ * ✓ Read the intent's enabled state, the user's entitlement to it, and
+ *   relevance from the Phase 0 engine
  * ✓ Delegate the decision to the policy and return its verdict unchanged
  *
  * Does NOT
@@ -27,6 +28,7 @@ import { NotificationPreferenceService } from "@/modules/preferences/backend/not
 import { RecommendationService } from "@/modules/recommendations/backend/recommendation.service";
 
 import { evaluateTopRelevantCompetition } from "../policy/top-relevant-competition.policy";
+import { isEntitledToIntent } from "./notification-entitlement";
 import type { NotificationDecision } from "../policy/types";
 
 export class NotificationPolicyService {
@@ -57,6 +59,26 @@ export class NotificationPolicyService {
       return evaluateTopRelevantCompetition({
         userId,
         enabled: false,
+        entitled: false,
+        recommendations: [],
+        now,
+      });
+    }
+
+    // Re-check of the scheduler's entitlement filter (IB-2): access may have
+    // been lost since the work was scheduled. Asked of the current clock, not
+    // the frozen anchor. The engine is not run for a user who is not
+    // entitled; the engine itself is never gated.
+    const entitled = await isEntitledToIntent(
+      userId,
+      NotificationIntent.TOP_RELEVANT_COMPETITION,
+    );
+
+    if (!entitled) {
+      return evaluateTopRelevantCompetition({
+        userId,
+        enabled: true,
+        entitled: false,
         recommendations: [],
         now,
       });
@@ -69,6 +91,7 @@ export class NotificationPolicyService {
     return evaluateTopRelevantCompetition({
       userId,
       enabled: true,
+      entitled: true,
       recommendations: result.items,
       now,
     });

@@ -8,6 +8,8 @@ import {
   Quota,
   accessForPlan,
   maxPlan,
+  minimumPlanFor,
+  PLAN_DISPLAY_NAME,
   paidPlansWith,
   planHasCapability,
   plansWith,
@@ -101,5 +103,18 @@ describe("accessForPlan", () => {
       },
       quotas: { OWNED_PROJECTS: 10 },
     });
+  });
+});
+
+describe("minimumPlanFor", () => {
+  it("names the lowest plan that includes each capability", () => {
+    expect(minimumPlanFor(Capability.PORTFOLIO)).toBe(EffectivePlan.PRO);
+    expect(minimumPlanFor(Capability.DEADLINE_NOTIFICATIONS)).toBe(EffectivePlan.PRO);
+    expect(minimumPlanFor(Capability.RECOMMENDATIONS)).toBe(EffectivePlan.PRO_PLUS);
+    expect(minimumPlanFor(Capability.MCP)).toBe(EffectivePlan.PRO_PLUS);
+  });
+
+  it("has a display name for every plan", () => {
+    expect(PLAN_DISPLAY_NAME).toEqual({ FREE: "Free", PRO: "Pro", PRO_PLUS: "Pro+" });
   });
 });

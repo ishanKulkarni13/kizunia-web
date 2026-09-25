@@ -14,7 +14,9 @@ import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/http";
 import type { NotificationIntent } from "@/generated/prisma";
+import { PLAN_DISPLAY_NAME } from "@/lib/entitlements/catalog";
 import { NotificationPreferenceApi } from "@/modules/preferences/api/notification-preference-api";
+import type { NotificationPreferenceDTO } from "@/modules/preferences/types/notification-preference.dto";
 import {
   NOTIFICATION_INTENT_COPY,
   NOTIFICATION_INTENT_ORDER,
@@ -22,8 +24,17 @@ import {
 
 type PreferenceState = Partial<Record<NotificationIntent, boolean>>;
 
+/**
+ * Server-computed per intent (IB-16). The toggle is always usable and always
+ * stored; this only explains why an enabled intent is not being delivered.
+ */
+type EntitlementState = Partial<
+  Record<NotificationIntent, Pick<NotificationPreferenceDTO, "entitled" | "requiredPlan">>
+>;
+
 export function NotificationPreferencesCard() {
   const [preferences, setPreferences] = useState<PreferenceState>({});
+  const [entitlements, setEntitlements] = useState<EntitlementState>({});
   /**
    * Which intents to render, from the API rather than from the enum.
    *
@@ -50,6 +61,14 @@ export function NotificationPreferencesCard() {
         setPreferences(
           Object.fromEntries(
             entries.map((entry) => [entry.intent, entry.enabled]),
+          ),
+        );
+        setEntitlements(
+          Object.fromEntries(
+            entries.map((entry) => [
+              entry.intent,
+              { entitled: entry.entitled, requiredPlan: entry.requiredPlan },
+            ]),
           ),
         );
 
@@ -112,6 +131,11 @@ export function NotificationPreferencesCard() {
         ) : (
           visibleIntents.map((intent) => {
             const copy = NOTIFICATION_INTENT_COPY[intent];
+            const entitlement = entitlements[intent];
+            const requiredPlan =
+              entitlement && !entitlement.entitled && entitlement.requiredPlan
+                ? PLAN_DISPLAY_NAME[entitlement.requiredPlan]
+                : null;
 
             return (
               <div
@@ -123,6 +147,12 @@ export function NotificationPreferencesCard() {
                   <p className="text-sm text-muted-foreground">
                     {copy.description}
                   </p>
+                  {requiredPlan && (
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Requires {requiredPlan}. Your choice is saved and takes
+                      effect when your plan includes it.
+                    </p>
+                  )}
                 </div>
                 <Switch
                   checked={preferences[intent] ?? false}

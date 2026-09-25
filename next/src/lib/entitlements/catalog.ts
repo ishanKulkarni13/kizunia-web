@@ -140,3 +140,27 @@ export function accessForPlan(plan: EffectivePlan): PlanAccess {
     quotas: { ...PLAN_CATALOG[plan].quotas },
   };
 }
+
+/**
+ * The lowest plan that includes `capability`. Feature code and the UI use it
+ * to say "requires Pro" without naming a plan themselves: when a capability
+ * moves between plans, the copy follows the catalog.
+ */
+export function minimumPlanFor(capability: Capability): EffectivePlan {
+  const [lowest] = plansWith(capability);
+
+  // Every capability sits in at least the highest plan; the catalog test
+  // guards that, so this only fires if the table itself is broken.
+  if (lowest === undefined) {
+    throw new Error(`No plan includes the capability ${capability}.`);
+  }
+
+  return lowest;
+}
+
+/** Customer-facing plan names, for copy such as "Requires Pro+". */
+export const PLAN_DISPLAY_NAME: Readonly<Record<EffectivePlan, string>> = {
+  [EffectivePlan.FREE]: "Free",
+  [EffectivePlan.PRO]: "Pro",
+  [EffectivePlan.PRO_PLUS]: "Pro+",
+};

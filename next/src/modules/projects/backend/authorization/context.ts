@@ -42,3 +42,21 @@ export interface ProjectContext
     role: ProjectRole;
   } | null;
 }
+/**
+ * Authorization context for creating a project the actor will own.
+ *
+ * Built inside `ProjectService.create`'s transaction, after the per-user
+ * advisory lock, so `owned` cannot change before the project is written.
+ * `limit` comes from the actor's effective access (`lib/entitlements`); this
+ * module never knows which plan produced it.
+ */
+export interface ProjectOwnershipQuotaContext
+  extends AuthorizationContext {
+  actor: AuthorizationActor;
+
+  /** Non-deleted projects the actor owns now. */
+  owned: number;
+
+  /** The owned-project quota of the actor's effective access. */
+  limit: number;
+}

@@ -991,6 +991,8 @@ model ProjectMember {
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([projectId, userId])
+  // Owned-project quota: counts a user's OWNER rows (IB-12).
+  @@index([userId, role])
   @@map("project_member")
 }
 

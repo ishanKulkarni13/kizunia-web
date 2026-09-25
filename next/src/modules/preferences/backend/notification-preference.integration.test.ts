@@ -12,6 +12,11 @@ import type { StrictAuthorizationActor } from "@/authorization";
 import { PlatformRole } from "@/authorization/platform/roles";
 import prisma from "@/lib/prisma";
 import { NotificationIntent } from "@/generated/prisma";
+import {
+  deleteGrantsForEmailPrefix,
+  grantPlanWithFixtureGranter,
+  revokeGrants,
+} from "@/testing/entitlement-fixtures";
 
 import { NotificationPreferenceService } from "./notification-preference.service";
 
@@ -53,6 +58,7 @@ afterAll(async () => {
   await prisma.notificationPreference.deleteMany({
     where: { user: { email: { startsWith: TEST_EMAIL_PREFIX } } },
   });
+  await deleteGrantsForEmailPrefix(TEST_EMAIL_PREFIX);
   await prisma.user.deleteMany({ where: { email: { startsWith: TEST_EMAIL_PREFIX } } });
   await prisma.$disconnect();
 });
@@ -65,10 +71,29 @@ describe("NotificationPreferenceService", () => {
 
     // Defaults are per-intent, not one global default (ND-P-16): intents that
     // act on inferred relevance are opt-in, editorial announcements are not.
+    //
+    // A FREE user is not entitled to the two paid intents, and the DTO says so
+    // and names the plan (IB-16) — while still reporting the stored/default
+    // preference untouched.
     expect(preferences).toEqual([
-      { intent: NotificationIntent.TOP_RELEVANT_COMPETITION, enabled: false },
-      { intent: NotificationIntent.REGISTRATION_CLOSING, enabled: false },
-      { intent: NotificationIntent.FEATURE_ANNOUNCEMENT, enabled: true },
+      {
+        intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
+        enabled: false,
+        entitled: false,
+        requiredPlan: "PRO_PLUS",
+      },
+      {
+        intent: NotificationIntent.REGISTRATION_CLOSING,
+        enabled: false,
+        entitled: false,
+        requiredPlan: "PRO",
+      },
+      {
+        intent: NotificationIntent.FEATURE_ANNOUNCEMENT,
+        enabled: true,
+        entitled: true,
+        requiredPlan: null,
+      },
     ]);
   });
 
@@ -95,6 +120,8 @@ describe("NotificationPreferenceService", () => {
     expect(preferences).toContainEqual({
       intent: NotificationIntent.ADMIN_COMPETITION_SUGGESTION,
       enabled: true,
+      entitled: true,
+      requiredPlan: null,
     });
   });
 
@@ -181,10 +208,12 @@ describe("NotificationPreferenceService", () => {
     );
 
     const preferences = await NotificationPreferenceService.getForUser(user.actor);
-    expect(preferences).toContainEqual({
-      intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
-      enabled: true,
-    });
+    expect(preferences).toContainEqual(
+      expect.objectContaining({
+        intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
+        enabled: true,
+      }),
+    );
   });
 
   it("disables a previously enabled intent", async () => {
@@ -202,10 +231,12 @@ describe("NotificationPreferenceService", () => {
     );
 
     const preferences = await NotificationPreferenceService.getForUser(user.actor);
-    expect(preferences).toContainEqual({
-      intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
-      enabled: false,
-    });
+    expect(preferences).toContainEqual(
+      expect.objectContaining({
+        intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
+        enabled: false,
+      }),
+    );
   });
 
   it("update is idempotent — upserting the same state twice leaves one row", async () => {
@@ -239,13 +270,117 @@ describe("NotificationPreferenceService", () => {
     const preferencesA = await NotificationPreferenceService.getForUser(userA.actor);
     const preferencesB = await NotificationPreferenceService.getForUser(userB.actor);
 
-    expect(preferencesA).toContainEqual({
+    expect(preferencesA).toContainEqual(
+      expect.objectContaining({
+        intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
+        enabled: true,
+      }),
+    );
+    expect(preferencesB).toContainEqual(
+      expect.objectContaining({
+        intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
+        enabled: false,
+      }),
+    );
+  });
+});
+
+describe("NotificationPreferenceService — entitlement (IB-16)", () => {
+  const byIntent = (
+    preferences: Awaited<ReturnType<typeof NotificationPreferenceService.getForUser>>,
+    intent: NotificationIntent,
+  ) => preferences.find((preference) => preference.intent === intent);
+
+  it("always stores a toggle for an intent the user is not entitled to, and reports entitled: false", async () => {
+    const user = await createTestUser("free-toggle");
+
+    const saved = await NotificationPreferenceService.update(
+      user.actor,
+      NotificationIntent.TOP_RELEVANT_COMPETITION,
+      true,
+    );
+
+    expect(saved).toEqual({
       intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
       enabled: true,
+      entitled: false,
+      requiredPlan: "PRO_PLUS",
     });
-    expect(preferencesB).toContainEqual({
-      intent: NotificationIntent.TOP_RELEVANT_COMPETITION,
-      enabled: false,
+    expect(
+      await NotificationPreferenceService.isEnabledForUser(
+        user.id,
+        NotificationIntent.TOP_RELEVANT_COMPETITION,
+      ),
+    ).toBe(true);
+    expect(
+      await prisma.notificationPreference.count({
+        where: { userId: user.id, intent: NotificationIntent.TOP_RELEVANT_COMPETITION, enabled: true },
+      }),
+    ).toBe(1);
+  });
+
+  it("reports PRO as entitled to deadline notifications but not to recommendations", async () => {
+    const user = await createTestUser("pro");
+    await grantPlanWithFixtureGranter(user.id, "PRO", TEST_EMAIL_PREFIX);
+
+    const preferences = await NotificationPreferenceService.getForUser(user.actor);
+
+    expect(byIntent(preferences, NotificationIntent.REGISTRATION_CLOSING)?.entitled).toBe(true);
+    expect(byIntent(preferences, NotificationIntent.TOP_RELEVANT_COMPETITION)?.entitled).toBe(false);
+    expect(byIntent(preferences, NotificationIntent.FEATURE_ANNOUNCEMENT)?.entitled).toBe(true);
+  });
+
+  it("reports PRO_PLUS as entitled to every intent", async () => {
+    const user = await createTestUser("plus");
+    await grantPlanWithFixtureGranter(user.id, "PRO_PLUS", TEST_EMAIL_PREFIX);
+
+    const preferences = await NotificationPreferenceService.getForUser(user.actor);
+
+    expect(preferences.every((preference) => preference.entitled)).toBe(true);
+  });
+
+  it("does not report an admin as entitled just for being an admin (no bypass in the background)", async () => {
+    const admin = await createTestUser("admin", PlatformRole.ADMIN);
+
+    const preferences = await NotificationPreferenceService.getForUser(admin.actor);
+
+    expect(byIntent(preferences, NotificationIntent.TOP_RELEVANT_COMPETITION)?.entitled).toBe(false);
+    expect(byIntent(preferences, NotificationIntent.REGISTRATION_CLOSING)?.entitled).toBe(false);
+  });
+
+  it("leaves stored preferences exactly as they were when entitlement is lost and regained", async () => {
+    const user = await createTestUser("downgrade");
+    await grantPlanWithFixtureGranter(user.id, "PRO_PLUS", TEST_EMAIL_PREFIX);
+    await NotificationPreferenceService.update(user.actor, NotificationIntent.TOP_RELEVANT_COMPETITION, true);
+    await NotificationPreferenceService.update(user.actor, NotificationIntent.REGISTRATION_CLOSING, true);
+
+    const snapshot = () =>
+      prisma.notificationPreference.findMany({
+        where: { userId: user.id },
+        orderBy: { intent: "asc" },
+      });
+    const before = await snapshot();
+
+    await revokeGrants(user.id, `${TEST_EMAIL_PREFIX}_fixture_granter`);
+
+    const during = await NotificationPreferenceService.getForUser(user.actor);
+    expect(byIntent(during, NotificationIntent.TOP_RELEVANT_COMPETITION)).toMatchObject({
+      enabled: true,
+      entitled: false,
     });
+    expect(byIntent(during, NotificationIntent.REGISTRATION_CLOSING)).toMatchObject({
+      enabled: true,
+      entitled: false,
+    });
+    expect(await snapshot()).toEqual(before);
+
+    await grantPlanWithFixtureGranter(user.id, "PRO_PLUS", TEST_EMAIL_PREFIX);
+
+    const after = await NotificationPreferenceService.getForUser(user.actor);
+    expect(byIntent(after, NotificationIntent.TOP_RELEVANT_COMPETITION)).toMatchObject({
+      enabled: true,
+      entitled: true,
+    });
+    expect(await snapshot()).toEqual(before);
   });
 });

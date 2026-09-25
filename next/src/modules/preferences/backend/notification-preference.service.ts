@@ -5,7 +5,9 @@ import type { StrictAuthorizationActor } from "@/authorization";
 import type { PlatformContext } from "@/authorization/platform/context";
 import { NotificationIntent } from "@/generated/prisma";
 import { ForbiddenError } from "@/lib/errors";
+import { minimumPlanFor, resolveEffectiveAccess, type EffectiveAccess } from "@/lib/entitlements";
 import { INTENT_REQUIRED_ACTION } from "@/modules/notifications/policy/intent-audience";
+import { requiredCapabilityFor } from "@/modules/notifications/policy/intent-capability";
 
 import { NotificationPreferenceRepository } from "./notification-preference.repository";
 import type { NotificationPreferenceDTO } from "../types/notification-preference.dto";
@@ -44,6 +46,7 @@ export class NotificationPreferenceService {
    * ----------------
    * ✓ Fill in the default state for intents with no row yet
    * ✓ Restrict the intent list to those that apply to this actor
+   * ✓ Report, per intent, whether the actor is currently entitled to it
    * ✓ Repository orchestration
    *
    * Does NOT
@@ -69,17 +72,19 @@ export class NotificationPreferenceService {
   static async getForUser(
     actor: StrictAuthorizationActor,
   ): Promise<NotificationPreferenceDTO[]> {
-    const context = await PlatformContextResolver.resolve(actor);
+    const [context, rows, access] = await Promise.all([
+      PlatformContextResolver.resolve(actor),
+      NotificationPreferenceRepository.findByUser(actor.id),
+      resolveEffectiveAccess(actor.id),
+    ]);
 
-    const rows = await NotificationPreferenceRepository.findByUser(actor.id);
     const enabledByIntent = new Map(rows.map((row) => [row.intent, row.enabled]));
 
     return Object.values(NotificationIntent)
       .filter((intent) => this.applies(context, intent))
-      .map((intent) => ({
-        intent,
-        enabled: enabledByIntent.get(intent) ?? DEFAULT_ENABLED[intent],
-      }));
+      .map((intent) =>
+        this.toDto(intent, enabledByIntent.get(intent) ?? DEFAULT_ENABLED[intent], access),
+      );
   }
 
   /**
@@ -120,6 +125,12 @@ export class NotificationPreferenceService {
    * preference for a notification you cannot be sent is a lie the next reader
    * of the table has to work out, and a write path that accepts values the read
    * path never returns is a gap someone will eventually walk through.
+   *
+   * Entitlement is deliberately NOT a reason to refuse (IB-16). A preference
+   * says what the user wants; an entitlement says what their plan allows, and
+   * only delivery depends on it. A Free user may switch a Pro+ intent on, the
+   * choice is stored, and it takes effect the moment they are entitled — with
+   * no second step. The returned DTO says whether it currently applies.
    */
   static async update(
     actor: StrictAuthorizationActor,
@@ -137,7 +148,27 @@ export class NotificationPreferenceService {
 
     await NotificationPreferenceRepository.upsert(actor.id, intent, enabled);
 
-    return { intent, enabled };
+    return this.toDto(intent, enabled, await resolveEffectiveAccess(actor.id));
+  }
+
+  /**
+   * The preference plus the server-computed entitlement flags for it. The
+   * capability an intent needs comes from the notification module's map, the
+   * answer from `lib/entitlements` — no plan names are compared here.
+   */
+  private static toDto(
+    intent: NotificationIntent,
+    enabled: boolean,
+    access: EffectiveAccess,
+  ): NotificationPreferenceDTO {
+    const capability = requiredCapabilityFor(intent);
+
+    return {
+      intent,
+      enabled,
+      entitled: capability === null || access.capabilities[capability],
+      requiredPlan: capability === null ? null : minimumPlanFor(capability),
+    };
   }
 
   /**

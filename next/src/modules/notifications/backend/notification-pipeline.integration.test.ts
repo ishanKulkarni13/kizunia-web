@@ -20,6 +20,7 @@ import {
   NotificationIntent,
 } from "@/generated/prisma";
 import prisma from "@/lib/prisma";
+import { grantPlanWithFixtureGranter } from "@/testing/entitlement-fixtures";
 import { cleanupNotificationTestData } from "@/testing/notification-cleanup";
 import { DimensionId } from "@/modules/recommendations";
 
@@ -40,7 +41,7 @@ const queue = new PostgresWorkQueue();
 
 async function createUser(suffix: string) {
   const id = unique(`user-${suffix}`);
-  return prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       id,
       name: "Pipeline Test User",
@@ -48,6 +49,13 @@ async function createUser(suffix: string) {
       emailVerified: true,
     },
   });
+
+  // The pipeline is the subject here, not entitlements: its users hold every
+  // notification capability, through a real grant. Entitlement gating has its
+  // own suite (notification-entitlement.integration.test.ts).
+  await grantPlanWithFixtureGranter(user.id, "PRO_PLUS", PREFIX);
+
+  return user;
 }
 
 async function enableIntent(userId: string, intent: NotificationIntent) {

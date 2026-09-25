@@ -14,6 +14,7 @@ import {
   PushSubscriptionStatus,
 } from "@/generated/prisma";
 import prisma from "@/lib/prisma";
+import { grantPlanWithFixtureGranter } from "@/testing/entitlement-fixtures";
 import { cleanupNotificationTestData } from "@/testing/notification-cleanup";
 
 import { NotificationGenerationService } from "../backend/notification-generation.service";
@@ -46,6 +47,11 @@ async function createUser(suffix: string, intentEnabled = true) {
       emailVerified: true,
     },
   });
+
+  // Delivery is the subject here, not entitlements: the recipient holds the
+  // capability the intent needs, through a real grant. The re-check itself is
+  // covered in notification-entitlement.integration.test.ts.
+  await grantPlanWithFixtureGranter(user.id, "PRO_PLUS", PREFIX);
 
   await prisma.notificationPreference.create({
     data: {

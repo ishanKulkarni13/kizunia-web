@@ -1,7 +1,7 @@
-import { HttpClient } from "@/lib/http/client";
+﻿import { HttpClient } from "@/lib/http/client";
 import { UpdateProjectProfileDto, UpdateProjectContentDto } from "../../backend/dto/input";
 import { CreateProjectDto } from "../../schemas";
-import { ProjectDetailsDto, ProjectMineSummaryDto } from "../../backend/dto/output";
+import { ProjectDetailsDto, ProjectMineSummaryDto, ProjectOwnershipAllowanceDto } from "../../backend/dto/output";
 import type { ProjectMineQueryInput } from "../../search/mine-schema";
 import type { SearchResult } from "@/lib/search/types";
 import type { SetAssetInput } from "@/modules/assets/schemas/set-asset";
@@ -25,6 +25,15 @@ export class ProjectApi {
 
     const response = await HttpClient.get<SearchResult<ProjectMineSummaryDto>>(
       `/api/v1/projects/mine${query ? `?${query}` : ""}`,
+    );
+
+    return response.data;
+  }
+
+  /** Server-computed: may the user create another project they will own? */
+  static async getOwnershipAllowance(): Promise<ProjectOwnershipAllowanceDto> {
+    const response = await HttpClient.get<ProjectOwnershipAllowanceDto>(
+      "/api/v1/projects/mine/allowance",
     );
 
     return response.data;

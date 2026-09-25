@@ -44,6 +44,7 @@ describe("evaluateTopRelevantCompetition", () => {
     const decision = evaluateTopRelevantCompetition({
       userId: USER_ID,
       enabled: true,
+      entitled: true,
       recommendations: [item("comp-a", 1, 0.9)],
       now: NOW,
     });
@@ -63,6 +64,7 @@ describe("evaluateTopRelevantCompetition", () => {
     const decision = evaluateTopRelevantCompetition({
       userId: USER_ID,
       enabled: false,
+      entitled: true,
       recommendations: [item("comp-a", 1, 0.9)],
       now: NOW,
     });
@@ -77,6 +79,7 @@ describe("evaluateTopRelevantCompetition", () => {
     const decision = evaluateTopRelevantCompetition({
       userId: USER_ID,
       enabled: true,
+      entitled: true,
       recommendations: [],
       now: NOW,
     });
@@ -91,6 +94,7 @@ describe("evaluateTopRelevantCompetition", () => {
     const decision = evaluateTopRelevantCompetition({
       userId: USER_ID,
       enabled: true,
+      entitled: true,
       recommendations: [
         item("comp-a", 1, 0.91),
         item("comp-b", 2, 0.77),
@@ -111,6 +115,7 @@ describe("evaluateTopRelevantCompetition", () => {
     const decision = evaluateTopRelevantCompetition({
       userId: USER_ID,
       enabled: false,
+      entitled: true,
       recommendations: [],
       now: NOW,
     });
@@ -125,6 +130,7 @@ describe("evaluateTopRelevantCompetition", () => {
     const decision = evaluateTopRelevantCompetition({
       userId: USER_ID,
       enabled: true,
+      entitled: true,
       recommendations: [
         item("comp-c", 3, 0.62),
         item("comp-a", 1, 0.91),
@@ -143,17 +149,64 @@ describe("evaluateTopRelevantCompetition", () => {
     const eligible = evaluateTopRelevantCompetition({
       userId: USER_ID,
       enabled: true,
+      entitled: true,
       recommendations: [item("comp-a", 1, 0.9)],
       now: NOW,
     });
     const suppressed = evaluateTopRelevantCompetition({
       userId: USER_ID,
       enabled: false,
+      entitled: true,
       recommendations: [],
       now: NOW,
     });
 
     expect(eligible.evaluatedAt).toBe(NOW);
     expect(suppressed.evaluatedAt).toBe(NOW);
+  });
+
+  it("suppresses NOT_ENTITLED when the user lacks the capability, even with recommendations", () => {
+    const decision = evaluateTopRelevantCompetition({
+      userId: USER_ID,
+      enabled: true,
+      entitled: false,
+      recommendations: [item("comp-a", 1, 0.9)],
+      now: NOW,
+    });
+
+    expect(decision.eligible).toBe(false);
+    if (decision.eligible) throw new Error("expected a suppressed decision");
+
+    expect(decision.reason).toBe("NOT_ENTITLED");
+  });
+
+  it("reports the disabled intent, not the missing entitlement, when both are true", () => {
+    const decision = evaluateTopRelevantCompetition({
+      userId: USER_ID,
+      enabled: false,
+      entitled: false,
+      recommendations: [],
+      now: NOW,
+    });
+
+    expect(decision.eligible).toBe(false);
+    if (decision.eligible) throw new Error("expected a suppressed decision");
+
+    expect(decision.reason).toBe("INTENT_DISABLED");
+  });
+
+  it("reports the missing entitlement, not the empty result, when both are true", () => {
+    const decision = evaluateTopRelevantCompetition({
+      userId: USER_ID,
+      enabled: true,
+      entitled: false,
+      recommendations: [],
+      now: NOW,
+    });
+
+    expect(decision.eligible).toBe(false);
+    if (decision.eligible) throw new Error("expected a suppressed decision");
+
+    expect(decision.reason).toBe("NOT_ENTITLED");
   });
 });

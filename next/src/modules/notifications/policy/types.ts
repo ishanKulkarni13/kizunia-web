@@ -19,6 +19,13 @@ import type { CompetitionCardDTO } from "@/modules/competitions/types/dto";
 export type NotificationSuppressionReason =
   /** The user has this intent off, or has never turned it on (opt-in default). */
   | "INTENT_DISABLED"
+  /**
+   * The user wants this intent, but their effective access does not include
+   * the capability it requires (`intent-capability.ts`; Subscription IB-2).
+   * The preference is kept as it is: regaining the capability restores
+   * delivery with nothing to switch back on (IB-16).
+   */
+  | "NOT_ENTITLED"
   /** Nothing cleared the recommendation engine's relevance threshold. */
   | "NO_RECOMMENDATIONS"
   /**

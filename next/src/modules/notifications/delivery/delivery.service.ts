@@ -33,6 +33,7 @@ import {
 } from "@/generated/prisma";
 import { NotificationPreferenceService } from "@/modules/preferences/backend/notification-preference.service";
 
+import { isEntitledToIntent } from "../backend/notification-entitlement";
 import { DELIVERY_CONFIG } from "../config/notification-config";
 import { nextAttemptAt, type BackoffPolicy } from "../jobs/backoff";
 import { logNotificationEvent } from "../observability/log";
@@ -112,6 +113,33 @@ export class DeliveryService {
 
       // The notification itself stays in the inbox. It is history, and history
       // is not rewritten (ND-H-02, ND-P-14).
+      return { ...NOTHING, skipped };
+    }
+
+    // The entitlement sibling of the check above (IB-2): the capability this
+    // intent requires may have been lost since generation — a revoked or
+    // expired grant, later a lapsed subscription. Intents that require no
+    // capability pass without a read. No admin bypass (IB-7).
+    const stillEntitled = await isEntitledToIntent(
+      notification.userId,
+      notification.intent,
+      now,
+    );
+
+    if (!stillEntitled) {
+      const skipped = await DeliveryRepository.skipPending({
+        notificationId,
+        now,
+        reason: "Recipient is no longer entitled to this notification",
+      });
+
+      logNotificationEvent("delivery.skipped", {
+        notificationId,
+        reason: "NOT_ENTITLED",
+        deliveries: skipped,
+      });
+
+      // As above: the inbox entry stays; only the push is not sent.
       return { ...NOTHING, skipped };
     }
 

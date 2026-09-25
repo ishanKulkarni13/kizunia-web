@@ -27,6 +27,7 @@ import {
 } from "@/generated/prisma";
 import prisma from "@/lib/prisma";
 
+import { deleteGrantsForEmailPrefix, grantPlanWithFixtureGranter } from "@/testing/entitlement-fixtures";
 import { portfolioProjectService } from "./portfolio-project.service";
 import { portfolioService } from "./service";
 
@@ -43,7 +44,7 @@ function unique(name: string): string {
 async function createUser(name: string) {
   const key = unique(name);
 
-  return prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       id: key,
       name: "Editor Test User",
@@ -52,6 +53,12 @@ async function createUser(name: string) {
       username: key.toLowerCase(),
     },
   });
+
+  // The editor is the subject here, not entitlements: the user may create
+  // and publish a portfolio, through a real grant.
+  await grantPlanWithFixtureGranter(user.id, "PRO", TEST_PREFIX);
+
+  return user;
 }
 
 function actorFor(userId: string): StrictAuthorizationActor {
@@ -107,6 +114,7 @@ afterAll(async () => {
   await prisma.portfolio.deleteMany({
     where: { user: { email: { startsWith: TEST_PREFIX } } },
   });
+  await deleteGrantsForEmailPrefix(TEST_PREFIX);
   await prisma.user.deleteMany({
     where: { email: { startsWith: TEST_PREFIX } },
   });

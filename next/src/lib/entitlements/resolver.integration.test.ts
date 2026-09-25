@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { MembershipPlan } from "@/generated/prisma";
 import prisma from "@/lib/prisma";
+import { agreementFixtures, insertGrant } from "@/testing/entitlement-fixtures";
 
 import { Capability, EffectivePlan } from "./catalog";
 import { explainEffectiveAccess } from "./explain";
@@ -20,34 +20,6 @@ async function createUser(suffix: string): Promise<string> {
   const id = unique(suffix);
   await prisma.user.create({ data: { id, name: "Entitlements Test", email: `${id}@example.test` } });
   return id;
-}
-
-/** Inserts a grant directly — these tests exercise the read side, not the write path. */
-async function insertGrant(
-  userId: string,
-  granterId: string,
-  data: {
-    plan: MembershipPlan;
-    validFrom: Date;
-    validUntil?: Date | null;
-    status?: "ACTIVE" | "REVOKED";
-  },
-) {
-  const revoked = data.status === "REVOKED";
-
-  return prisma.entitlementGrant.create({
-    data: {
-      userId,
-      plan: data.plan,
-      source: "ADMIN_GRANT",
-      status: data.status ?? "ACTIVE",
-      validFrom: data.validFrom,
-      validUntil: data.validUntil ?? null,
-      grantedByUserId: granterId,
-      reason: "test fixture",
-      ...(revoked && { revokedAt: new Date(), revokedByUserId: granterId, revokeReason: "test" }),
-    },
-  });
 }
 
 async function cleanup() {
@@ -190,28 +162,7 @@ describe("expiry needs no background job and reads never write", () => {
 
 describe("entitledUsersWhere (set-based predicate)", () => {
   it("agrees with the per-user resolver for every capability, on shared fixtures", async () => {
-    const fixtures: Array<{ name: string; grants: Parameters<typeof insertGrant>[2][] }> = [
-      { name: "free", grants: [] },
-      { name: "pro", grants: [{ plan: "PRO", validFrom: ago(1) }] },
-      { name: "plus", grants: [{ plan: "PRO_PLUS", validFrom: ago(1), validUntil: ahead(5) }] },
-      { name: "expired-plus", grants: [{ plan: "PRO_PLUS", validFrom: ago(9), validUntil: ago(1) }] },
-      { name: "future-plus", grants: [{ plan: "PRO_PLUS", validFrom: ahead(1) }] },
-      { name: "revoked-plus", grants: [{ plan: "PRO_PLUS", validFrom: ago(3), status: "REVOKED" }] },
-      {
-        name: "mixed",
-        grants: [
-          { plan: "PRO_PLUS", validFrom: ago(9), validUntil: ago(2) },
-          { plan: "PRO", validFrom: ago(1) },
-        ],
-      },
-      {
-        name: "pro-then-plus",
-        grants: [
-          { plan: "PRO", validFrom: ago(4) },
-          { plan: "PRO_PLUS", validFrom: ago(1) },
-        ],
-      },
-    ];
+    const fixtures = agreementFixtures(NOW);
 
     const users: string[] = [];
     for (const fixture of fixtures) {

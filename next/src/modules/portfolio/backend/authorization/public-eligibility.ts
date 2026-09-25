@@ -1,6 +1,6 @@
 /**
- * Public-display eligibility — the seam a future Plan/Entitlement system
- * will gate.
+ * Public-display eligibility — the entitlement gate on showing a portfolio
+ * at its public URL (SB-DP-03, IB-5).
  *
  * DISTINCT from `Portfolio.visibility`. `visibility` is the owner's stored
  * preference, and it is the only persisted visibility concept in the
@@ -10,15 +10,14 @@
  * at all?"
  *
  * Keyed on the portfolio OWNER, not the viewer — the entitlement that gates
- * public display belongs to whoever owns the portfolio.
+ * public display belongs to whoever owns the portfolio. It is the owner's
+ * effective access (the portfolio capability), never their platform role: an
+ * administrator's portfolio is public only if they hold the capability too
+ * (IB-7).
  *
- * Every owner is eligible today — there is no subscription/plan system yet
- * (see `resolveEntitlements()` in src/lib/entitlements/index.ts, and the
- * CREATE_PORTFOLIO baseline-grant comment in
- * src/authorization/platform/permission-set.ts, which documents the same
- * kind of seam). When a real entitlement system exists, this function's
- * BODY is the only thing that changes — no policy, context resolver,
- * service, repository, controller or route call site needs to change.
+ * Asynchronous, because effective access is a database read. It is therefore
+ * computed BEFORE the context is built (`PortfolioContextResolver.forPublicRead`)
+ * and passed in; `PortfolioPolicy` keeps its synchronous shape (IB-5).
  *
  * Losing eligibility hides the portfolio from the public read path and
  * nothing else: the data is never deleted, the owner can always still view
@@ -31,10 +30,12 @@
  * for `visibility !== PUBLIC`.
  *
  * Kept a plain exported function with no module-level state so tests can
- * simulate "entitlement inactive" with vi.mock().
+ * simulate eligibility with vi.mock().
  */
-export function resolvePortfolioPublicEligibility(_params: {
+import { Capability, hasCapability } from "@/lib/entitlements";
+
+export async function resolvePortfolioPublicEligibility(params: {
   ownerUserId: string;
-}): boolean {
-  return true;
+}): Promise<boolean> {
+  return hasCapability(params.ownerUserId, Capability.PORTFOLIO);
 }

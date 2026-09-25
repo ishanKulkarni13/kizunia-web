@@ -85,8 +85,12 @@ export async function bindProvisioning(tx: Prisma.TransactionClient, input: Bind
   });
 
   // Durable before any apply that follows: if that fails, the tick fetches it.
-  await SyncClaimRepository.markDue(tx, row.id, trigger === "WEBHOOK" ? "WEBHOOK" : "COMMAND_CONFIRM", now, {
-    eventDriven: true,
+  // Only a webhook is an event the provider sent after something changed; a
+  // command response or a scan is Kizunia's own read.
+  const fromWebhook = trigger === "WEBHOOK";
+
+  await SyncClaimRepository.markDue(tx, row.id, fromWebhook ? "WEBHOOK" : "COMMAND_CONFIRM", now, {
+    eventDriven: fromWebhook,
     now,
   });
 

@@ -85,6 +85,11 @@ export interface ApplyContext {
   readonly trigger?: HistoryTrigger;
   /** The admin behind an `ADMIN_SYNC`. */
   readonly actorUserId?: string | null;
+  /**
+   * The command whose own response this observation is (`COMMAND_RESPONSE`):
+   * its history is caused by that operation, which the command settles itself.
+   */
+  readonly commandOperationId?: string | null;
   readonly now?: Date;
   readonly catalog?: PlanCatalog;
   readonly schedule?: NextDueSettings;
@@ -286,6 +291,7 @@ async function applyLocked(
   }
 
   // 5b. History.
+  settledOperationId ??= context.commandOperationId ?? null;
   const cause = settledOperationId ? "KIZUNIA_COMMAND" : "PROVIDER_OBSERVED";
   const billingEventId =
     trigger === "WEBHOOK" ? await SubscriptionHistoryRepository.triggeringEventId(tx, row.id, observationAt) : null;

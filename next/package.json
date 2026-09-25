@@ -12,7 +12,8 @@
     "test:contract": "vitest run --config vitest.contract.config.mts",
     "test:all": "pnpm test && pnpm test:integration",
     "notifications:tick": "tsx scripts/notifications-tick.ts",
-    "notifications:diagnose": "tsx scripts/notifications-diagnose.ts"
+    "notifications:diagnose": "tsx scripts/notifications-diagnose.ts",
+    "billing:test-plans": "tsx scripts/billing-test-plans.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

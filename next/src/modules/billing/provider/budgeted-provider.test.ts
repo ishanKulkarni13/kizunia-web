@@ -229,7 +229,7 @@ describe("BudgetedProvider — the global cooldown", () => {
     health.verdictToReturn = "COOLING_DOWN";
 
     expect(await provider.cancelSubscription("sub_x", { atCycleEnd: false })).toMatchObject({
-      failureClass: "NOT_FOUND",
+      failureClass: "REJECTED",
     });
     // It still spends budget like any other call.
     expect(gate.acquired).toEqual([ProviderPriority.COMMAND]);
@@ -269,7 +269,7 @@ describe("BudgetedProvider — the state store failing", () => {
     const { provider, health, gate, inner } = setup();
     health.throwOnVerdict = true;
 
-    expect(await provider.fetchSubscription("sub_x")).toMatchObject({ failureClass: "NOT_FOUND" });
+    expect(await provider.fetchSubscription("sub_x")).toMatchObject({ failureClass: "REJECTED" });
     expect(gate.acquired).toEqual([ProviderPriority.COMMAND]);
     expect(inner.calls).toHaveLength(1);
   });

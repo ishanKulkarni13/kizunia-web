@@ -304,4 +304,43 @@ describe("FakeBillingProvider — verification", () => {
     expect(provider.verifyCheckoutSignature("pay_1", "sub_1", provider.signCheckout("pay_1", "sub_1"))).toBe(true);
     expect(provider.verifyCheckoutSignature("pay_1", "sub_2", provider.signCheckout("pay_1", "sub_1"))).toBe(false);
   });
+
+  it("accepts a previous webhook secret until its rotation deadline, and says which matched", () => {
+    const until = new Date(T0.getTime() + 60_000);
+    const provider = new FakeBillingProvider({
+      now: () => T0,
+      previousWebhookSecret: "old-secret",
+      previousWebhookSecretUntil: until,
+    });
+    const body = provider.webhookBody({ eventType: "subscription.charged", providerSubscriptionId: "sub_1" });
+    const old = provider.signWebhookWithPrevious(body);
+
+    expect(provider.verifyWebhookSignature(body, old, T0)).toEqual({ valid: true, matchedSecret: "PREVIOUS" });
+    expect(provider.verifyWebhookSignature(body, old, until)).toEqual({ valid: false });
+    expect(provider.verifyWebhookSignature(body, provider.signWebhook(body), until)).toEqual({
+      valid: true,
+      matchedSecret: "CURRENT",
+    });
+  });
+
+  it("builds Razorpay-shaped events that the real parser reads", () => {
+    const provider = fake();
+    provider.seed({ providerSubscriptionId: "sub_1", rawStatus: "active", notes: { kz_sub: "k1" } });
+
+    const parsed = provider.parseWebhookEvent(
+      provider.webhookBody({
+        eventType: "subscription.charged",
+        providerSubscriptionId: "sub_1",
+        payment: { id: "pay_1", amount: 1000, invoiceId: "inv_1" },
+      }),
+    );
+
+    expect(parsed).toMatchObject({
+      kind: "EVENT",
+      category: "SUBSCRIPTION",
+      accountId: "acc_fake",
+      providerSubscriptionId: "sub_1",
+      moneyFact: { kind: "CHARGE", providerObjectId: "pay_1", amountMinor: 1000, providerInvoiceId: "inv_1" },
+    });
+  });
 });

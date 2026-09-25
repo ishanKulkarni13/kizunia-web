@@ -25,8 +25,9 @@
  * unchanged, because a mutation that reached the provider must not be turned
  * into an exception by a failure to note it.
  *
- * Verification (webhook and checkout signatures) is not a network operation:
- * it passes straight through with no budget and no cooldown. And this class
+ * Verification (webhook and checkout signatures) and webhook parsing are not
+ * network operations: they pass straight through with no budget and no
+ * cooldown. And this class
  * only ever sees the two small ports below; the store and the table behind them
  * live in `backend/budget/`, so nothing here touches a database.
  *
@@ -48,6 +49,7 @@ import {
   type ListPageRequest,
   type ListWindow,
   type Outcome,
+  type ParsedWebhook,
   type PaymentMethodInfo,
   type ProviderSubscriptionState,
   type UpdateSubscriptionPlanInput,
@@ -134,6 +136,10 @@ export class BudgetedProvider implements BillingProvider {
     signature: string | null | undefined,
   ): boolean {
     return this.inner.verifyCheckoutSignature(paymentId, providerSubscriptionId, signature);
+  }
+
+  parseWebhookEvent(rawBody: string | Uint8Array): ParsedWebhook {
+    return this.inner.parseWebhookEvent(rawBody);
   }
 
   // -- Internals ------------------------------------------------------------

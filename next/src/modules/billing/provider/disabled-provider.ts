@@ -20,6 +20,7 @@ import type {
   BillingProvider,
   ListPage,
   Outcome,
+  ParsedWebhook,
   PaymentMethodInfo,
   ProviderSubscriptionState,
   WebhookSignatureMatch,
@@ -63,5 +64,10 @@ export class DisabledBillingProvider implements BillingProvider {
 
   verifyCheckoutSignature(): boolean {
     return false;
+  }
+
+  /** Never reached: nothing verifies in disabled mode, and a body is parsed only after it verifies. */
+  parseWebhookEvent(): ParsedWebhook {
+    return { kind: "MALFORMED", reason: "billing is disabled" };
   }
 }

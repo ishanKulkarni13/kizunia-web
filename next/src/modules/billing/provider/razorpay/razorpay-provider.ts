@@ -39,6 +39,7 @@ import {
   type ListPageRequest,
   type ListWindow,
   type Outcome,
+  type ParsedWebhook,
   type PaymentMethodInfo,
   type ProviderSubscriptionState,
   type UpdateSubscriptionPlanInput,
@@ -57,6 +58,7 @@ import {
   type RazorpayRequestOptions,
 } from "./razorpay-client";
 import { verifyCheckoutSignature, verifyWebhookSignature, type WebhookSecret } from "./signatures";
+import { parseRazorpayWebhook } from "./webhook-events";
 
 const MAX_LIST_COUNT = 100;
 
@@ -200,6 +202,10 @@ export class RazorpayBillingProvider implements BillingProvider {
       signature,
       keySecret: this.credentials.keySecret,
     });
+  }
+
+  parseWebhookEvent(rawBody: string | Uint8Array): ParsedWebhook {
+    return parseRazorpayWebhook(rawBody);
   }
 
   // -- Internals ------------------------------------------------------------

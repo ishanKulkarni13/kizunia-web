@@ -37,6 +37,7 @@
 import type {
   BillingCycle,
   MembershipPlan,
+  MoneyFactKind,
   ProviderFailureClass,
   ProviderMode,
 } from "@/generated/prisma";
@@ -237,6 +238,78 @@ export type WebhookSignatureMatch =
   | { readonly valid: false };
 
 // ---------------------------------------------------------------------------
+// Webhook events (Kizunia-defined, translated from the provider's payload)
+// ---------------------------------------------------------------------------
+
+/**
+ * The events the webhook is subscribed to, exactly (SB-WH-08): the ten
+ * subscription lifecycle events, plus two recorded only as money facts. Any
+ * other type that arrives is still verified and recorded, as unsupported.
+ */
+export const SUBSCRIBED_WEBHOOK_EVENTS = [
+  "subscription.authenticated",
+  "subscription.activated",
+  "subscription.charged",
+  "subscription.completed",
+  "subscription.updated",
+  "subscription.pending",
+  "subscription.halted",
+  "subscription.cancelled",
+  "subscription.paused",
+  "subscription.resumed",
+  "refund.processed",
+  "payment.dispute.created",
+] as const;
+
+/**
+ * How Kizunia treats an event (docs/architecture/subscription/webhooks/event-catalog.md):
+ *
+ * - `SUBSCRIPTION` — marks its subscription sync-due. Its payload status is
+ *   **never** applied (SB-WH-03): only an authoritative fetch changes state.
+ * - `FACT_ONLY` — records a money fact and nothing else.
+ * - `UNSUPPORTED` — recorded as received, then `SKIPPED_UNSUPPORTED`.
+ */
+export type WebhookEventCategory = "SUBSCRIPTION" | "FACT_ONLY" | "UNSUPPORTED";
+
+/** An append-only money fact an event carries (SB-WH-04). Amounts are in minor units. */
+export interface WebhookMoneyFact {
+  readonly kind: MoneyFactKind;
+  /** The payment, refund or dispute ID: the fact's identity. */
+  readonly providerObjectId: string;
+  readonly amountMinor: number;
+  readonly currency: string;
+  readonly providerInvoiceId: string | null;
+  readonly periodStart: Date | null;
+  readonly periodEnd: Date | null;
+  readonly occurredAt: Date;
+  /** For a refund or dispute: the payment it concerns, which links it to a charge. */
+  readonly relatedPaymentId: string | null;
+}
+
+export interface ProviderWebhookEvent {
+  readonly kind: "EVENT";
+  /** The provider's event type, as sent. Billing-internal. */
+  readonly eventType: string;
+  readonly category: WebhookEventCategory;
+  /** The merchant account the event belongs to; checked against the configured one. */
+  readonly accountId: string;
+  readonly providerCreatedAt: Date | null;
+  /** The subscription the event is about, when it names one. */
+  readonly providerSubscriptionId: string | null;
+  readonly moneyFact: WebhookMoneyFact | null;
+  /** The parsed body, for the billing-internal event record. Never logged. */
+  readonly payload: unknown;
+}
+
+/** A verified body that is not an event Kizunia can read. */
+export interface MalformedWebhook {
+  readonly kind: "MALFORMED";
+  readonly reason: string;
+}
+
+export type ParsedWebhook = ProviderWebhookEvent | MalformedWebhook;
+
+// ---------------------------------------------------------------------------
 // The interface
 // ---------------------------------------------------------------------------
 
@@ -288,4 +361,11 @@ export interface BillingProvider {
     providerSubscriptionId: string,
     signature: string | null | undefined,
   ): boolean;
+
+  /**
+   * Translates a webhook body into Kizunia's event vocabulary. Call it only
+   * after `verifyWebhookSignature` accepted the same bytes: the body is not
+   * parsed before it is verified (SB-WH-01). No network, so no budget.
+   */
+  parseWebhookEvent(rawBody: string | Uint8Array): ParsedWebhook;
 }

@@ -21,6 +21,9 @@
  *    `PROVIDER_DISABLED` with no work done.
  *  - **Realistic verification.** Signatures use the same HMAC scheme as the
  *    real provider, and `signWebhook` / `signCheckout` produce valid ones.
+ *    A previous webhook secret with a rotation deadline can be configured,
+ *    and `webhookBody` builds a Razorpay-shaped event, which `parseWebhookEvent`
+ *    reads with the real parser.
  *
  * An ID it does not hold is answered as Razorpay TEST answers one: a `400
  * BAD_REQUEST_ERROR`, classified `REJECTED`, never a `NOT_FOUND` (D12 in
@@ -37,7 +40,9 @@ import {
   hmacSha256Hex,
   verifyCheckoutSignature,
   verifyWebhookSignature,
+  type WebhookSecret,
 } from "./razorpay/signatures";
+import { parseRazorpayWebhook } from "./razorpay/webhook-events";
 import {
   failureImpliesRequestSent,
   providerFailure,
@@ -49,6 +54,7 @@ import {
   type ListPageRequest,
   type ListWindow,
   type Outcome,
+  type ParsedWebhook,
   type PaymentMethodInfo,
   type ProviderFailureDetails,
   type ProviderSubscriptionState,
@@ -76,6 +82,24 @@ export interface FakeProviderOptions {
   readonly now?: () => Date;
   readonly keySecret?: string;
   readonly webhookSecret?: string;
+  /** A previous webhook secret, accepted until `previousWebhookSecretUntil` (SB-WH-07). */
+  readonly previousWebhookSecret?: string;
+  readonly previousWebhookSecretUntil?: Date | null;
+  /** The merchant account `webhookBody` stamps on an event. */
+  readonly accountId?: string;
+}
+
+/** The parts of a Razorpay event `webhookBody` fills in. Epoch seconds are derived from dates. */
+export interface FakeWebhookInput {
+  readonly eventType: string;
+  readonly providerSubscriptionId?: string | null;
+  readonly accountId?: string;
+  readonly createdAt?: Date;
+  /** Extra subscription entity fields (e.g. notes, status). The status is never read by Kizunia. */
+  readonly subscription?: Readonly<Record<string, unknown>>;
+  readonly payment?: { readonly id: string; readonly amount: number; readonly invoiceId?: string; readonly createdAt?: Date };
+  readonly refund?: { readonly id: string; readonly paymentId: string; readonly amount: number; readonly createdAt?: Date };
+  readonly dispute?: { readonly id: string; readonly paymentId: string; readonly amount: number; readonly createdAt?: Date };
 }
 
 interface ScriptedFailure extends ProviderFailureDetails {
@@ -93,6 +117,9 @@ export class FakeBillingProvider implements BillingProvider {
   private readonly now: () => Date;
   private readonly keySecret: string;
   private readonly webhookSecret: string;
+  private readonly previousWebhookSecret: string | null;
+  private readonly previousWebhookSecretUntil: Date | null;
+  private readonly accountId: string;
 
   private readonly subscriptions = new Map<string, ProviderSubscriptionState>();
   private readonly createdAt = new Map<string, Date>();
@@ -105,6 +132,9 @@ export class FakeBillingProvider implements BillingProvider {
     this.now = options.now ?? (() => new Date());
     this.keySecret = options.keySecret ?? "fake-key-secret";
     this.webhookSecret = options.webhookSecret ?? "fake-webhook-secret";
+    this.previousWebhookSecret = options.previousWebhookSecret ?? null;
+    this.previousWebhookSecretUntil = options.previousWebhookSecretUntil ?? null;
+    this.accountId = options.accountId ?? "acc_fake";
   }
 
   // -- Scripting ------------------------------------------------------------
@@ -166,6 +196,92 @@ export class FakeBillingProvider implements BillingProvider {
   /** A valid `X-Razorpay-Signature` for `rawBody`, signed with this fake's webhook secret. */
   signWebhook(rawBody: string | Uint8Array): string {
     return hmacSha256Hex(this.webhookSecret, rawBody);
+  }
+
+  /** A signature made with the previous webhook secret, as a retry from before a rotation carries. */
+  signWebhookWithPrevious(rawBody: string | Uint8Array): string {
+    if (this.previousWebhookSecret === null) throw new Error("no previous webhook secret configured");
+
+    return hmacSha256Hex(this.previousWebhookSecret, rawBody);
+  }
+
+  /** A Razorpay-shaped webhook body, as bytes Razorpay would send. */
+  webhookBody(input: FakeWebhookInput): string {
+    const createdAt = input.createdAt ?? this.now();
+    const seconds = (date: Date) => Math.floor(date.getTime() / 1000);
+    const payload: Record<string, unknown> = {};
+    const contains: string[] = [];
+
+    if (input.providerSubscriptionId !== undefined && input.providerSubscriptionId !== null) {
+      const state = this.subscriptions.get(input.providerSubscriptionId);
+
+      contains.push("subscription");
+      payload.subscription = {
+        entity: {
+          id: input.providerSubscriptionId,
+          entity: "subscription",
+          plan_id: state?.providerPlanId ?? "plan_fake",
+          status: state?.rawStatus ?? "active",
+          current_start: state?.currentStart ? seconds(state.currentStart) : null,
+          current_end: state?.currentEnd ? seconds(state.currentEnd) : null,
+          notes: state?.notes ?? {},
+          ...input.subscription,
+        },
+      };
+    }
+
+    if (input.payment) {
+      contains.push("payment");
+      payload.payment = {
+        entity: {
+          id: input.payment.id,
+          entity: "payment",
+          amount: input.payment.amount,
+          currency: "INR",
+          status: "captured",
+          invoice_id: input.payment.invoiceId ?? null,
+          created_at: seconds(input.payment.createdAt ?? createdAt),
+        },
+      };
+    }
+
+    if (input.refund) {
+      contains.push("refund");
+      payload.refund = {
+        entity: {
+          id: input.refund.id,
+          entity: "refund",
+          payment_id: input.refund.paymentId,
+          amount: input.refund.amount,
+          currency: "INR",
+          status: "processed",
+          created_at: seconds(input.refund.createdAt ?? createdAt),
+        },
+      };
+    }
+
+    if (input.dispute) {
+      contains.push("dispute");
+      payload.dispute = {
+        entity: {
+          id: input.dispute.id,
+          entity: "dispute",
+          payment_id: input.dispute.paymentId,
+          amount: input.dispute.amount,
+          currency: "INR",
+          created_at: seconds(input.dispute.createdAt ?? createdAt),
+        },
+      };
+    }
+
+    return JSON.stringify({
+      entity: "event",
+      account_id: input.accountId ?? this.accountId,
+      event: input.eventType,
+      contains,
+      payload,
+      created_at: seconds(createdAt),
+    });
   }
 
   /** A valid checkout signature for a payment and subscription. */
@@ -301,12 +417,22 @@ export class FakeBillingProvider implements BillingProvider {
     signature: string | null | undefined,
     now: Date = this.now(),
   ): WebhookSignatureMatch {
-    return verifyWebhookSignature({
-      rawBody,
-      signature,
-      secrets: [{ secret: this.webhookSecret, label: "CURRENT", validUntil: null }],
-      now,
-    });
+    const secrets: WebhookSecret[] = [{ secret: this.webhookSecret, label: "CURRENT", validUntil: null }];
+
+    if (this.previousWebhookSecret !== null) {
+      secrets.push({
+        secret: this.previousWebhookSecret,
+        label: "PREVIOUS",
+        validUntil: this.previousWebhookSecretUntil,
+      });
+    }
+
+    return verifyWebhookSignature({ rawBody, signature, secrets, now });
+  }
+
+  /** The real Razorpay parser: the fake's events are Razorpay-shaped. */
+  parseWebhookEvent(rawBody: string | Uint8Array): ParsedWebhook {
+    return parseRazorpayWebhook(rawBody);
   }
 
   verifyCheckoutSignature(

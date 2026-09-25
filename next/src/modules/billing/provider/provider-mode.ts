@@ -202,6 +202,17 @@ export function getProviderMode(): ResolvedProviderMode {
 }
 
 /**
+ * The configured merchant account ID, for the webhook payload's `account_id`
+ * check, or `null` when billing is disabled. An identifier, not a secret: this
+ * exists so webhook code never has to hold the credentials object.
+ */
+export function getProviderAccountId(): string | null {
+  const configuration = getProviderConfiguration();
+
+  return configuration.mode === "DISABLED" ? null : configuration.razorpay.accountId;
+}
+
+/**
  * Whether Kizunia can make a real billing operation right now. The single
  * seam: nothing else asks whether credentials exist.
  */

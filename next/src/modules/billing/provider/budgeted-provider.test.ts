@@ -303,4 +303,21 @@ describe("BudgetedProvider — verification is not a network operation", () => {
     expect(health.verdictCalls).toBe(0);
     expect(gate.acquired).toEqual([]);
   });
+
+  it("passes webhook parsing straight through too", () => {
+    const { provider, inner, gate, health } = setup();
+    gate.allow = false;
+    health.verdictToReturn = "AUTH_PINNED";
+
+    const body = inner.webhookBody({ eventType: "subscription.halted", providerSubscriptionId: "sub_1" });
+
+    expect(provider.parseWebhookEvent(body)).toMatchObject({
+      kind: "EVENT",
+      eventType: "subscription.halted",
+      providerSubscriptionId: "sub_1",
+    });
+    expect(health.verdictCalls).toBe(0);
+    expect(gate.acquired).toEqual([]);
+    expect(inner.calls).toEqual([]);
+  });
 });

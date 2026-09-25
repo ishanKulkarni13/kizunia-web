@@ -153,6 +153,21 @@ describe("FakeBillingProvider — failure semantics", () => {
 
     expect(provider.peek(id)?.rawStatus).toBe("created");
   });
+
+  it("can lose only the response: the mutation is applied, the answer is a failure (afterApplying)", async () => {
+    const provider = fake();
+
+    provider.failNext("createSubscription", "TIMEOUT", { afterApplying: true });
+    const outcome = await provider.createSubscription(createInput);
+
+    expect(outcome).toMatchObject({ kind: "FAILURE", failureClass: "TIMEOUT", requestSentAt: T0 });
+
+    const listed = await provider.listSubscriptions({ from: T0, to: T0 }, { count: 10, skip: 0 });
+    if (listed.kind !== "SUCCESS") throw new Error("expected success");
+
+    expect(listed.value.items).toHaveLength(1);
+    expect(listed.value.items[0].notes).toEqual(createInput.notes);
+  });
 });
 
 describe("FakeBillingProvider — disabled mode", () => {

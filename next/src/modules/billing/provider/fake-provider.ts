@@ -13,7 +13,9 @@
  *    the next call fail as that class, for any of the ten, on any operation.
  *    Failures carry `requestSentAt` exactly as the real provider does, so a
  *    test can tell an unknown outcome (a request was sent) from a plain refusal
- *    (nothing was).
+ *    (nothing was). With `afterApplying: true` the operation is performed
+ *    first and only its answer is lost — the case that makes a create's
+ *    outcome truly unknown (a timeout after Razorpay created it).
  *  - **A believable happy path.** With nothing scripted, operations behave like
  *    a small, well-behaved provider over an in-memory store: create, fetch,
  *    cancel, plan change and list.
@@ -105,7 +107,15 @@ export interface FakeWebhookInput {
 interface ScriptedFailure extends ProviderFailureDetails {
   readonly method: FakeNetworkMethod | "*";
   readonly failureClass: ProviderFailureClass;
+  /** Perform the operation, then answer with the failure (a lost response). */
+  readonly afterApplying: boolean;
   remaining: number;
+}
+
+export interface FailNextOptions extends ProviderFailureDetails {
+  readonly times?: number;
+  /** Apply the operation at the "provider" and then fail: the response was lost, not the request. */
+  readonly afterApplying?: boolean;
 }
 
 const TERMINAL_STATUSES = new Set(["cancelled", "completed", "expired"]);
@@ -144,14 +154,10 @@ export class FakeBillingProvider implements BillingProvider {
    * `"*"`) fail as `failureClass`. Scripted failures are consumed in the order
    * they were added.
    */
-  failNext(
-    method: FakeNetworkMethod | "*",
-    failureClass: ProviderFailureClass,
-    options: ProviderFailureDetails & { readonly times?: number } = {},
-  ): this {
-    const { times = 1, ...details } = options;
+  failNext(method: FakeNetworkMethod | "*", failureClass: ProviderFailureClass, options: FailNextOptions = {}): this {
+    const { times = 1, afterApplying = false, ...details } = options;
 
-    this.failures.push({ method, failureClass, remaining: times, ...details });
+    this.failures.push({ method, failureClass, afterApplying, remaining: times, ...details });
 
     return this;
   }
@@ -467,6 +473,8 @@ export class FakeBillingProvider implements BillingProvider {
       scripted.remaining -= 1;
 
       const { failureClass, providerErrorCode, providerErrorDescription } = scripted;
+
+      if (scripted.afterApplying) happyPath();
 
       return Promise.resolve(this.fail(failureClass, { providerErrorCode, providerErrorDescription }));
     }

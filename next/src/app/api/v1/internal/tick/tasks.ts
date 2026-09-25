@@ -17,7 +17,8 @@ import type { InternalTask } from "@/lib/internal-jobs/registry";
 import { PostgresRateLimitStore } from "@/lib/rate-limit/postgres.store";
 import { assetReconciliationService } from "@/modules/assets/backend/reconciliation.service";
 import { BillingSyncTask } from "@/modules/billing/backend/reconciliation/billing-sync.task";
-import { SYNC_CONFIG } from "@/modules/billing/config/billing-config";
+import { OrphanDiscoveryTask } from "@/modules/billing/backend/reconciliation/orphan-discovery.task";
+import { ORPHAN_CONFIG, SYNC_CONFIG } from "@/modules/billing/config/billing-config";
 import { JOB_CONFIG, SCHEDULE_CONFIG } from "@/modules/notifications/config/notification-config";
 import { NotificationTickService } from "@/modules/notifications/backend/notification-tick.service";
 
@@ -75,5 +76,18 @@ export const TICK_TASKS: readonly InternalTask[] = [
     id: "assets:reconcile",
     minIntervalSeconds: THREE_DAYS_SECONDS,
     run: async () => ({ ...(await assetReconciliationService.runAll()) }),
+  },
+
+  /*
+   * LAST, at low frequency (IB-25 item 6). The IB-10 arithmetic leaves no room
+   * for another provider-calling task before notifications, so the orphan scan
+   * takes what remains. It is read-only and saves its cursor after every page,
+   * so a run that `maxDuration` cuts short loses nothing and the next run
+   * resumes where it stopped.
+   */
+  {
+    id: "billing:orphan-discovery",
+    minIntervalSeconds: ORPHAN_CONFIG.minIntervalSeconds,
+    run: () => new OrphanDiscoveryTask().run({ budgetMs: ORPHAN_CONFIG.wallClockMs }),
   },
 ];

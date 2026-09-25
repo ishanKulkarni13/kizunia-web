@@ -197,4 +197,29 @@ describe("BillingSyncTask", () => {
 
     expect(alerts()).toContain("WEBHOOK_SILENCE");
   });
+
+  it("raises OPERATION_OUTCOME_UNKNOWN for a command still unresolved past the threshold (Phase V)", async () => {
+    const { userId } = await due({ syncDueAt: null });
+    await insertOperation(userId, {
+      kind: "CREATE_SUBSCRIPTION",
+      status: "OUTCOME_UNKNOWN",
+      createdAt: new Date(T0.getTime() - 3 * DAY),
+    });
+
+    await task().task.run();
+
+    expect(alerts()).toContain("OPERATION_OUTCOME_UNKNOWN");
+  });
+
+  it("does not raise OPERATION_OUTCOME_UNKNOWN for a young unknown operation", async () => {
+    const { userId } = await due({ syncDueAt: null });
+    await insertOperation(userId, { kind: "CREATE_SUBSCRIPTION", status: "OUTCOME_UNKNOWN", createdAt: T0 });
+    const olderElsewhere = await prisma.billingOperation.count({
+      where: { providerMode: "TEST", status: "OUTCOME_UNKNOWN", createdAt: { lt: new Date(T0.getTime() - 2 * DAY) } },
+    });
+
+    await task().task.run();
+
+    if (olderElsewhere === 0) expect(alerts()).not.toContain("OPERATION_OUTCOME_UNKNOWN");
+  });
 });

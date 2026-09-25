@@ -12,7 +12,8 @@
  *   auth pinned / cooling     -> no provider work this run
  *   drain                     -> until the deadline, an empty claim, or a refusal
  *   unmatched webhook events  -> resolved through notes (IB-24 item 4)
- *   health checks             -> SYNC_OVERDUE, WEBHOOK_SILENCE, sustained BUDGET_EXHAUSTED
+ *   health checks             -> SYNC_OVERDUE, WEBHOOK_SILENCE, sustained BUDGET_EXHAUSTED,
+ *                                OPERATION_OUTCOME_UNKNOWN (Phase V)
  *
  * Scheduler-agnostic (SB-PB-06): it takes a budget and knows nothing about
  * HTTP, Vercel or cron. The tick registers it before `notifications:tick`
@@ -157,6 +158,35 @@ export class BillingSyncTask {
     }
 
     await this.checkWebhookSilence(mode, syncRunId);
+    await this.checkUnresolvedOperations(mode, syncRunId);
+  }
+
+  /**
+   * `OPERATION_OUTCOME_UNKNOWN`: a command whose outcome is still unknown past
+   * the threshold. A user may have been charged without a record, or is
+   * blocked from billing; the runbook says how to resolve it.
+   */
+  private async checkUnresolvedOperations(mode: ProviderMode, syncRunId: string): Promise<void> {
+    const olderThan = new Date(this.now().getTime() - ALERT_CONFIG.operationOutcomeUnknownSeconds * 1000);
+    const where = { providerMode: mode, status: "OUTCOME_UNKNOWN" as const, createdAt: { lt: olderThan } };
+    const count = await prisma.billingOperation.count({ where });
+
+    if (count === 0) return;
+
+    const oldest = await prisma.billingOperation.findFirst({
+      where,
+      orderBy: { createdAt: "asc" },
+      select: { id: true, kind: true, createdAt: true },
+    });
+
+    logBillingAlert(BillingAlertCondition.OPERATION_OUTCOME_UNKNOWN, "HIGH", {
+      mode,
+      syncRunId,
+      count,
+      oldestOperationId: oldest?.id ?? null,
+      oldestKind: oldest?.kind ?? null,
+      oldestCreatedAt: oldest?.createdAt ?? null,
+    });
   }
 
   /**

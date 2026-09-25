@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SYNC_CONFIG } from "@/modules/billing/config/billing-config";
+import { ORPHAN_CONFIG, SYNC_CONFIG } from "@/modules/billing/config/billing-config";
 import { JOB_CONFIG } from "@/modules/notifications/config/notification-config";
 
 import { maxDuration } from "./route";
@@ -24,5 +24,14 @@ describe("the tick's task order and budgets (IB-10)", () => {
     expect(SYNC_CONFIG.wallClockMs).toBe(10_000);
     expect(JOB_CONFIG.wallClockBudgetMs).toBe(30_000);
     expect(worstCaseMs).toBeLessThanOrEqual(maxDuration * 1000 - 10_000);
+  });
+
+  it("runs billing:orphan-discovery last, at low frequency, so it only takes what the others leave (IB-25 item 6)", () => {
+    const ids = TICK_TASKS.map((task) => task.id);
+    const orphan = TICK_TASKS.find((task) => task.id === "billing:orphan-discovery");
+
+    expect(ids.at(-1)).toBe("billing:orphan-discovery");
+    expect(orphan?.minIntervalSeconds).toBeGreaterThanOrEqual(15 * 60);
+    expect(ORPHAN_CONFIG.wallClockMs).toBeLessThanOrEqual(10_000);
   });
 });

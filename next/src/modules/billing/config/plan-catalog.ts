@@ -44,6 +44,14 @@ export interface PlanCatalogEntry {
    * still resolve. Keep the entry for as long as one may exist.
    */
   readonly retired?: boolean;
+  /**
+   * The plan's recurring price, in minor units (paise), as configured at the
+   * provider. Used for one thing only: telling a paid→paid upgrade from a
+   * downgrade (SB-LC-02/03 define them by price; IB-26 item 6). Never a
+   * billing amount: Razorpay charges what its plan says. Absent → a plan
+   * change involving this entry is unavailable rather than guessed.
+   */
+  readonly amountMinor?: number;
 }
 
 export interface PlanCatalog {
@@ -55,13 +63,20 @@ export interface PlanCatalog {
    * or `undefined` when none is configured. Never returns a retired ID.
    */
   currentProviderPlanId(plan: MembershipPlan, cycle: BillingCycle): string | undefined;
+
+  /**
+   * The configured price (minor units) of the entry sold now for this plan
+   * and cycle, or `undefined` when there is none or it carries no price.
+   */
+  currentPriceMinor(plan: MembershipPlan, cycle: BillingCycle): number | undefined;
 }
 
 /**
  * Builds a catalog from entries, refusing an inconsistent list:
  *  - a provider plan ID appears once (it maps to one plan and cycle);
  *  - at most one entry per (plan, cycle) is current (not retired), so "the plan
- *    to sell" is never ambiguous.
+ *    to sell" is never ambiguous;
+ *  - a price, when given, is a positive whole number of minor units.
  */
 export function createPlanCatalog(entries: readonly PlanCatalogEntry[]): PlanCatalog {
   const byProviderPlanId = new Map<string, PlanCatalogEntry>();
@@ -76,6 +91,10 @@ export function createPlanCatalog(entries: readonly PlanCatalogEntry[]): PlanCat
       throw new Error(
         `Plan catalog: provider plan ID ${entry.providerPlanId} is listed more than once.`,
       );
+    }
+
+    if (entry.amountMinor !== undefined && !(Number.isInteger(entry.amountMinor) && entry.amountMinor > 0)) {
+      throw new Error(`Plan catalog: ${entry.providerPlanId} has an invalid amountMinor (${entry.amountMinor}).`);
     }
 
     byProviderPlanId.set(entry.providerPlanId, entry);
@@ -98,6 +117,11 @@ export function createPlanCatalog(entries: readonly PlanCatalogEntry[]): PlanCat
   return {
     findByProviderPlanId: (providerPlanId) => byProviderPlanId.get(providerPlanId),
     currentProviderPlanId: (plan, cycle) => currentByPlanAndCycle.get(`${plan}:${cycle}`),
+    currentPriceMinor: (plan, cycle) => {
+      const id = currentByPlanAndCycle.get(`${plan}:${cycle}`);
+
+      return id === undefined ? undefined : byProviderPlanId.get(id)?.amountMinor;
+    },
   };
 }
 
@@ -106,16 +130,17 @@ export function createPlanCatalog(entries: readonly PlanCatalogEntry[]): PlanCat
  * 2026-09-25. Temporary TEST-only prices set by the owner; not Kizunia
  * pricing. When the spec's version is bumped, add the new IDs and mark these
  * `retired: true` (never delete them while a TEST subscription may use them).
+ * `amountMinor` mirrors `test-plan-spec.ts` (a test keeps them equal).
  */
 const TEST_PLANS: readonly PlanCatalogEntry[] = [
   // KZ-TEST v1 PRO monthly: INR 10
-  { providerPlanId: "plan_TgDgeZ5thTGEr8", plan: "PRO", cycle: "MONTHLY" },
+  { providerPlanId: "plan_TgDgeZ5thTGEr8", plan: "PRO", cycle: "MONTHLY", amountMinor: 1_000 },
   // KZ-TEST v1 PRO yearly: INR 12
-  { providerPlanId: "plan_TgDgejlJXhdilW", plan: "PRO", cycle: "YEARLY" },
+  { providerPlanId: "plan_TgDgejlJXhdilW", plan: "PRO", cycle: "YEARLY", amountMinor: 1_200 },
   // KZ-TEST v1 PRO_PLUS monthly: INR 20
-  { providerPlanId: "plan_TgDgfArS3b5MQu", plan: "PRO_PLUS", cycle: "MONTHLY" },
+  { providerPlanId: "plan_TgDgfArS3b5MQu", plan: "PRO_PLUS", cycle: "MONTHLY", amountMinor: 2_000 },
   // KZ-TEST v1 PRO_PLUS yearly: INR 22
-  { providerPlanId: "plan_TgDgfLV0VuYLQz", plan: "PRO_PLUS", cycle: "YEARLY" },
+  { providerPlanId: "plan_TgDgfLV0VuYLQz", plan: "PRO_PLUS", cycle: "YEARLY", amountMinor: 2_200 },
 ];
 
 const LIVE_PLANS: readonly PlanCatalogEntry[] = [];

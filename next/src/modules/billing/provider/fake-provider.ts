@@ -142,6 +142,7 @@ export class FakeBillingProvider implements BillingProvider {
   private readonly createdAt = new Map<string, Date>();
   private readonly paymentMethods = new Map<string, PaymentMethodInfo>();
   private readonly failures: ScriptedFailure[] = [];
+  private readonly noEffect: { method: FakeNetworkMethod; remaining: number }[] = [];
   private disabled = false;
   private sequence = 0;
 
@@ -166,6 +167,18 @@ export class FakeBillingProvider implements BillingProvider {
     const { times = 1, afterApplying = false, ...details } = options;
 
     this.failures.push({ method, failureClass, afterApplying, remaining: times, ...details });
+
+    return this;
+  }
+
+  /**
+   * Makes the next `times` calls of a mutation answer success with the
+   * subscription's *current* state and apply nothing: the `200` that changed
+   * nothing observable Razorpay TEST showed for some cancels (A1/D2), or a
+   * change not yet visible (D9). Only an authoritative fetch tells.
+   */
+  acceptWithoutEffect(method: Exclude<FakeNetworkMethod, "fetchSubscription" | "listSubscriptions" | "fetchAuthorizationPaymentMethod">, times = 1): this {
+    this.noEffect.push({ method, remaining: times });
 
     return this;
   }
@@ -485,6 +498,16 @@ export class FakeBillingProvider implements BillingProvider {
       if (scripted.afterApplying) happyPath();
 
       return Promise.resolve(this.fail(failureClass, { providerErrorCode, providerErrorDescription }));
+    }
+
+    const accepted = this.noEffect.find((entry) => entry.remaining > 0 && entry.method === method);
+    const ref = typeof args[0] === "string" ? args[0] : null;
+    const current = ref === null ? undefined : this.subscriptions.get(ref);
+
+    if (accepted && current) {
+      accepted.remaining -= 1;
+
+      return Promise.resolve(providerSuccess(current, this.now()) as Outcome<T>);
     }
 
     return Promise.resolve(happyPath());

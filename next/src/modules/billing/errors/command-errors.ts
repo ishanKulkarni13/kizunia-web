@@ -7,7 +7,8 @@
  */
 import { ConflictError, ExternalServiceError, HttpStatus, ValidationError } from "@/lib/errors";
 
-import type { PlanChangeAdvisory } from "../policy/command-preconditions";
+import type { CancelTiming, PlanChangeAdvisory } from "../policy/command-preconditions";
+import type { PlanChangeUnavailableReason } from "../policy/plan-change-strategy";
 
 import { BillingErrorCode } from "./error-code";
 
@@ -71,7 +72,7 @@ export class SupersessionRequiredError extends ConflictError {
     super({
       code: BillingErrorCode.SUPERSESSION_REQUIRED,
       status: HttpStatus.CONFLICT,
-      message: "Your subscription is on hold. Resolve it before starting a new one.",
+      message: "Your subscription is on hold. Update your payment method to resume it, or confirm replacing it with a new subscription.",
     });
   }
 }
@@ -114,6 +115,112 @@ export class NoPendingCheckoutError extends ConflictError {
       code: BillingErrorCode.NO_PENDING_CHECKOUT,
       status: HttpStatus.CONFLICT,
       message: "There is no checkout waiting to be confirmed.",
+    });
+  }
+}
+
+// -- Lifecycle commands (Phase VI) ------------------------------------------
+
+export class NoSubscriptionError extends ConflictError {
+  constructor() {
+    super({
+      code: BillingErrorCode.NO_SUBSCRIPTION,
+      status: HttpStatus.CONFLICT,
+      message: "You don't have a paid subscription this change applies to.",
+    });
+  }
+}
+
+export class CancellationTimingChangedError extends ConflictError {
+  constructor(timing: CancelTiming) {
+    super({
+      code: BillingErrorCode.CANCELLATION_TIMING_CHANGED,
+      status: HttpStatus.CONFLICT,
+      message: "Your subscription changed since this page loaded. Review the cancellation again before confirming.",
+      details: { timing },
+    });
+  }
+}
+
+export class CancellationFailedError extends ExternalServiceError {
+  constructor() {
+    super({
+      code: BillingErrorCode.CANCELLATION_FAILED,
+      status: HttpStatus.BAD_GATEWAY,
+      message: "We couldn't cancel your subscription right now. Nothing changed. Please try again later or contact support.",
+      retryable: false,
+    });
+  }
+}
+
+export class CancellationRequestedError extends ConflictError {
+  constructor() {
+    super({
+      code: BillingErrorCode.CANCELLATION_REQUESTED,
+      status: HttpStatus.CONFLICT,
+      message: "Your subscription is set to end. You can choose a new plan once it has ended.",
+    });
+  }
+}
+
+export class SupersessionCancelRefusedError extends ConflictError {
+  constructor() {
+    super({
+      code: BillingErrorCode.SUPERSESSION_CANCEL_REFUSED,
+      status: HttpStatus.CONFLICT,
+      message: "We couldn't end your on-hold subscription, so no new one was started. Update your payment method to resume it instead.",
+      details: { recovery: true },
+    });
+  }
+}
+
+export class SupersessionNotApplicableError extends ConflictError {
+  constructor() {
+    super({
+      code: BillingErrorCode.SUPERSESSION_NOT_APPLICABLE,
+      status: HttpStatus.CONFLICT,
+      message: "That subscription is no longer on hold. Refresh the page to see your current plan.",
+    });
+  }
+}
+
+export class PlanChangeUnavailableError extends ConflictError {
+  constructor(reason: PlanChangeUnavailableReason | "PROVIDER_REFUSED") {
+    super({
+      code: BillingErrorCode.PLAN_CHANGE_UNAVAILABLE,
+      status: HttpStatus.CONFLICT,
+      message: "This plan change isn't available for your subscription.",
+      details: { reason },
+    });
+  }
+}
+
+export class SamePlanError extends ConflictError {
+  constructor() {
+    super({
+      code: BillingErrorCode.SAME_PLAN,
+      status: HttpStatus.CONFLICT,
+      message: "You're already on this plan.",
+    });
+  }
+}
+
+export class NotRecoverableError extends ConflictError {
+  constructor() {
+    super({
+      code: BillingErrorCode.NOT_RECOVERABLE,
+      status: HttpStatus.CONFLICT,
+      message: "Your subscription doesn't need a payment update.",
+    });
+  }
+}
+
+export class SubscriptionNotCancellableError extends ConflictError {
+  constructor() {
+    super({
+      code: BillingErrorCode.SUBSCRIPTION_NOT_CANCELLABLE,
+      status: HttpStatus.CONFLICT,
+      message: "This subscription can't be cancelled: it is still being set up, or it has already ended.",
     });
   }
 }

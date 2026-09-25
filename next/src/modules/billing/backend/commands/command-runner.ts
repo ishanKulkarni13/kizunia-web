@@ -38,6 +38,7 @@ import {
   type BillingOperation,
   type BillingOperationKind,
   type ProviderMode,
+  type Subscription,
   type SubscriptionPhase,
 } from "@/generated/prisma";
 import type { AppError } from "@/lib/errors";
@@ -140,7 +141,8 @@ export interface SettleContext {
 
 /** One provider mutation and how its outcome is written. */
 export interface MutationSpec<T> {
-  call(provider: BillingProvider): Promise<Outcome<T>>;
+  /** `operation` is the one this call is recorded as (a child's own id goes into a create's `notes.kz_op`). */
+  call(provider: BillingProvider, operation: BillingOperation): Promise<Outcome<T>>;
   /** Command-specific writes in tx B, after the operation itself is settled. */
   settle(tx: Prisma.TransactionClient, classified: ClassifiedOutcome<T>, context: SettleContext): Promise<void>;
 }
@@ -318,7 +320,7 @@ export class CommandRunner {
    * it, and settles it in tx B together with the command's own writes.
    */
   async mutate<T>(operation: BillingOperation, spec: MutationSpec<T>): Promise<ClassifiedOutcome<T>> {
-    const outcome = await spec.call(this.providerFor(ProviderPriority.COMMAND));
+    const outcome = await spec.call(this.providerFor(ProviderPriority.COMMAND), operation);
     const classified = classifyMutationOutcome(outcome);
 
     // A crash here leaves the operation IN_FLIGHT until its lease lapses.
@@ -349,27 +351,42 @@ export class CommandRunner {
 
   /** Records a child operation under `root`'s slot and runs its mutation. A failed child stops the root. */
   async runChild<T>(root: BillingOperation, spec: ChildSpec<T>): Promise<{ child: BillingOperation; outcome: ClassifiedOutcome<T> }> {
+    const child = await prisma.$transaction((tx) => this.insertChild(tx, root, spec));
+
+    return { child, outcome: await this.mutate(child, spec) };
+  }
+
+  /**
+   * Records a child in the caller's transaction, to be sent later with
+   * `mutate`. A create's child is written in the same transaction as the
+   * `PROVISIONING` record it will create, so a crash can never leave a record
+   * without the operation that resolves it (a lapsed lease, then orphan
+   * discovery).
+   */
+  async insertChild(
+    tx: Prisma.TransactionClient,
+    root: BillingOperation,
+    spec: Pick<ChildSpec<unknown>, "kind" | "subscriptionId" | "request">,
+  ): Promise<BillingOperation> {
     const now = this.now();
-    const child = await prisma.$transaction((tx) =>
-      BillingOperationRepository.insert(tx, {
-        userId: root.userId!,
-        kind: spec.kind,
-        providerMode: root.providerMode,
-        actorKind: root.actorKind,
-        actorUserId: root.actorUserId,
-        // Generated for a system-composed step (operation-model.md), unique per user.
-        idempotencyKey: `${root.idempotencyKey}:${spec.kind}:${randomUUID().slice(0, 8)}`,
-        request: spec.request,
-        subscriptionId: spec.subscriptionId,
-        parentOperationId: root.id,
-        leaseUntil: this.leaseUntil(now),
-        createdAt: now,
-      }),
-    );
+    const child = await BillingOperationRepository.insert(tx, {
+      userId: root.userId!,
+      kind: spec.kind,
+      providerMode: root.providerMode,
+      actorKind: root.actorKind,
+      actorUserId: root.actorUserId,
+      // Generated for a system-composed step (operation-model.md), unique per user.
+      idempotencyKey: `${root.idempotencyKey}:${spec.kind}:${randomUUID().slice(0, 8)}`,
+      request: spec.request,
+      subscriptionId: spec.subscriptionId,
+      parentOperationId: root.id,
+      leaseUntil: this.leaseUntil(now),
+      createdAt: now,
+    });
 
     logBillingEvent("command.started", { ...this.logFields(child), parentOperationId: root.id });
 
-    return { child, outcome: await this.mutate(child, spec) };
+    return child;
   }
 
   /**
@@ -378,14 +395,30 @@ export class CommandRunner {
    * response. `null` when nothing could be observed right now.
    */
   async confirmTerminal(subscriptionId: string): Promise<{ confirmed: boolean; phase: SubscriptionPhase | null }> {
-    const result = await this.sync.syncTargeted(subscriptionId, ProviderPriority.COMMAND, { trigger: "COMMAND_CONFIRM" });
-    const observed = result.outcome === "APPLIED" || result.outcome === "NO_CHANGE";
-
-    if (!observed) return { confirmed: false, phase: null };
-
-    const phase = (result.phase ?? null) as SubscriptionPhase | null;
+    const { subscription } = await this.confirmBySync(subscriptionId);
+    const phase = subscription?.phase ?? null;
 
     return { confirmed: phase !== null && isTerminalPhase(phase), phase };
+  }
+
+  /**
+   * The same targeted priority-1 sync, answering with the row as that fetch
+   * left it: for steps confirmed by something other than a terminal phase (a
+   * cleared scheduled change, a phase still on hold). `subscription` is `null`
+   * when nothing could be observed right now (a failed fetch, a row another
+   * worker holds): the local row is then not evidence of anything.
+   *
+   * A fetch discarded as stale counts as observed: the row already holds an
+   * observation whose request was sent *after* this one (a webhook's fetch
+   * that overtook it), which is fresher evidence, not less.
+   */
+  async confirmBySync(subscriptionId: string): Promise<{ subscription: Subscription | null }> {
+    const result = await this.sync.syncTargeted(subscriptionId, ProviderPriority.COMMAND, { trigger: "COMMAND_CONFIRM" });
+    const observed = result.outcome === "APPLIED" || result.outcome === "NO_CHANGE" || result.outcome === "STALE_DISCARDED";
+
+    if (!observed) return { subscription: null };
+
+    return { subscription: await prisma.subscription.findUnique({ where: { id: subscriptionId } }) };
   }
 
   /** A fresh lease end, from now. */

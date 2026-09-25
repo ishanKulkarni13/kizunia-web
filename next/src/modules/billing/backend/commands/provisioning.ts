@@ -16,8 +16,9 @@ import type {
   Subscription,
 } from "@/generated/prisma";
 
+import type { PlanCatalog } from "../../config/plan-catalog";
 import { isOpenPhase } from "../../policy/state-mapping";
-import type { OpenSubscriptionView } from "../../policy/command-preconditions";
+import type { OpenSubscriptionView, PlanPrices } from "../../policy/command-preconditions";
 import { SubscriptionHistoryRepository } from "../history/history.repository";
 import { BillingOperationRepository } from "./operation.repository";
 
@@ -42,10 +43,45 @@ export function openView(row: Subscription): OpenSubscriptionView {
     expireBy: row.expireBy,
     advisoryPaymentMethod: row.advisoryPaymentMethod,
     advisoryInternationalCard: row.advisoryInternationalCard,
+    cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+    scheduledPlan: row.scheduledPlan,
+    scheduledCycle: row.scheduledCycle,
+    hasScheduledChange: hasScheduledChange(row),
   };
 }
 
-/** Writes the `PROVISIONING` record a create will carry in `notes.kz_sub`, and links it to its operation. */
+/**
+ * A pending `cycle_end` change: Kizunia's own target, or the provider's flag
+ * on the last observation (a change scheduled in the Dashboard has no target).
+ */
+export function hasScheduledChange(row: Pick<Subscription, "scheduledPlan" | "providerSnapshot">): boolean {
+  const snapshot = (row.providerSnapshot ?? null) as { hasScheduledChanges?: unknown } | null;
+
+  return row.scheduledPlan !== null || snapshot?.hasScheduledChanges === true;
+}
+
+/**
+ * Prices for telling an upgrade from a downgrade (IB-26 item 6). The current
+ * price is the subscription's own provider plan's (which may be retired),
+ * falling back to the plan sold now for its plan and cycle.
+ */
+export function planPricesFor(
+  catalog: PlanCatalog,
+  current: Pick<Subscription, "providerPlanId" | "plan" | "cycle"> | undefined,
+): PlanPrices {
+  const own = current?.providerPlanId ? catalog.findByProviderPlanId(current.providerPlanId)?.amountMinor : undefined;
+
+  return {
+    current: current ? (own ?? catalog.currentPriceMinor(current.plan, current.cycle)) : undefined,
+    of: (intent) => catalog.currentPriceMinor(intent.plan, intent.cycle),
+  };
+}
+
+/**
+ * Writes the `PROVISIONING` record a create will carry in `notes.kz_sub`, and
+ * links it to `operationId` when that is the create's own root (a
+ * supersession's create is a child that names the record itself).
+ */
 export async function createProvisioning(
   tx: Tx,
   input: {
@@ -53,7 +89,7 @@ export async function createProvisioning(
     readonly mode: ProviderMode;
     readonly plan: MembershipPlan;
     readonly cycle: BillingCycle;
-    readonly operationId: string;
+    readonly operationId: string | null;
     readonly now: Date;
   },
 ): Promise<Subscription> {
@@ -69,7 +105,7 @@ export async function createProvisioning(
     },
   });
 
-  await BillingOperationRepository.linkSubscription(tx, input.operationId, subscription.id);
+  if (input.operationId !== null) await BillingOperationRepository.linkSubscription(tx, input.operationId, subscription.id);
 
   return subscription;
 }

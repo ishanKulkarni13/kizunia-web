@@ -81,6 +81,33 @@ describe("settleOperations", () => {
     expect(settleOperations(ops, observation({ rawStatus: "cancelled" }))).toEqual([]);
   });
 
+  it("settles a cycle-end update proven only by the provider flag, adopting its target (Phase VI)", () => {
+    const update = op({ kind: "UPDATE_PLAN", request: { plan: "PRO", cycle: "YEARLY", scheduleChangeAt: "CYCLE_END" } });
+
+    expect(settleOperations([update], observation({ plan: "PRO_PLUS", hasScheduledChanges: true }))).toEqual([
+      { operationId: "op_1", status: "SUCCEEDED", adoptTarget: { plan: "PRO", cycle: "YEARLY" } },
+    ]);
+  });
+
+  it("does not adopt a flag that another target already explains, nor for an immediate update", () => {
+    const cycleEnd = op({ kind: "UPDATE_PLAN", request: { plan: "PRO", cycle: "YEARLY", scheduleChangeAt: "CYCLE_END" } });
+    const now = op({ kind: "UPDATE_PLAN", request: { plan: "PRO", cycle: "YEARLY", scheduleChangeAt: "NOW" } });
+    const flaggedOther = observation({ plan: "PRO_PLUS", hasScheduledChanges: true, scheduledPlan: "PRO", scheduledCycle: "MONTHLY" });
+
+    expect(settleOperations([cycleEnd], flaggedOther)).toEqual([{ operationId: "op_1", status: "NOT_APPLIED" }]);
+    expect(settleOperations([now], observation({ plan: "PRO_PLUS", hasScheduledChanges: true }))).toEqual([
+      { operationId: "op_1", status: "NOT_APPLIED" },
+    ]);
+  });
+
+  it("reads a Phase IV/V update request without a timing as immediate", () => {
+    const legacy = op({ kind: "UPDATE_PLAN", request: { plan: "PRO", cycle: "YEARLY" } });
+
+    expect(settleOperations([legacy], observation({ plan: "PRO_PLUS", hasScheduledChanges: true }))).toEqual([
+      { operationId: "op_1", status: "NOT_APPLIED" },
+    ]);
+  });
+
   it("only settles OUTCOME_UNKNOWN operations whose request was sent strictly before the observation", () => {
     const ops = [
       op({ id: "in_flight", status: "IN_FLIGHT" }),

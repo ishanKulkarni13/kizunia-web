@@ -200,6 +200,60 @@ export class BillingOperationRepository {
     return count > 0;
   }
 
+  /**
+   * Ends the root of a composed command, which sends nothing itself and so has
+   * no `requestSentAt` (IB-26 item 4): `SUCCEEDED` when every child it ran
+   * succeeded, `REJECTED` otherwise. A root whose lease lapsed under a slow
+   * request is `OUTCOME_UNKNOWN`; it resolves to `SUCCEEDED` or, when its
+   * children did not all succeed, `NOT_APPLIED`. `false` when already closed.
+   */
+  static async closeParent(
+    tx: Tx,
+    operationId: string,
+    outcome: { readonly status: "SUCCEEDED" } | { readonly status: "REJECTED"; readonly failureClass: ProviderFailureClass | null },
+    now: Date,
+  ): Promise<boolean> {
+    const live = await tx.billingOperation.updateMany({
+      where: { id: operationId, status: "IN_FLIGHT" },
+      data: {
+        status: outcome.status,
+        resolvedAt: now,
+        leaseUntil: null,
+        ...(outcome.status === "REJECTED" && { failureClass: outcome.failureClass }),
+      },
+    });
+
+    if (live.count > 0) return true;
+
+    const lapsed = await tx.billingOperation.updateMany({
+      where: { id: operationId, status: "OUTCOME_UNKNOWN" },
+      data: { status: outcome.status === "SUCCEEDED" ? "SUCCEEDED" : "NOT_APPLIED", resolvedAt: now, leaseUntil: null },
+    });
+
+    return lapsed.count > 0;
+  }
+
+  /**
+   * Closes a root that never sent its own request (a composed command
+   * stopping early): `REJECTED` while IN_FLIGHT, or `NOT_APPLIED` when its
+   * lease lapsed meanwhile, since nothing it sent can have taken effect.
+   */
+  static async closeUnsent(tx: Tx, operationId: string, failureClass: ProviderFailureClass | null, now: Date): Promise<void> {
+    if (!(await BillingOperationRepository.rejectInFlight(tx, operationId, failureClass, now))) {
+      await BillingOperationRepository.resolveNotApplied(tx, operationId, now);
+    }
+  }
+
+  /**
+   * Completes a root's `request` with what tx A read (a cycle-end cancel's
+   * period end, IB-26 item 3). Only inside the tx A that inserted it, before
+   * it is committed, so no reader ever sees another request: this finishes
+   * the insert, it does not rewrite an audit record.
+   */
+  static async completeRequest(tx: Tx, operationId: string, request: Prisma.InputJsonValue): Promise<void> {
+    await tx.billingOperation.updateMany({ where: { id: operationId, status: "IN_FLIGHT" }, data: { request } });
+  }
+
   /** Links a root to the Subscription its command created (a one-time fill of a null reference, IB-25 item 4). */
   static async linkSubscription(tx: Tx, operationId: string, subscriptionId: string): Promise<void> {
     await tx.billingOperation.updateMany({

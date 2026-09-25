@@ -4,7 +4,8 @@
  * A pending checkout for another plan or cycle, or one that has (nearly)
  * expired, is cancelled before a new one is created, so Kizunia never has two
  * open subscriptions for a user (SB-UQ-02). It is a `CANCEL_IMMEDIATELY` child
- * under the create's root, sharing its slot (IB-6):
+ * under the create's root, sharing its slot (IB-6), through the one immediate
+ * cancel step (`immediate-cancel.ts`):
  *
  *   cancel(atCycleEnd: false)          accepted for `created` in TEST (A1)
  *   one targeted priority-1 sync       the OBSERVED phase decides, never the
@@ -20,11 +21,10 @@
  */
 import type { BillingOperation, Subscription } from "@/generated/prisma";
 
-import { applyObservationInTransaction } from "../sync/apply";
-import { SyncClaimRepository } from "../sync/claim.repository";
-import type { CommandScope } from "./command-runner";
 import type { ClassifiedOutcome } from "../../policy/command-outcome";
 import type { ProviderSubscriptionState } from "../../provider/types";
+import type { CommandScope } from "./command-runner";
+import { cancelImmediately } from "./immediate-cancel";
 
 export type AbandonResult =
   /** The old checkout is observed terminal: the parent may create. */
@@ -39,44 +39,16 @@ export async function abandonCheckout(
   root: BillingOperation,
   old: Pick<Subscription, "id" | "providerSubscriptionId">,
 ): Promise<AbandonResult> {
-  const { runner, mode } = scope;
-  const providerSubscriptionId = old.providerSubscriptionId;
-
   // A pending checkout is always bound (it is bound before it is applied); guard anyway.
-  if (providerSubscriptionId === null) return { kind: "NOT_CONFIRMED" };
+  if (old.providerSubscriptionId === null) return { kind: "NOT_CONFIRMED" };
 
-  const { outcome } = await runner.runChild<ProviderSubscriptionState>(root, {
-    kind: "CANCEL_IMMEDIATELY",
-    subscriptionId: old.id,
-    request: { atCycleEnd: false, reason: "ABANDON_CHECKOUT" },
-    call: (provider) => provider.cancelSubscription(providerSubscriptionId, { atCycleEnd: false }),
-    settle: async (tx, classified, { operation, effects, now }) => {
-      if (classified.kind === "SUCCESS") {
-        // A command response goes through the one apply path (SB-CM-05).
-        await applyObservationInTransaction(
-          tx,
-          old.id,
-          { state: classified.value, observationAt: classified.requestSentAt },
-          {
-            resolvedMode: mode,
-            trigger: "COMMAND_RESPONSE",
-            commandOperationId: operation.id,
-            now,
-            catalog: runner.catalog,
-            schedule: runner.schedule,
-          },
-          effects,
-        );
-      }
-
-      // Confirm by a fresh fetch whatever the answer: a refusal suggests stale local state.
-      await SyncClaimRepository.markDue(tx, old.id, "COMMAND_CONFIRM", now, { eventDriven: false, now });
-    },
-  });
+  const { outcome, confirmed } = await cancelImmediately(
+    scope,
+    { parent: root, request: { atCycleEnd: false, reason: "ABANDON_CHECKOUT" } },
+    old,
+  );
 
   if (outcome.kind === "REJECTED" && outcome.requestSentAt === null) return { kind: "NOT_SENT", outcome };
 
-  const observed = await runner.confirmTerminal(old.id);
-
-  return observed.confirmed ? { kind: "CONFIRMED" } : { kind: "NOT_CONFIRMED" };
+  return confirmed ? { kind: "CONFIRMED" } : { kind: "NOT_CONFIRMED" };
 }

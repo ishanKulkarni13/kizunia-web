@@ -60,7 +60,7 @@ export const BillingErrorCode = {
    */
   SUBSCRIPTION_EXISTS: "BILLING_SUBSCRIPTION_EXISTS",
 
-  /** The subscription is `HALTED` or `PAUSED`: only supersession (Phase VI) can replace it. */
+  /** The subscription is `HALTED` or `PAUSED`: only an explicitly confirmed supersession (Phase VI) can replace it. */
   SUPERSESSION_REQUIRED: "BILLING_SUPERSESSION_REQUIRED",
 
   /** An open multiple-subscriptions anomaly: self-serve billing is paused for this user. */
@@ -77,6 +77,46 @@ export const BillingErrorCode = {
 
   /** A retry of a request that was refused; the recorded refusal is returned, never re-executed. */
   REQUEST_REFUSED: "BILLING_REQUEST_REFUSED",
+
+  // -- Lifecycle commands (Phase VI) ----------------------------------------
+
+  /** The user has no subscription this command can act on (none open, or only one being set up). */
+  NO_SUBSCRIPTION: "BILLING_NO_SUBSCRIPTION",
+
+  /**
+   * The cancellation timing the customer confirmed is no longer the one that
+   * applies (the subscription changed phase meanwhile; IB-26 item 2).
+   * `details.timing` is the current one. Nothing was sent.
+   */
+  CANCELLATION_TIMING_CHANGED: "BILLING_CANCELLATION_TIMING_CHANGED",
+
+  /** The provider refused the cancellation; nothing changed. */
+  CANCELLATION_FAILED: "BILLING_CANCELLATION_FAILED",
+
+  /** A cycle-end cancellation is requested: the subscription is ending, so its plan can no longer change. */
+  CANCELLATION_REQUESTED: "BILLING_CANCELLATION_REQUESTED",
+
+  /** Supersession: the provider refused to cancel the on-hold subscription, so nothing was created. Use recovery. */
+  SUPERSESSION_CANCEL_REFUSED: "BILLING_SUPERSESSION_CANCEL_REFUSED",
+
+  /** Supersession was asked for a subscription that is not (or no longer) on hold and replaceable. */
+  SUPERSESSION_NOT_APPLICABLE: "BILLING_SUPERSESSION_NOT_APPLICABLE",
+
+  /**
+   * The plan change cannot be made for this subscription: the V1 limitation
+   * for its payment method, its state, a missing price, or Razorpay's own
+   * refusal (`details.reason`). Never retried, never worked around (SB-LC-07).
+   */
+  PLAN_CHANGE_UNAVAILABLE: "BILLING_PLAN_CHANGE_UNAVAILABLE",
+
+  /** The requested plan and cycle are the ones the subscription is already on. */
+  SAME_PLAN: "BILLING_SAME_PLAN",
+
+  /** Recovery (a payment-method change) is offered only for a halted or paused subscription. */
+  NOT_RECOVERABLE: "BILLING_NOT_RECOVERABLE",
+
+  /** Admin cancel: the subscription is still being set up, or has already ended. */
+  SUBSCRIPTION_NOT_CANCELLABLE: "BILLING_SUBSCRIPTION_NOT_CANCELLABLE",
 } as const;
 
 export type BillingErrorCode =

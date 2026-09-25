@@ -7,13 +7,16 @@
  * decides, for one applied observation, which of the subscription's
  * `OUTCOME_UNKNOWN` operations it proves or disproves:
  *
- *   UPDATE_PLAN              plan (or the pending scheduled plan) == requested -> SUCCEEDED, else NOT_APPLIED
+ *   UPDATE_PLAN              plan (or the pending scheduled plan) == requested -> SUCCEEDED, else NOT_APPLIED;
+ *                            a `cycle_end` update is also SUCCEEDED when the provider flag is set
+ *                            and Kizunia holds no target (Razorpay never names it): the target is
+ *                            adopted from the operation (`adoptTarget`)
  *   CANCEL_IMMEDIATELY       status cancelled                                  -> SUCCEEDED, else NOT_APPLIED
  *   CANCEL_SCHEDULED_CHANGE  no scheduled change                               -> SUCCEEDED, else NOT_APPLIED
  *   CANCEL_AT_CYCLE_END      status cancelled                                  -> SUCCEEDED; otherwise
  *                            left alone: a requested cycle-end cancel is not observable (A2)
  *   CREATE_SUBSCRIPTION      settled by binding, not here
- *   SUPERSEDE, CHANGE_PLAN   parents: settled through their children (Phase V/VI)
+ *   SUPERSEDE, CHANGE_PLAN   parents: settled through their children (Phase VI)
  *
  * Only an observation whose request was sent strictly **after** the operation's
  * request can settle it; an earlier read says nothing about a later change.
@@ -32,9 +35,24 @@ import type { BillingCycle, BillingOperationKind, BillingOperationStatus, Member
 export const UpdatePlanRequestSchema = z.object({
   plan: z.enum(["PRO", "PRO_PLUS"]),
   cycle: z.enum(["MONTHLY", "YEARLY"]),
+  /** Written by Phase VI's ChangePlan; absent on older requests (read as `NOW`). */
+  scheduleChangeAt: z.enum(["NOW", "CYCLE_END"]).optional(),
 });
 
 export type UpdatePlanRequest = z.infer<typeof UpdatePlanRequestSchema>;
+
+/**
+ * The `request` of a `CANCEL_AT_CYCLE_END` operation. `periodEnd` is the
+ * period end in force when it was sent: I-4 (i) measures "still billing after
+ * the requested period end" against it, never against a later period
+ * (IB-26 item 3).
+ */
+export const CancelAtCycleEndRequestSchema = z.object({
+  atCycleEnd: z.literal(true),
+  periodEnd: z.iso.datetime().nullable(),
+});
+
+export type CancelAtCycleEndRequest = z.infer<typeof CancelAtCycleEndRequestSchema>;
 
 export interface SettleableOperation {
   readonly id: string;
@@ -58,7 +76,12 @@ export interface SettlementObservation {
 export type SettledStatus = "SUCCEEDED" | "NOT_APPLIED";
 
 export type SettlementDecision =
-  | { readonly operationId: string; readonly status: SettledStatus }
+  | {
+      readonly operationId: string;
+      readonly status: SettledStatus;
+      /** A `cycle_end` update proven by the provider flag alone: its target, to mirror on the Subscription. */
+      readonly adoptTarget?: { readonly plan: MembershipPlan; readonly cycle: BillingCycle };
+    }
   | { readonly operationId: string; readonly status: "UNPARSEABLE_REQUEST" };
 
 export function settleOperations(
@@ -93,11 +116,19 @@ function decide(operation: SettleableOperation, observation: SettlementObservati
 
       if (!parsed.success) return { operationId: operation.id, status: "UNPARSEABLE_REQUEST" };
 
-      const { plan, cycle } = parsed.data;
+      const { plan, cycle, scheduleChangeAt } = parsed.data;
       const current = observation.plan === plan && observation.cycle === cycle;
       const pending = observation.scheduledPlan === plan && observation.scheduledCycle === cycle;
 
-      return settled(current || pending);
+      if (current || pending) return settled(true);
+
+      // Razorpay shows a scheduled change only as a flag; with no Kizunia target
+      // it can only be this operation's (at most one pending change, SB-LC-08).
+      if (scheduleChangeAt === "CYCLE_END" && observation.hasScheduledChanges && observation.scheduledPlan === null) {
+        return { operationId: operation.id, status: "SUCCEEDED", adoptTarget: { plan, cycle } };
+      }
+
+      return settled(false);
     }
     case "CANCEL_IMMEDIATELY":
       return settled(cancelled);

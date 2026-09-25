@@ -1,18 +1,31 @@
 import { z } from "zod";
 
+/** A Kizunia record ID (cuid) as the browser echoes it back; never a provider ID. */
+export const KizuniaIdSchema = z.string().trim().min(1).max(64).regex(/^[a-z0-9]+$/);
+
 /**
- * `POST /api/v1/me/billing/checkout`. A plan and a cycle, nothing else: the
- * user is the session user, never a body field, and trials (`kind`) and
- * marketing codes (`code`) arrive with Phase VII, so `.strict()` refuses them
- * rather than silently ignoring an intent Kizunia cannot honor yet.
- * Supersession (`supersedesSubscriptionId`) is Phase VI.
+ * `POST /api/v1/me/billing/checkout`. A plan and a cycle: the user is the
+ * session user, never a body field, and trials (`kind`) and marketing codes
+ * (`code`) arrive with Phase VII, so `.strict()` refuses them rather than
+ * silently ignoring an intent Kizunia cannot honor yet.
+ *
+ * Supersession (Phase VI, IB-26 item 5): `supersedesSubscriptionId` names the
+ * on-hold subscription (from `/me/billing`) the customer agreed to cancel
+ * permanently, and `confirmSupersession: true` is that agreement. Neither is
+ * accepted without the other.
  */
 export const StartCheckoutSchema = z
   .object({
     plan: z.enum(["PRO", "PRO_PLUS"]),
     cycle: z.enum(["MONTHLY", "YEARLY"]),
+    supersedesSubscriptionId: KizuniaIdSchema.optional(),
+    confirmSupersession: z.literal(true).optional(),
   })
-  .strict();
+  .strict()
+  .refine((input) => (input.supersedesSubscriptionId === undefined) === (input.confirmSupersession === undefined), {
+    message: "Replacing an on-hold subscription needs both supersedesSubscriptionId and confirmSupersession: true.",
+    path: ["confirmSupersession"],
+  });
 
 export type StartCheckoutInput = z.infer<typeof StartCheckoutSchema>;
 

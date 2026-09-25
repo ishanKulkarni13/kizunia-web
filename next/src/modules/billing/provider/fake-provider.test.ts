@@ -359,3 +359,26 @@ describe("FakeBillingProvider — verification", () => {
     });
   });
 });
+
+describe("FakeBillingProvider — accepted without effect (A1/D2, D9)", () => {
+  it("answers success with the current state, changes nothing, and only for the scripted count", async () => {
+    const provider = fake();
+    provider.seed({ providerSubscriptionId: "sub_halted", rawStatus: "halted" });
+    provider.acceptWithoutEffect("cancelSubscription");
+
+    const accepted = await provider.cancelSubscription("sub_halted", { atCycleEnd: false });
+
+    expect(accepted).toMatchObject({ kind: "SUCCESS", value: { rawStatus: "halted" } });
+    expect(provider.peek("sub_halted")?.rawStatus).toBe("halted");
+
+    const applied = await provider.cancelSubscription("sub_halted", { atCycleEnd: false });
+
+    expect(applied).toMatchObject({ kind: "SUCCESS", value: { rawStatus: "cancelled" } });
+  });
+
+  it("does not hide an unknown subscription: that is still a refusal", async () => {
+    const provider = fake().acceptWithoutEffect("cancelSubscription");
+
+    expect(await provider.cancelSubscription("sub_unknown", { atCycleEnd: false })).toMatchObject({ kind: "FAILURE", failureClass: "REJECTED" });
+  });
+});

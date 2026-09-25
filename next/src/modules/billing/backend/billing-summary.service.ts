@@ -11,11 +11,16 @@
  *                                  finishingUp  a checkout was authenticated moments ago (confirm or webhook)
  *                                  confirming   a billing change's outcome is still being confirmed
  *                                  onHold       HALTED
- *   allowedActions               from the same precondition policy the commands use
+ *                                  paused       PAUSED
+ *                                  cancellationNotEffective  a requested cycle-end cancellation
+ *                                               did not take (I-4): the customer is still subscribed
+ *   allowedActions               from the same precondition policy the commands use (checkout,
+ *                                cancel with its timing, plan changes, supersession, recovery)
  *
  * Read-only and cheap: this is what the UI polls while "finishing up", never
- * Razorpay. It carries no provider identifier (SB-PB-04), and in disabled mode
- * it still answers, with `billingAvailable: false`.
+ * Razorpay. It carries no provider identifier (SB-PB-04; the subscription's
+ * `id` is Kizunia's own, which a supersession request names), and in disabled
+ * mode it still answers, with `billingAvailable: false`.
  */
 import type { BillingCycle, MembershipPlan, ProviderMode, Subscription, SubscriptionPhase } from "@/generated/prisma";
 import type { StrictAuthorizationActor } from "@/authorization";
@@ -25,23 +30,34 @@ import { CHECKOUT_CONFIG, COMMAND_CONFIG } from "../config/billing-config";
 import { getPlanCatalog, type PlanCatalog } from "../config/plan-catalog";
 import {
   allowedBillingActions,
+  NO_BILLING_ACTIONS,
+  type AllowedBillingActions,
   type CheckoutIntent,
-  type CheckoutRefusal,
-  type PlanChangeAdvisory,
 } from "../policy/command-preconditions";
 import { getProviderMode, type ResolvedProviderMode } from "../provider/provider-mode";
+import { AnomalySubject } from "./anomalies/anomaly.repository";
 import { BillingOperationRepository } from "./commands/operation.repository";
-import { loadOpenSubscriptions, openView } from "./commands/provisioning";
+import { hasScheduledChange, loadOpenSubscriptions, openView, planPricesFor } from "./commands/provisioning";
 import { EntitlementsService, type MyEntitlementsDTO } from "./entitlements.service";
 
 export interface BillingSubscriptionDTO {
+  /** Kizunia's ID (never the provider's): what a supersession request names. */
+  readonly id: string;
   readonly phase: SubscriptionPhase;
   readonly plan: MembershipPlan;
   readonly cycle: BillingCycle;
   readonly currentPeriodEnd: string | null;
+  /** Kizunia's record that a cycle-end cancellation was *requested* (never an observation, I-1). */
   readonly cancelAtPeriodEnd: boolean;
+  readonly cancelRequestedAt: string | null;
   /** For a pending checkout: when it must be completed by. */
   readonly expireBy: string | null;
+  /** A pending cycle-end plan change: its target when Kizunia scheduled it (null plan: set elsewhere). */
+  readonly scheduledChange: {
+    readonly plan: MembershipPlan | null;
+    readonly cycle: BillingCycle | null;
+    readonly effectiveAt: string | null;
+  } | null;
 }
 
 export interface BillingSummaryDTO extends MyEntitlementsDTO {
@@ -52,13 +68,10 @@ export interface BillingSummaryDTO extends MyEntitlementsDTO {
     readonly finishingUp: boolean;
     readonly confirming: boolean;
     readonly onHold: boolean;
+    readonly paused: boolean;
+    readonly cancellationNotEffective: boolean;
   };
-  readonly allowedActions: {
-    readonly startCheckout: readonly CheckoutIntent[];
-    readonly resumeCheckout: CheckoutIntent | null;
-    readonly refusal: CheckoutRefusal | null;
-    readonly planChange: PlanChangeAdvisory | null;
-  };
+  readonly allowedActions: AllowedBillingActions;
 }
 
 export interface BillingSummaryDeps {
@@ -95,8 +108,8 @@ export class BillingSummaryService {
         ...entitlements,
         billingAvailable: false,
         subscription: null,
-        facets: { finishingUp: false, confirming: false, onHold: false },
-        allowedActions: { startCheckout: [], resumeCheckout: null, refusal: null, planChange: null },
+        facets: { finishingUp: false, confirming: false, onHold: false, paused: false, cancellationNotEffective: false },
+        allowedActions: NO_BILLING_ACTIONS,
       };
     }
 
@@ -121,6 +134,12 @@ export class BillingSummaryService {
     ]);
 
     const current = pickCurrent(open);
+    const catalog = this.deps.catalog ?? getPlanCatalog(mode);
+    const notEffective = current
+      ? await prisma.billingAnomaly.count({
+          where: { type: "CANCELLATION_NOT_EFFECTIVE", subjectKey: AnomalySubject.subscription(current.id), resolvedAt: null },
+        })
+      : 0;
     const finishingUpSince = now.getTime() - CHECKOUT_CONFIG.finishingUpSeconds * 1000;
     const actions = allowedBillingActions({
       billingAvailable: true,
@@ -128,18 +147,28 @@ export class BillingSummaryService {
       hasOpenAnomaly,
       now,
       reuseMinRemainingSeconds: CHECKOUT_CONFIG.reuseMinRemainingSeconds,
-      purchasable: purchasableIntents(this.deps.catalog ?? getPlanCatalog(mode)),
+      purchasable: purchasableIntents(catalog),
       operationPending: pendingOperations > 0,
+      prices: planPricesFor(catalog, open.length === 1 ? open[0] : undefined),
     });
 
     return {
       subscription: current && {
+        id: current.id,
         phase: current.phase,
         plan: current.plan,
         cycle: current.cycle,
         currentPeriodEnd: current.currentPeriodEnd?.toISOString() ?? null,
         cancelAtPeriodEnd: current.cancelAtPeriodEnd,
+        cancelRequestedAt: current.cancelAtPeriodEnd ? (current.cancelRequestedAt?.toISOString() ?? null) : null,
         expireBy: current.phase === "PENDING_AUTHENTICATION" ? (current.expireBy?.toISOString() ?? null) : null,
+        scheduledChange: hasScheduledChange(current)
+          ? {
+              plan: current.scheduledPlan,
+              cycle: current.scheduledCycle,
+              effectiveAt: (current.scheduledChangeAt ?? current.currentPeriodEnd)?.toISOString() ?? null,
+            }
+          : null,
       },
       facets: {
         finishingUp: open.some(
@@ -150,6 +179,8 @@ export class BillingSummaryService {
         ),
         confirming: pendingOperations > 0 || open.some((row) => row.phase === "PROVISIONING"),
         onHold: open.some((row) => row.phase === "HALTED"),
+        paused: open.some((row) => row.phase === "PAUSED"),
+        cancellationNotEffective: notEffective > 0,
       },
       allowedActions: actions,
     };

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { findOfferByMarketingCode } from "./offer-catalog";
 import { createPlanCatalog, getPlanCatalog, type PlanCatalogEntry } from "./plan-catalog";
+import { TEST_PLAN_SPECS } from "./test-plan-spec";
 
 const proMonthly: PlanCatalogEntry = { providerPlanId: "plan_proM_v2", plan: "PRO", cycle: "MONTHLY" };
 
@@ -42,6 +43,24 @@ describe("createPlanCatalog", () => {
     ]);
 
     expect(catalog.currentProviderPlanId("PRO", "MONTHLY")).toBe("plan_proM_v2");
+  });
+
+  it("prices only the plan sold now, and has none when the entry carries none (IB-26 item 6)", () => {
+    const catalog = createPlanCatalog([
+      { providerPlanId: "plan_proM_v1", plan: "PRO", cycle: "MONTHLY", retired: true, amountMinor: 900 },
+      { providerPlanId: "plan_proM_v2", plan: "PRO", cycle: "MONTHLY", amountMinor: 1000 },
+      { providerPlanId: "plan_proY", plan: "PRO", cycle: "YEARLY" },
+    ]);
+
+    expect(catalog.currentPriceMinor("PRO", "MONTHLY")).toBe(1000);
+    expect(catalog.findByProviderPlanId("plan_proM_v1")?.amountMinor).toBe(900);
+    expect(catalog.currentPriceMinor("PRO", "YEARLY")).toBeUndefined();
+    expect(catalog.currentPriceMinor("PRO_PLUS", "YEARLY")).toBeUndefined();
+  });
+
+  it("refuses a price that is not a positive whole number of minor units", () => {
+    expect(() => createPlanCatalog([{ ...proMonthly, amountMinor: 0 }])).toThrow(/invalid amountMinor/);
+    expect(() => createPlanCatalog([{ ...proMonthly, amountMinor: 10.5 }])).toThrow(/invalid amountMinor/);
   });
 
   it("has no plan to sell when every entry for a plan and cycle is retired", () => {
@@ -93,6 +112,14 @@ describe("the shipped catalogs", () => {
       }
     }
     expect(catalog.findByProviderPlanId("plan_anything")).toBeUndefined();
+  });
+
+  it("TEST prices mirror the verification plan spec, so direction by price matches what Razorpay charges", () => {
+    const catalog = getPlanCatalog("TEST");
+
+    for (const spec of TEST_PLAN_SPECS) {
+      expect(catalog.currentPriceMinor(spec.plan, spec.cycle), `${spec.plan} ${spec.cycle}`).toBe(spec.amountRupees * 100);
+    }
   });
 
   it("LIVE is empty until pricing is decided (safe: an unmapped plan is refused)", () => {

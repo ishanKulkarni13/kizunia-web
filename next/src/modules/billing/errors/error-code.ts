@@ -29,6 +29,15 @@ export const BillingErrorCode = {
    * refused. Returned as HTTP 503.
    */
   BILLING_UNAVAILABLE: "BILLING_UNAVAILABLE",
+
+  /** No subscription with that id exists. */
+  SUBSCRIPTION_NOT_FOUND: "BILLING_SUBSCRIPTION_NOT_FOUND",
+
+  /** Another worker is synchronizing the subscription right now; its result will apply. */
+  BILLING_SYNC_IN_PROGRESS: "BILLING_SYNC_IN_PROGRESS",
+
+  /** The subscription has no provider subscription to fetch yet (still being created). */
+  SUBSCRIPTION_NOT_SYNCABLE: "BILLING_SUBSCRIPTION_NOT_SYNCABLE",
 } as const;
 
 export type BillingErrorCode =

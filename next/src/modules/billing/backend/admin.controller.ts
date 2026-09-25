@@ -21,6 +21,7 @@ import { RateLimitPolicyId } from "@/lib/rate-limit/policies";
 import { rateLimitService } from "@/lib/rate-limit/service";
 
 import { CreateGrantSchema, ExtendGrantSchema, RevokeGrantSchema } from "../schemas/grant";
+import { AdminSyncService } from "./admin-sync.service";
 import { GrantService } from "./grants/grant.service";
 
 export class BillingAdminController {
@@ -101,6 +102,25 @@ export class BillingAdminController {
       const grant = await GrantService.revoke(actor, grantId, input);
 
       return ApiResponse.ok(grant);
+    });
+  }
+
+  /**
+   * `POST /api/v1/admin/billing/subscriptions/{id}/sync` — "sync now". Reads
+   * from Razorpay only, but spends provider budget, so it is limited like a
+   * billing admin write.
+   */
+  static async syncSubscription(request: NextRequest, subscriptionId: string, service = new AdminSyncService()) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.BILLING_ADMIN_WRITE,
+        request,
+        actor,
+      });
+
+      return ApiResponse.ok(await service.syncNow(actor, subscriptionId));
     });
   }
 }

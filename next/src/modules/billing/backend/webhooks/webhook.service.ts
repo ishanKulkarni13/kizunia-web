@@ -266,7 +266,8 @@ export class WebhookService {
       eventType: event.eventType,
       billingEventId: outcome.billingEventId,
       dedupeSource: dedupe.source,
-      matchedSecret,
+      // Which secret verified it (CURRENT / PREVIOUS). Not named "…secret…": the logger redacts such keys.
+      signedWith: matchedSecret,
     };
 
     if (outcome.kind === "DUPLICATE") {

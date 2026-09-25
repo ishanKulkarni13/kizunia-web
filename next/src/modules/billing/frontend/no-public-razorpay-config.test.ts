@@ -11,7 +11,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = process.cwd();
-const FORBIDDEN = /NEXT_PUBLIC_RAZORPAY/;
+/** A declaration in the env template. */
+const FORBIDDEN = /^\s*NEXT_PUBLIC_RAZORPAY/m;
+/** A read of one in code (comments that say it must not exist are fine). */
+const READ = /process\.env(\.|\[\s*["'`])NEXT_PUBLIC_RAZORPAY/;
 
 function filesUnder(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
@@ -24,10 +27,10 @@ function filesUnder(directory: string): string[] {
 }
 
 describe("no NEXT_PUBLIC_RAZORPAY_* configuration", () => {
-  it("is not referenced anywhere in src (this test excepted)", () => {
+  it("is never read anywhere in src", () => {
     const offenders = filesUnder(join(ROOT, "src"))
-      .filter((path) => /\.(ts|tsx|js|jsx|mjs)$/.test(path) && !path.endsWith("no-public-razorpay-config.test.ts"))
-      .filter((path) => FORBIDDEN.test(readFileSync(path, "utf8")));
+      .filter((path) => /\.(ts|tsx|js|jsx|mjs)$/.test(path))
+      .filter((path) => READ.test(readFileSync(path, "utf8")));
 
     expect(offenders).toEqual([]);
   });

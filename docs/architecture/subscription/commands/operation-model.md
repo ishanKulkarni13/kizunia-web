@@ -1,6 +1,6 @@
 # Operation Model
 
-> **Status:** Design — not implemented
+> **Status:** Design — implemented in Phase V (2026-09-25)
 >
 > **Last Updated:** 2026-09-24 (decision close-out: root-only in-flight slot, `PAST_DUE` immediate cancel)
 

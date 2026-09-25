@@ -1,6 +1,6 @@
 # Checkout and Creation
 
-> **Status:** Design — not implemented
+> **Status:** Design — implemented in Phase V (2026-09-25)
 >
 > **Last Updated:** 2026-09-24
 
@@ -47,8 +47,8 @@ Browser                         Kizunia                                   Razorp
   |                               |    (stale-apply guard makes 8/9 order-free)
 ```
 
-- `total_count` is a large configured value per interval (Razorpay requires one; the upper limit
-  Razorpay accepts is to be confirmed in TEST mode), so reaching `completed` is rare. If a
+- `total_count` is a large configured value per interval (Razorpay requires one; the ceilings Razorpay
+  accepts were observed in TEST, A13: 1200 monthly, 100 yearly, which Kizunia uses), so reaching `completed` is rare. If a
   subscription does complete, it is terminal like any other and is observed by the due sync at its
   final `current_end`. `expire_by` is set to a short checkout horizon
   ([C5](../../../project/feature-specification/subscription/open-decisions.md#c-implementation-time-configuration)).
@@ -71,7 +71,7 @@ both pass them:
 | None | Proceed |
 | `PROVISIONING`, same plan/cycle | Return the existing operation ("still being set up") |
 | `PENDING_AUTHENTICATION`, same plan/cycle, `expire_by` not passed | Return the existing checkout parameters — no new provider object |
-| `PENDING_AUTHENTICATION`, other plan/cycle or expired | Composed command: cancel it (confirmed by sync), then proceed. Razorpay accepted an immediate cancel of a `created` subscription in TEST mode ([A1, verified 2026-09-24](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)); if it ever refuses, the new checkout waits until the old one's `expire_by` has passed **and been observed** (a `created` subscription can read `created` for up to ~3 minutes after `expire_by`, [A8](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)); the user may continue the old checkout meanwhile |
+| `PENDING_AUTHENTICATION`, other plan/cycle or expired | Composed command: cancel it (confirmed by sync), then proceed. Razorpay accepted an immediate cancel of a `created` subscription in TEST mode ([A1, verified 2026-09-24](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)); if it ever refuses, the new checkout waits until the old one's `expire_by` has passed **and been observed** (a `created` subscription can read `created` for several minutes after `expire_by` (156–322 s observed, D6), [A8](../../../project/feature-specification/subscription/open-decisions.md#a-resolved-answered-by-test-verification-2026-09-24)); the user may continue the old checkout meanwhile |
 | `TRIALING`, `ACTIVE`, `PAST_DUE` | Refused — see [SB-UQ-03](../../../project/feature-specification/subscription/decisions/uniqueness-and-resubscription.md#sb-uq-03--a-new-purchase-while-a-paid-subscription-is-live-is-refused-not-duplicated) |
 | `HALTED`, `PAUSED` | Refused unless the request carries the user's supersession confirmation — see [`../lifecycle/multiple-subscriptions.md`](../lifecycle/multiple-subscriptions.md#supersession) |
 

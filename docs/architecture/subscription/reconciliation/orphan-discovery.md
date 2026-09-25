@@ -1,6 +1,6 @@
 # Orphan Discovery
 
-> **Status:** Design — not implemented
+> **Status:** Design — implemented in Phase V (2026-09-25): `backend/reconciliation/orphan-discovery.service.ts`. The send-time bound after a crash is `COALESCE(requestSentAt, leaseUntil)` ([IB-25](../implementation/open-decisions.md#ib-25--phase-v-implementation-rulings) item 2)
 >
 > **Last Updated:** 2026-09-24
 

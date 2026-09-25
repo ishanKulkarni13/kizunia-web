@@ -55,7 +55,7 @@ Every ruling records who made it. The two kinds are kept apart on purpose:
 | [IB-15](#ib-15--billing-admin-roles) | Billing admin roles | PRODUCT | DECIDED | Product decision (owner) | I, VIII |
 | [IB-16](#ib-16--preferences-for-non-entitled-intents) | Preferences for non-entitled intents | PRODUCT / UX | DECIDED | Architecture (autonomous) | II |
 | [IB-17](#ib-17--stale-documents-and-leftovers) | Stale documents and leftovers | DOCS | DECIDED (docs fixed; code items in Phase III) | Architecture (autonomous) | III |
-| [IB-18](#ib-18--upi-disabled-on-the-razorpay-test-account) | UPI disabled on the Razorpay TEST account | PROVIDER / OPERATIONS | PROVIDER-DEPENDENT — LIVE BLOCKER | — (external action) | V–VII verification, IX |
+| [IB-18](#ib-18--upi-disabled-on-the-razorpay-test-account) | UPI disabled on the Razorpay TEST account (offered in TEST Checkout since 2026-09-25; not yet verified) | PROVIDER / OPERATIONS | PROVIDER-DEPENDENT — LIVE BLOCKER | — (external action) | V–VII verification, IX |
 | [IB-19](#ib-19--tick-cadence-on-the-vercel-hobby-plan) | Tick cadence on the Vercel Hobby plan | OPERATIONS | DEFERRED — LIVE BLOCKER | Architecture (autonomous) | IX |
 | [IB-20](#ib-20--a-public-test-webhook-endpoint) | A public TEST webhook endpoint | OPERATIONS | IMPLEMENTATION-TIME (blocks Phase IV verification) | Architecture (autonomous) | IV |
 | [IB-21](#ib-21--plan-change-extensibility) | Plan-change extensibility | PRODUCT + ARCHITECTURE | DECIDED | Product decision (owner) + Architecture (autonomous) | VI |
@@ -449,6 +449,8 @@ Items (c) and (e) are code changes, assigned to [Phase III](../implementation-pl
 **Action for the owner:** ask Razorpay Support to enable UPI for Subscriptions on the TEST and LIVE accounts, early, because of the lead time.
 
 The UPI behaviors to verify once it is enabled are listed as product open item [A16](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support).
+
+**Update (2026-09-25, Phase V).** UPI now appears as a payment option in Razorpay Checkout for a Kizunia TEST subscription (seen by the owner during the Phase V card checkout; [Razorpay facts](../provider-boundary/razorpay-facts.md#phase-v-checkout-run-2026-09-25)). No UPI subscription has been completed yet, so the A16 behaviors are still unverified and the status is unchanged: verification is now *possible*, not done. The next step is a UPI checkout in TEST.
 
 ### IB-19 — Tick cadence on the Vercel Hobby plan
 

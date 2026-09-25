@@ -1,6 +1,6 @@
 # Checkout and Subscription Creation
 
-> **Status:** Implementation plan — not implemented
+> **Status:** Implemented in Phase V (2026-09-25). Rulings made while implementing: [IB-25](open-decisions.md#ib-25--phase-v-implementation-rulings)
 >
 > **Last Updated:** 2026-09-24
 >
@@ -53,7 +53,7 @@ Browser                                  Kizunia                                
 | Budget exhausted | Nothing sent; op `REJECTED(BUDGET_EXHAUSTED)`; sub `ABANDONED`; "busy, retry" |
 | Provider rejects | `REJECTED`; sub `ABANDONED`; typed message; alert if unexpected (catalog misconfig) |
 | Timeout / 5xx / crash / tx B fails | Op `OUTCOME_UNKNOWN` (or `IN_FLIGHT` until lease → unknown); sub stays `PROVISIONING`; user sees "confirming". **Never re-sent.** Webhook or orphan scan binds via `notes.kz_sub`; window closes → `ABANDONED` |
-| Abandoned checkout | Stays `PENDING_AUTHENTICATION`; resumable until `expireBy`; checkpoint at `expireBy` + margin observes `expired` (lag ≤ 3 min) |
+| Abandoned checkout | Stays `PENDING_AUTHENTICATION`; resumable until `expireBy`; checkpoint at `expireBy` + margin observes `expired` (lag observed 156–322 s, D6; sized for ~6 min) |
 | Confirm never called | Webhook `after()` or due sync |
 | Bad confirm signature | Security log; still mark due; the fetch decides |
 | Webhook before bind | Matched through `notes.kz_sub` to the `PROVISIONING` row (SB-WH-06) |

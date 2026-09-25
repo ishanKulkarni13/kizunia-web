@@ -705,6 +705,16 @@ account-specific rests only on "contact Support to raise it"; it is not stated.
 **OPEN.** Kizunia's actual account limits (ask Razorpay Support before LIVE). Razorpay Support is the
 only source: nothing public gives the numbers, and TEST mode produced no 429 to observe.
 
+**OPEN — NOT VERIFIED (Phase III; how an unknown ID is reported).** Kizunia's provider classifies by HTTP
+status and error code only, with a 404 as `NOT_FOUND` and a `400 BAD_REQUEST_ERROR` as `REJECTED`. The
+documentation lists neither the status nor the code Razorpay returns for a subscription or payment ID that
+does not exist, and none was observed: the opt-in contract suite (`pnpm test:contract`) asserts the design's
+404 and records the status and body it sees, but it has not yet run against Razorpay TEST because the
+available credentials were rejected. **Consequence if it is a 400:** an unknown ID classifies as `REJECTED`,
+not `NOT_FOUND`, and the design's `PROVIDER_SUBSCRIPTION_MISSING` detection needs a separate rule (the
+description text is deliberately never matched, D8/D10). Recorded here so the first real run settles it; see
+the [Phase III open items](../implementation-plan/phase-III/README.md#open-items).
+
 ---
 
 ## Offers

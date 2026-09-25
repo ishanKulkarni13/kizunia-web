@@ -1,6 +1,6 @@
 # Subscription & Billing — Phase-wise Implementation Plan
 
-> **Status:** Engineering roadmap — Phase I not started
+> **Status:** Engineering roadmap — Phases I, II and III implemented (Phase III has one acceptance item open: the contract suite has not yet run against Razorpay TEST); Phase IV is next
 >
 > **Created:** 2026-09-24, after the implementation decision close-out
 >

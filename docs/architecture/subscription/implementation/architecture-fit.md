@@ -39,10 +39,14 @@ Proposed layout of the new module (mirrors `modules/notifications`):
 src/modules/billing/
   provider/            THE provider boundary. Only place with Razorpay HTTP, env, shapes, error codes
     types.ts             BillingProvider interface, Outcome<T>, ProviderSubscriptionState, failure classes
-    razorpay/            razorpay-client.ts (fetch), razorpay-provider.ts, mapping.ts, signatures.ts
+    razorpay/            razorpay-client.ts (fetch), razorpay-provider.ts, mapping.ts (wire shape only),
+                         classification.ts, signatures.ts
     fake-provider.ts     every failure class on demand (tests, local)
-    budgeted-provider.ts decorator: budget + cooldown + observationAt around any BillingProvider
-    provider-mode.ts     resolveProviderMode(), isBillingProviderEnabled(), getBillingProvider()
+    disabled-provider.ts what a deployment with no credentials gets
+    budgeted-provider.ts decorator: auth pin + cooldown + budget around any BillingProvider
+    provider-mode.ts     resolve and validate the mode at boot, isBillingProviderEnabled()
+    provider-factory.ts  getBillingProvider(priority): the one place a provider is built. It sits inside
+                         provider/ because it is the one caller of provider/razorpay/**
   config/              billing-config.ts (envInt tuning), plan-catalog.ts (per mode), offer-catalog.ts
   policy/              pure: state-mapping.ts, next-due.ts, command-preconditions.ts, trial-eligibility.ts
   backend/
@@ -51,7 +55,7 @@ src/modules/billing/
     webhooks/          webhook.service.ts (verify/record), event.repository.ts
     reconciliation/    billing-sync.task.ts, orphan-discovery.service.ts, payload-prune.ts
     grants/            grant.service.ts, promotion.service.ts
-    budget/            provider-budget.ts, cooldown.repository.ts
+    budget/            provider-budget.ts, cooldown.repository.ts, provider-health.ts (reach the decorator through two ports)
     anomalies/, history/, account-removal/ (S16)
     controller.ts, admin.controller.ts, authorization/ (billing admin actions)
     *.repository.ts
@@ -105,7 +109,9 @@ modules/billing/provider/razorpay ──> fetch, node:crypto, provider env vars
 app/api/v1/internal/tick ──> modules/billing/backend/reconciliation (task factories)
 ```
 
-## Forbidden dependencies (enforce with an ESLint `no-restricted-imports` rule in S5)
+## Forbidden dependencies (enforced by ESLint since Phase III)
+
+Enforced in `next/eslint.config.mjs` as disjoint zones (a later `no-restricted-imports` **replaces** an earlier one for the same file, so each file matches exactly one), and proven by `modules/billing/eslint-boundaries.test.ts`. The provider-call, sync and UI rules below are enforced by review: ESLint cannot express them.
 
 - Anything outside `modules/billing/**` importing `modules/billing/**`, except `app/` routes and the tick route.
 - Anything outside `modules/billing/provider/**` importing `modules/billing/provider/razorpay/**`, reading `process.env.RAZORPAY_*`, or holding a Razorpay ID or status string (SB-PB-04, SB-EA-05).

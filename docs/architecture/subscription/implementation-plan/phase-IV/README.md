@@ -10,6 +10,8 @@ Build the **one synchronization mechanism** that turns Razorpay's authoritative 
 
 ## Scope
 
+- **The remaining provider-boundary piece:** `parseWebhookEvent` and the `ProviderWebhookEvent` catalog, deferred from Phase III because they need the event catalog ([webhooks](../../implementation/webhooks.md)). Phase III's `razorpay/mapping.ts` is wire-shape translation only; everything that turns a provider status into a Kizunia phase starts here.
+- **How a missing provider subscription is detected.** Phase III's contract suite records how Razorpay reports an unknown ID (design: 404 `NOT_FOUND`; possibly `400`, which would classify as `REJECTED`). Settle it from that observation before relying on `PROVIDER_SUBSCRIPTION_MISSING` ([Phase III open items](../phase-III/README.md#open-items)).
 - **State mapping** (`policy/state-mapping.ts`, pure), including the IB-9 trial-conversion rule, whose grace C7 is exercised in Phase VII ([state mapping](../../lifecycle/state-mapping.md#the-mapping)).
 - **`nextDue`** (`policy/next-due.ts`, pure): checkpoints and heartbeats per phase, with `HALTED` decay ([reconciliation](../../implementation/reconciliation.md)).
 - **`SyncService`** ([synchronization](../../implementation/synchronization.md)):

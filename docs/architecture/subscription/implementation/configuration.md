@@ -27,9 +27,35 @@ Required configuration, TEST/LIVE separation, secrets, webhook secrets, tuning v
 - **No extra feature flag:** `disabled` mode is the paid-billing kill switch. No separate entitlement-enforcement flag is specified: the rollout concern that could have motivated one (existing users, formerly IB-8) does not apply, because Kizunia is pre-production with zero users (see [settled decisions](settled-decisions.md#decisions-applied-when-this-documentation-was-created)).
 - **Absent config:** app boots; Free works; grants work; gates evaluate from local tables; checkout/change/cancel return 503 `BILLING_UNAVAILABLE` ("Paid subscriptions are temporarily unavailable"); the webhook fails closed; billing tasks return `{skipped: "disabled"}`.
 - **TEST/LIVE separation:** separate keys, webhook secrets, catalogs and Offer maps; every row stamped; only the expected mode contributes; sync only for the resolved mode.
-- `.env.example`: add the variables above with comments. It currently has the key ID and secret only; this is done in [Phase III](../implementation-plan/phase-III/README.md) (IB-17(e)).
+- `.env.example`: documents every billing variable above with comments. Done in [Phase III](../implementation-plan/phase-III/README.md) (IB-17(e)); later phases add theirs there as they introduce them.
+- **Mode validation rules (implemented in Phase III):**
+  - all of `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` and `RAZORPAY_WEBHOOK_SECRET`, or none of them;
+  - `RAZORPAY_ACCOUNT_ID` is required once they are set;
+  - `RAZORPAY_WEBHOOK_SECRET_PREVIOUS_UNTIL` must be an ISO 8601 timestamp and needs a previous secret (a previous secret with no `_UNTIL` is accepted until it is removed);
+  - the key must start `rzp_test_` or `rzp_live_`, and its mode must equal the expected mode.
+  - Every failure message names variables, never values. The check is skipped during `next build`.
 - **Tick cadence:** the only Vercel cron entry is daily (Hobby). The C6 target needs an external pinger or finer cron before LIVE ([IB-19](open-decisions.md#ib-19--tick-cadence-on-the-vercel-hobby-plan)).
 - **TEST webhook URL:** a stable public URL with deployment protection bypassed for the webhook path only ([IB-20](open-decisions.md#ib-20--a-public-test-webhook-endpoint)).
+
+## Tuning values chosen in Phase III
+
+The mechanisms are decided; these are the **IMPLEMENTATION-TIME** values C1 and C2 and the client timeout, as set in `next/src/modules/billing/config/billing-config.ts` (which records the reasoning for each). Razorpay publishes no rate-limit numbers ([A12](open-decisions.md#open-razorpay-items)), so every default is deliberately conservative and is to be confirmed with Razorpay Support before LIVE.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BILLING_BUDGET_WINDOW_SECONDS` | 60 | The fixed window of the outbound request budget |
+| `BILLING_BUDGET_LIMIT` | 60 | Provider calls allowed per window: one a second on average, far above steady state, so it caps bursts |
+| `BILLING_BUDGET_HEADROOM_P1` | 15 | Units kept back for priority 1 against priorities 2–4 |
+| `BILLING_BUDGET_HEADROOM_P2` | 15 | Further units kept back for priority 2 against priorities 3–4 |
+| `BILLING_BUDGET_ORPHAN_CEILING` | 10 | Priority 4's ceiling, so orphan discovery runs only while the window is quiet |
+| `BILLING_BACKOFF_BASE_SECONDS` | 60 | First per-subscription retry delay (`min(cap, base · 2ⁿ)`, jittered ×[0.5, 1.0]) |
+| `BILLING_BACKOFF_CAP_SECONDS` | 21600 | The longest retry delay: six hours. A failing subscription is retried at that interval indefinitely |
+| `BILLING_COOLDOWN_BASE_SECONDS` | 30 | First global cooldown (`base · 2^level`, jittered) |
+| `BILLING_COOLDOWN_CAP_SECONDS` | 900 | The longest cooldown: fifteen minutes |
+| `BILLING_COOLDOWN_FAILURE_THRESHOLD` | 5 | Consecutive timeouts or 5xx, with no success between, that enter a cooldown as a 429 does |
+| `BILLING_PROVIDER_TIMEOUT_MS` | 10000 | How long one provider request may take before it counts as a timeout |
+
+The resulting ceilings on the shared counter are P1 = 60, P2 = 45, P3 = 30 and P4 = 10 of 60. The remaining tuning values (heartbeats and margins, batch sizes, the `after()` cap, the `expire_by` horizon, the operation lease, the outcome-unknown window, orphan discovery settings, payload retention, trial-conversion grace and length, `total_count` per cycle) belong to the phases that use them, and are added here as each lands.
 
 ---
 

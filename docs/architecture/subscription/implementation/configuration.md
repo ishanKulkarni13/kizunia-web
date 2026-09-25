@@ -113,6 +113,15 @@ C5, `total_count`, the outcome-unknown window and orphan discovery, in `billing-
 
 The checkout rate-limit policies (`lib/rate-limit/policies.ts`, all per user and failing closed) are `billing:checkout` (10 per 10 min), `billing:checkout-confirm` (30 per 10 min) and `billing:command` (20 per 10 min; defined for Phase VI's commands, IB-25 item 10). `GET /api/v1/me/billing` shares `entitlements:read`. The browser gets the key ID only in the checkout response (IB-25 item 7): there is no `NEXT_PUBLIC_RAZORPAY_*`, and a unit test fails the build if code reads one.
 
+## Values chosen in Phase VI
+
+Phase VI adds **no environment variable**. What it chose:
+
+- **Plan prices in the catalog** ([IB-26](open-decisions.md#ib-26--phase-vi-implementation-rulings) item 6). Each `PlanCatalogEntry` may carry `amountMinor`, used **only** to tell an upgrade (`now`) from a downgrade (`cycle_end`), as SB-LC-02/03 define them by price. It is never a billing amount: Razorpay charges what its plan says. The TEST entries mirror `test-plan-spec.ts` (a unit test keeps them equal): Pro ₹10/₹12, Pro+ ₹20/₹22, in paise. So with the TEST prices, Pro yearly → Pro+ monthly is an upgrade and Pro+ monthly → Pro yearly a downgrade. LIVE stays empty until pricing is decided (B6): with no price, plan changes are `UNAVAILABLE` (`PRICE_UNKNOWN`), never guessed. **When the LIVE catalog is filled in Phase IX, every entry needs its `amountMinor`.**
+- **The I-4 margin** for "still billing after the requested period end" is the existing checkpoint margin, `BILLING_CHECKPOINT_MARGIN_SECONDS` (C3, default 2 h), so the `current_end` checkpoint sync is the observation that decides.
+- **Rate limits.** The customer cancel and change-plan endpoints use `billing:command` (20 per 10 min); recovery also uses `billing:command` (it makes no provider call); "check now" uses `billing:checkout-confirm` (30 per 10 min), like confirm, since each may spend a priority-2 fetch. Supersession travels on the checkout endpoint and so uses `billing:checkout`. The admin cancel uses `billing-admin:write` (60 per hour).
+- **Timeouts.** The cancel, change-plan and admin-cancel routes set `maxDuration = 60`, like checkout: a composed command may make three provider calls (clear a scheduled change, confirm, the mutation) plus a confirming fetch.
+
 ---
 
 ## Related documents

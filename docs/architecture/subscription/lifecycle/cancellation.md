@@ -1,6 +1,6 @@
 # Cancellation
 
-> **Status:** Design — not implemented
+> **Status:** Design — implemented in Phase VI (2026-09-26): `backend/commands/cancel.ts`, `admin-cancel.ts`; I-4 in the apply path. Rulings: [IB-26](../implementation/open-decisions.md#ib-26--phase-vi-implementation-rulings)
 >
 > **Last Updated:** 2026-09-24 (decision close-out: `PAST_DUE` cancellation is immediate)
 

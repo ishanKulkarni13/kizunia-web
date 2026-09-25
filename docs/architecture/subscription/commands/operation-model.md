@@ -1,6 +1,6 @@
 # Operation Model
 
-> **Status:** Design — implemented in Phase V (2026-09-25)
+> **Status:** Design — implemented in Phases V (2026-09-25) and VI (2026-09-26; composed roots `SUPERSEDE` and `CHANGE_PLAN`)
 >
 > **Last Updated:** 2026-09-24 (decision close-out: root-only in-flight slot, `PAST_DUE` immediate cancel)
 

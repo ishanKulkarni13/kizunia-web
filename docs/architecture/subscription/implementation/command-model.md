@@ -1,6 +1,6 @@
 # Billing Command Model
 
-> **Status:** Implemented in Phase V (2026-09-25): `backend/commands/command-runner.ts`. Rulings made while implementing: [IB-25](open-decisions.md#ib-25--phase-v-implementation-rulings)
+> **Status:** Implemented in Phases V (2026-09-25) and VI (2026-09-26): `backend/commands/`. Rulings made while implementing: [IB-25](open-decisions.md#ib-25--phase-v-implementation-rulings), [IB-26](open-decisions.md#ib-26--phase-vi-implementation-rulings)
 >
 > **Last Updated:** 2026-09-24
 >

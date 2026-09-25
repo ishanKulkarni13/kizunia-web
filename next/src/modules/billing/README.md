@@ -47,7 +47,25 @@ Roadmap: [`implementation-plan/`](../../../../docs/architecture/subscription/imp
 - the TEST verification plans (`pnpm billing:test-plans`) and verification helper
   (`pnpm billing:webhook-verify`).
 
-Checkout and the subscription commands arrive in Phases V–VI, on top of this.
+**Phase V — commands and checkout.** Implemented:
+
+- the command runner (`backend/commands/command-runner.ts`): authorize, a required
+  `Idempotency-Key`, the per-user root slot, preconditions, the provider call with no transaction
+  held, classification, and settlement through the apply path;
+- StartCheckout (with reuse and abandon-then-create), ConfirmCheckout and orphan discovery;
+- `GET /api/v1/me/billing` and the checkout UI at `/user/billing`.
+
+**Phase VI — subscription lifecycle commands.** Implemented:
+
+- customer cancel (`backend/commands/cancel.ts`), with each phase's timing: cycle end for `ACTIVE`,
+  immediate for `TRIALING`, `PAST_DUE`, `HALTED` and `PAUSED`, and abandon for a pending checkout;
+- admin immediate cancel (`admin-cancel.ts`, `MANAGE_BILLING`, with a reason);
+- supersession of a halted or paused subscription (`supersede.ts`);
+- native plan change (`change-plan.ts`) behind the one strategy policy
+  (`policy/plan-change-strategy.ts`);
+- `CANCELLATION_NOT_EFFECTIVE` detection (I-4) in the apply path;
+- recovery and "check now" (`backend/recovery.service.ts`);
+- the lifecycle UI, and the TEST verification helper (`pnpm billing:lifecycle-verify`).
 
 ## Responsibilities
 
@@ -69,11 +87,16 @@ Checkout and the subscription commands arrive in Phases V–VI, on top of this.
 | Webhook ingestion, the webhook controller, unmatched events | `backend/webhooks/` |
 | The `billing:sync` task | `backend/reconciliation/` |
 | Admin "sync now" | `backend/admin-sync.service.ts` |
-| HTTP (admin grants; my entitlements) | `backend/admin.controller.ts`, `backend/controller.ts` |
-| Request validation | `schemas/grant.ts` |
+| The command runner, operations, and every command (checkout, cancel, supersede, change plan, admin cancel) | `backend/commands/` |
+| Which command may run, and how (checkout, cancel, plan change; allowed actions) — pure, one module | `policy/command-preconditions.ts`, `policy/plan-change-strategy.ts` |
+| Whether a requested cycle-end cancellation still holds (I-4, pure) | `policy/cancellation-effectiveness.ts` |
+| `/me/billing`, recovery and "check now" | `backend/billing-summary.service.ts`, `backend/recovery.service.ts` |
+| HTTP (admin grants and cancel; my billing and its commands) | `backend/admin.controller.ts`, `backend/controller.ts` |
+| Request validation | `schemas/` |
 | Errors and error codes | `errors/` |
 | Structured logging (`module: "billing"`) | `observability/log.ts` |
 | Admin UI and API client | `frontend/components/grant-manager.tsx`, `api/grant-api.ts` |
+| Billing UI (plans, checkout, cancel, plan change, recovery) and API client | `frontend/components/billing-panel.tsx`, `frontend/components/subscription-actions.tsx`, `api/billing-api.ts` |
 
 ## Folder structure
 
@@ -143,6 +166,8 @@ billing/
   - `GET` and `POST /api/v1/admin/billing/grants`
   - `POST /api/v1/admin/billing/grants/{id}/extend`
   - `POST /api/v1/admin/billing/grants/{id}/revoke`
+  - `GET /api/v1/me/billing`; `POST /api/v1/me/billing/{checkout,checkout/confirm,cancel,change-plan,recovery,sync}`
+  - `POST /api/v1/admin/billing/subscriptions/{id}/{sync,cancel}`
 
 ## Dependencies
 

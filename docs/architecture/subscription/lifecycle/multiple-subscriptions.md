@@ -1,6 +1,6 @@
 # Multiple Subscriptions
 
-> **Status:** Design — not implemented
+> **Status:** Design — implemented in Phases V and VI (supersession: `backend/commands/supersede.ts`, 2026-09-26; [IB-26](../implementation/open-decisions.md#ib-26--phase-vi-implementation-rulings) item 5)
 >
 > **Last Updated:** 2026-09-24 (decision close-out: IB-6 in-flight semantics)
 

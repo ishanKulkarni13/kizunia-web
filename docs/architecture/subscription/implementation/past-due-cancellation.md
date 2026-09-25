@@ -1,6 +1,6 @@
 # PAST_DUE Cancellation
 
-> **Status:** Implementation plan — not implemented
+> **Status:** Implemented in Phase VI (2026-09-26): `PAST_DUE` cancels immediately (`policy/command-preconditions.ts`); I-4 (i)–(iii) in the apply path (`policy/cancellation-effectiveness.ts`, `backend/sync/apply.ts`)
 >
 > **Last Updated:** 2026-09-24
 >

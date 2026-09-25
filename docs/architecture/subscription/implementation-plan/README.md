@@ -1,6 +1,6 @@
 # Subscription & Billing — Phase-wise Implementation Plan
 
-> **Status:** Engineering roadmap — Phases I, II, III, IV and V implemented; Phase VI is next
+> **Status:** Engineering roadmap — Phases I, II, III, IV and V implemented; Phase VI implemented (2026-09-26), with its card and UPI TEST verification still open ([runbook](phase-VI/manual-test.md))
 >
 > **Created:** 2026-09-24, after the implementation decision close-out
 >

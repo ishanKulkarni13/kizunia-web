@@ -1,6 +1,6 @@
 # Plan Changes (Upgrade / Downgrade)
 
-> **Status:** Design — not implemented
+> **Status:** Design — implemented in Phase VI (2026-09-26): `backend/commands/change-plan.ts` and `policy/plan-change-strategy.ts`; direction by catalog price ([IB-26](../implementation/open-decisions.md#ib-26--phase-vi-implementation-rulings) item 6)
 >
 > **Last Updated:** 2026-09-24 (extensibility section added by the decision close-out; earlier: rewritten around Razorpay's native capability — see
 > [R-06](../../../project/feature-specification/subscription/decisions/reconciliations.md#r-06--the-update-api-does-not-support-plan-changes-for-most-indian-payment-methods))

@@ -72,6 +72,10 @@ class FakePlansApi implements PlanApiClient {
   }
 }
 
+function never(): never {
+  throw new Error("unreachable");
+}
+
 const posts = (api: FakePlansApi) => api.calls.filter((c) => c.method === "POST");
 
 describe("resolvePlanSpecs", () => {
@@ -171,8 +175,8 @@ describe("ensureTestPlans", () => {
     const api = new FakePlansApi();
     const live: ProviderConfiguration = {
       mode: "LIVE",
-      razorpay: { ...(testConfiguration as { razorpay: never }).razorpay, keyId: "rzp_live_X" },
-    } as ProviderConfiguration;
+      razorpay: { ...(testConfiguration.mode === "TEST" ? testConfiguration.razorpay : never()), keyId: "rzp_live_X" },
+    };
 
     await expect(ensureTestPlans({ dryRun: true, configuration: live, client: api })).rejects.toThrow(/TEST mode/);
     await expect(ensureTestPlans({ dryRun: true, configuration: { mode: "DISABLED" }, client: api })).rejects.toThrow(/TEST mode/);

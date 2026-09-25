@@ -29,6 +29,11 @@
  *
  * Supplied subscriptions are only READ, unless RAZORPAY_CONTRACT_MUTATE_SUPPLIED=1
  * also lets the suite cancel them to check the cancellation behavior.
+ *
+ * Phase VI adds RAZORPAY_CONTRACT_DOMESTIC_CARD_SUBSCRIPTION_ID: an `active`
+ * subscription authorized with a domestic card, whose plan update Razorpay
+ * refuses (the V1 limitation, SB-LC-07). With MUTATE_SUPPLIED it sends both
+ * update timings and checks each is classified REJECTED with nothing changed.
  * RAZORPAY_CONTRACT_SLOW=1 adds the `expire_by` lag check, which waits minutes.
  * RAZORPAY_CONTRACT_BASE_URL points the suite at a local stand-in, to test the
  * suite's own mechanics; the report then says `isRealRazorpay: false`, and such a
@@ -578,5 +583,27 @@ describe.skipIf(!ENABLED)("Razorpay provider contract (TEST mode)", () => {
         expect(succeeded(await provider.fetchSubscription(id!)).rawStatus).toBe("cancelled");
       });
     }
+
+    const domesticCard = process.env.RAZORPAY_CONTRACT_DOMESTIC_CARD_SUBSCRIPTION_ID?.trim();
+
+    it.skipIf(!domesticCard || !MUTATE_SUPPLIED)(
+      "refuses a plan update on an active domestic-card subscription, at both timings, as REJECTED with nothing changed (Phase VI)",
+      async () => {
+        const before = succeeded(await provider.fetchSubscription(domesticCard!));
+
+        for (const scheduleChangeAt of ["NOW", "CYCLE_END"] as const) {
+          const outcome = await provider.updateSubscriptionPlan(domesticCard!, { plan: "PRO", cycle: "MONTHLY", scheduleChangeAt });
+
+          observe(`supplied-domestic-card-update-${scheduleChangeAt}`, {
+            class: classOf(outcome),
+            ...(outcome.kind === "FAILURE" && { code: outcome.providerErrorCode, description: outcome.providerErrorDescription }),
+          });
+          expect(classOf(outcome)).toBe("REJECTED");
+        }
+
+        const after = succeeded(await provider.fetchSubscription(domesticCard!));
+        expect(after).toMatchObject({ rawStatus: before.rawStatus, providerPlanId: before.providerPlanId, hasScheduledChanges: before.hasScheduledChanges });
+      },
+    );
   });
 });

@@ -15,7 +15,8 @@
     "notifications:diagnose": "tsx scripts/notifications-diagnose.ts",
     "billing:test-plans": "tsx scripts/billing-test-plans.ts",
     "billing:webhook-verify": "tsx scripts/billing-webhook-verify.ts",
-    "billing:checkout-verify": "tsx scripts/billing-checkout-verify.ts"
+    "billing:checkout-verify": "tsx scripts/billing-checkout-verify.ts",
+    "billing:lifecycle-verify": "tsx scripts/billing-lifecycle-verify.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

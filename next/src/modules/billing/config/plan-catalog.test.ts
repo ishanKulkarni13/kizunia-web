@@ -81,13 +81,25 @@ describe("createPlanCatalog", () => {
 });
 
 describe("the shipped catalogs", () => {
-  it("load, and are empty until real plans are configured (safe: an unmapped plan is refused)", () => {
-    for (const mode of ["TEST", "LIVE"] as const) {
-      const catalog = getPlanCatalog(mode);
+  it("TEST resolves every plan and cycle both ways, through the four verification plans", () => {
+    const catalog = getPlanCatalog("TEST");
 
-      expect(catalog.currentProviderPlanId("PRO", "MONTHLY")).toBeUndefined();
-      expect(catalog.findByProviderPlanId("plan_anything")).toBeUndefined();
+    for (const plan of ["PRO", "PRO_PLUS"] as const) {
+      for (const cycle of ["MONTHLY", "YEARLY"] as const) {
+        const providerPlanId = catalog.currentProviderPlanId(plan, cycle);
+
+        expect(providerPlanId, `${plan} ${cycle}`).toMatch(/^plan_/);
+        expect(catalog.findByProviderPlanId(providerPlanId!)).toMatchObject({ plan, cycle });
+      }
     }
+    expect(catalog.findByProviderPlanId("plan_anything")).toBeUndefined();
+  });
+
+  it("LIVE is empty until pricing is decided (safe: an unmapped plan is refused)", () => {
+    const catalog = getPlanCatalog("LIVE");
+
+    expect(catalog.currentProviderPlanId("PRO", "MONTHLY")).toBeUndefined();
+    expect(catalog.findByProviderPlanId("plan_TgDgeZ5thTGEr8")).toBeUndefined();
   });
 });
 

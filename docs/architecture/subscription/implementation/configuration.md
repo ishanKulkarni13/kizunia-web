@@ -23,7 +23,7 @@ Required configuration, TEST/LIVE separation, secrets, webhook secrets, tuning v
 | `BILLING_*` tuning (C1–C7) | optional | `envInt` pattern with defaults: budget window/limit/headroom, backoff base/cap, cooldown bounds, heartbeats/margins, batch sizes, `after()` cap, `expire_by` horizon, operation lease, outcome-unknown window, orphan overlap/settle/pages, payload retention, trial-conversion grace (C7, IB-9), trial length (**owner decision before Phase VII**; the spec's 30 days is only an example), `total_count` per cycle |
 
 - **Mode rule:** no key ID, secret or webhook secret → `disabled`. A **partial** set is a configuration error and fails at boot (don't guess). Validation runs in `src/instrumentation.ts` `register()` and is memoized in `provider-mode.ts`; `isBillingProviderEnabled()` is the only runtime question.
-- **Plan and Offer catalogs:** TypeScript config per mode in `modules/billing/config/`, code-reviewed and deployed (plan IDs are not secret; retired IDs kept; SB-PB-05).
+- **Plan and Offer catalogs:** TypeScript config per mode in `modules/billing/config/`, code-reviewed and deployed (plan IDs are not secret; retired IDs kept; SB-PB-05). See [TEST verification plans](#test-verification-plans-phase-iv) for the TEST catalog.
 - **No extra feature flag:** `disabled` mode is the paid-billing kill switch. No separate entitlement-enforcement flag is specified: the rollout concern that could have motivated one (existing users, formerly IB-8) does not apply, because Kizunia is pre-production with zero users (see [settled decisions](settled-decisions.md#decisions-applied-when-this-documentation-was-created)).
 - **Absent config:** app boots; Free works; grants work; gates evaluate from local tables; checkout/change/cancel return 503 `BILLING_UNAVAILABLE` ("Paid subscriptions are temporarily unavailable"); the webhook fails closed; billing tasks return `{skipped: "disabled"}`.
 - **TEST/LIVE separation:** separate keys, webhook secrets, catalogs and Offer maps; every row stamped; only the expected mode contributes; sync only for the resolved mode.
@@ -36,6 +36,19 @@ Required configuration, TEST/LIVE separation, secrets, webhook secrets, tuning v
   - Every failure message names variables, never values. The check is skipped during `next build`.
 - **Tick cadence:** the only Vercel cron entry is daily (Hobby). The C6 target needs an external pinger or finer cron before LIVE ([IB-19](open-decisions.md#ib-19--tick-cadence-on-the-vercel-hobby-plan)).
 - **TEST webhook URL:** a stable public URL with deployment protection bypassed for the webhook path only ([IB-20](open-decisions.md#ib-20--a-public-test-webhook-endpoint)).
+
+## TEST verification plans (Phase IV)
+
+Created in the Razorpay **TEST** account on 2026-09-25 by `pnpm billing:test-plans` (idempotent: a rerun reuses them) and mapped in the TEST plan catalog. **Their prices are temporary TEST-only verification values set by the owner.** They are not Kizunia's pricing and not a product decision; LIVE pricing stays open ([B6](open-decisions.md#open-product-questions), a LIVE blocker). The spec lives in `modules/billing/config/test-plan-spec.ts`: to change a price, edit it and bump `TEST_PLAN_VERSION`, which creates new plans; the old IDs stay in the catalog as `retired`.
+
+| Plan | Cycle | TEST price | Razorpay TEST plan ID | Catalog key (in the plan's notes) |
+| --- | --- | --- | --- | --- |
+| Pro | Monthly | ₹10 | `plan_TgDgeZ5thTGEr8` | `TEST:v1:PRO:MONTHLY` |
+| Pro | Yearly | ₹12 | `plan_TgDgejlJXhdilW` | `TEST:v1:PRO:YEARLY` |
+| Pro+ | Monthly | ₹20 | `plan_TgDgfArS3b5MQu` | `TEST:v1:PRO_PLUS:MONTHLY` |
+| Pro+ | Yearly | ₹22 | `plan_TgDgfLV0VuYLQz` | `TEST:v1:PRO_PLUS:YEARLY` |
+
+Plan IDs are not secrets. The earlier `KZ-VERIFY …` and `KZ-CONTRACT monthly INR 1` plans remain in the TEST account (Razorpay cannot delete plans) and are not in the catalog.
 
 ## Tuning values chosen in Phase III
 

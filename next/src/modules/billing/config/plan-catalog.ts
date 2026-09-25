@@ -21,13 +21,13 @@
  * and deployed: plan IDs are not secret, and a wrong one should be a diff, not
  * a runtime setting.
  *
- * The lists ship EMPTY. Kizunia's plans are created in the Razorpay Dashboard
- * and their IDs added here by the phase that first needs them: TEST plans for
- * checkout in Phase V, LIVE plans once pricing is decided (B6, a LIVE blocker,
- * resolved in Phase IX). An empty catalog is a safe state: creating a
- * subscription for an unmapped (plan, cycle) is refused as `UNMAPPED_PLAN`
- * before anything is sent, and an unknown plan on an observed subscription is
- * reported, never guessed at.
+ * TEST holds the four verification plans Phase IV created with
+ * `pnpm billing:test-plans` (spec and prices in `test-plan-spec.ts`). Their
+ * prices are **temporary TEST-only values**, not Kizunia pricing. LIVE ships
+ * EMPTY until pricing is decided (B6, a LIVE blocker, resolved in Phase IX).
+ * An empty catalog is a safe state: creating a subscription for an unmapped
+ * (plan, cycle) is refused as `UNMAPPED_PLAN` before anything is sent, and an
+ * unknown plan on an observed subscription is reported, never guessed at.
  *
  * Adding an entry is the whole procedure; the invariants below are checked
  * when this module loads, so a bad entry fails the first test run.
@@ -101,7 +101,22 @@ export function createPlanCatalog(entries: readonly PlanCatalogEntry[]): PlanCat
   };
 }
 
-const TEST_PLANS: readonly PlanCatalogEntry[] = [];
+/**
+ * Razorpay TEST verification plans, v1 (`TEST_PLAN_VERSION`), created
+ * 2026-09-25. Temporary TEST-only prices set by the owner; not Kizunia
+ * pricing. When the spec's version is bumped, add the new IDs and mark these
+ * `retired: true` (never delete them while a TEST subscription may use them).
+ */
+const TEST_PLANS: readonly PlanCatalogEntry[] = [
+  // KZ-TEST v1 PRO monthly: INR 10
+  { providerPlanId: "plan_TgDgeZ5thTGEr8", plan: "PRO", cycle: "MONTHLY" },
+  // KZ-TEST v1 PRO yearly: INR 12
+  { providerPlanId: "plan_TgDgejlJXhdilW", plan: "PRO", cycle: "YEARLY" },
+  // KZ-TEST v1 PRO_PLUS monthly: INR 20
+  { providerPlanId: "plan_TgDgfArS3b5MQu", plan: "PRO_PLUS", cycle: "MONTHLY" },
+  // KZ-TEST v1 PRO_PLUS yearly: INR 22
+  { providerPlanId: "plan_TgDgfLV0VuYLQz", plan: "PRO_PLUS", cycle: "YEARLY" },
+];
 
 const LIVE_PLANS: readonly PlanCatalogEntry[] = [];
 

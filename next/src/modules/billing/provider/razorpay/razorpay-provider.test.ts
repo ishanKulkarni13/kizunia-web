@@ -382,10 +382,10 @@ describe("RazorpayBillingProvider — an unmapped plan is refused before anythin
     expect(requests).toHaveLength(0);
   });
 
-  it("uses the shipped per-mode catalog by default (empty until plans are configured)", async () => {
+  it("uses the shipped per-mode catalog by default (LIVE: empty until pricing is decided)", async () => {
     const { impl, requests } = stubFetch([]);
     const client = new RazorpayClient({ keyId: KEY_ID, keySecret: KEY_SECRET, fetch: impl });
-    const provider = new RazorpayBillingProvider(credentials, "TEST", { client });
+    const provider = new RazorpayBillingProvider(credentials, "LIVE", { client });
 
     const outcome = await provider.createSubscription({
       plan: "PRO",

@@ -213,6 +213,18 @@ export function getProviderAccountId(): string | null {
 }
 
 /**
+ * The key ID Razorpay Checkout (`checkout.js`) needs in the browser, or `null`
+ * when billing is disabled. An identifier, not a secret: it is returned to the
+ * owner of a checkout in the checkout response, which is why there is no
+ * `NEXT_PUBLIC_RAZORPAY_*` variable and the mode seam stays server-side.
+ */
+export function getCheckoutKeyId(): string | null {
+  const configuration = getProviderConfiguration();
+
+  return configuration.mode === "DISABLED" ? null : configuration.razorpay.keyId;
+}
+
+/**
  * Whether Kizunia can make a real billing operation right now. The single
  * seam: nothing else asks whether credentials exist.
  */

@@ -89,6 +89,12 @@ export interface FakeProviderOptions {
   readonly previousWebhookSecretUntil?: Date | null;
   /** The merchant account `webhookBody` stamps on an event. */
   readonly accountId?: string;
+  /**
+   * Prefix of the IDs `createSubscription` issues (default `sub_fake_`). An
+   * integration suite passes its own, so its rows never collide with another
+   * suite's and its cleanup (by prefix) finds them.
+   */
+  readonly idPrefix?: string;
 }
 
 /** The parts of a Razorpay event `webhookBody` fills in. Epoch seconds are derived from dates. */
@@ -130,6 +136,7 @@ export class FakeBillingProvider implements BillingProvider {
   private readonly previousWebhookSecret: string | null;
   private readonly previousWebhookSecretUntil: Date | null;
   private readonly accountId: string;
+  private readonly idPrefix: string;
 
   private readonly subscriptions = new Map<string, ProviderSubscriptionState>();
   private readonly createdAt = new Map<string, Date>();
@@ -145,6 +152,7 @@ export class FakeBillingProvider implements BillingProvider {
     this.previousWebhookSecret = options.previousWebhookSecret ?? null;
     this.previousWebhookSecretUntil = options.previousWebhookSecretUntil ?? null;
     this.accountId = options.accountId ?? "acc_fake";
+    this.idPrefix = options.idPrefix ?? "sub_fake_";
   }
 
   // -- Scripting ------------------------------------------------------------
@@ -299,7 +307,7 @@ export class FakeBillingProvider implements BillingProvider {
 
   async createSubscription(input: CreateSubscriptionInput): Promise<Outcome<ProviderSubscriptionState>> {
     return this.run("createSubscription", [input], () => {
-      const providerSubscriptionId = `sub_fake_${++this.sequence}`;
+      const providerSubscriptionId = `${this.idPrefix}${++this.sequence}`;
       const state = this.seed({
         providerSubscriptionId,
         rawStatus: "created",

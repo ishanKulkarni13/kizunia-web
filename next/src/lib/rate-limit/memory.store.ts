@@ -1,4 +1,8 @@
-import type { RateLimitIncrementResult, RateLimitStore } from "./store";
+import type {
+  RateLimitConditionalIncrementResult,
+  RateLimitIncrementResult,
+  RateLimitStore,
+} from "./store";
 
 /**
  * In-memory store. Tests only — this is what makes `RateLimitService`
@@ -27,6 +31,28 @@ export class InMemoryRateLimitStore implements RateLimitStore {
     this.counters.set(key, { count: 1, expiresAt });
 
     return { count: 1 };
+  }
+
+  async incrementIfBelow(
+    key: string,
+    ceiling: number,
+    expiresAt: Date,
+  ): Promise<RateLimitConditionalIncrementResult> {
+    if (ceiling < 1) return { acquired: false };
+
+    const existing = this.counters.get(key);
+
+    if (existing && existing.expiresAt > new Date()) {
+      if (existing.count >= ceiling) return { acquired: false };
+
+      existing.count += 1;
+
+      return { acquired: true, count: existing.count };
+    }
+
+    this.counters.set(key, { count: 1, expiresAt });
+
+    return { acquired: true, count: 1 };
   }
 
   async prune(): Promise<number> {

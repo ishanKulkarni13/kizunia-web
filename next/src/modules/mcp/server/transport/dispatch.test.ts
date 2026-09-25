@@ -14,6 +14,10 @@ class ThrowingRateLimitStore implements RateLimitStore {
     throw new Error("simulated store outage");
   }
 
+  async incrementIfBelow(): Promise<never> {
+    throw new Error("simulated store outage");
+  }
+
   async prune(): Promise<number> {
     return 0;
   }

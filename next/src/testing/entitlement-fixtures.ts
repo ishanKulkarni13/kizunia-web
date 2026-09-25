@@ -97,13 +97,42 @@ export async function revokeGrants(userId: string, revokerId: string): Promise<v
  * they can be deleted. (Named for grants, which came first; it is the one
  * cleanup hook every gated feature's suite already calls, so it covers the
  * subscriptions a suite may add without touching each call site.)
+ *
+ * Every billing FK is `Restrict`, so once the sync path has written history,
+ * events, money facts, operations or anomalies for a subscription, those go
+ * first, in dependency order.
  */
 export async function deleteGrantsForUsers(userIds: readonly string[]): Promise<void> {
   if (userIds.length === 0) return;
 
-  await prisma.grantAuditEntry.deleteMany({ where: { targetUserId: { in: [...userIds] } } });
-  await prisma.entitlementGrant.deleteMany({ where: { userId: { in: [...userIds] } } });
-  await prisma.subscription.deleteMany({ where: { userId: { in: [...userIds] } } });
+  const users = { in: [...userIds] };
+  const subscriptionIds = (
+    await prisma.subscription.findMany({ where: { userId: users }, select: { id: true } })
+  ).map((subscription) => subscription.id);
+  const subscriptions = { in: subscriptionIds };
+
+  await prisma.grantAuditEntry.deleteMany({ where: { targetUserId: users } });
+  await prisma.entitlementGrant.deleteMany({ where: { userId: users } });
+
+  await prisma.subscriptionHistoryEntry.deleteMany({
+    where: { OR: [{ userId: users }, { subscriptionId: subscriptions }] },
+  });
+  await prisma.billingMoneyFact.deleteMany({
+    where: { OR: [{ userId: users }, { subscriptionId: subscriptions }] },
+  });
+  await prisma.billingEvent.deleteMany({ where: { subscriptionId: subscriptions } });
+  // Children before their roots: the self-FK is Restrict.
+  await prisma.billingOperation.deleteMany({
+    where: { OR: [{ userId: users }, { subscriptionId: subscriptions }], parentOperationId: { not: null } },
+  });
+  await prisma.billingOperation.deleteMany({
+    where: { OR: [{ userId: users }, { subscriptionId: subscriptions }] },
+  });
+  await prisma.billingAnomaly.deleteMany({
+    where: { OR: [{ userId: users }, { subscriptionIds: { hasSome: subscriptionIds } }] },
+  });
+  await prisma.subscription.updateMany({ where: { id: subscriptions }, data: { supersededById: null } });
+  await prisma.subscription.deleteMany({ where: { userId: users } });
 }
 
 /** `deleteGrantsForUsers` for every user whose email starts with `prefix`. */

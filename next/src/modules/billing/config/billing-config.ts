@@ -17,8 +17,10 @@
  * Until then, bounding Kizunia's own traffic well below any plausible limit is
  * the safe reading under any scope.
  *
- * Values for later phases (heartbeats, batch sizes, `expire_by`, operation
- * lease, trial length, `total_count`) are added by the phase that uses them.
+ * Phase IV adds C3 (heartbeats and checkpoint margins), C4 (batch sizes), C7
+ * (the trial-conversion grace) and the alert thresholds. Values for later
+ * phases (`expire_by`, operation lease, trial length, `total_count`) are added
+ * by the phase that uses them.
  *
  * Provider *credentials* are not tuning and are not read here: they are read
  * once, at boot, by `provider/provider-mode.ts`.
@@ -161,4 +163,60 @@ export const PROVIDER_CLIENT_CONFIG = {
    * may have been processed. It is resolved by synchronization, not retried.
    */
   requestTimeoutMs: envInt("BILLING_PROVIDER_TIMEOUT_MS", 10_000),
+} as const;
+
+// ---------------------------------------------------------------------------
+// When a subscription is next observed (C3, C7)
+// ---------------------------------------------------------------------------
+
+const HOUR_SECONDS = 60 * 60;
+const DAY_SECONDS = 24 * HOUR_SECONDS;
+
+/**
+ * Inputs to `policy/next-due.ts`: how soon after a lifecycle checkpoint a
+ * subscription is observed, and how often it is observed when nothing is
+ * scheduled (docs/architecture/subscription/reconciliation/reconciliation-job.md).
+ *
+ * A heartbeat is an upper bound on staleness when a webhook is missed and no
+ * checkpoint is near. Webhooks are the primary path, so the heartbeats only
+ * need to be short where a missed change would hurt most (an unfinished
+ * checkout, a failing payment).
+ */
+export const SYNC_SCHEDULE_CONFIG = {
+  /**
+   * How long after a renewal, cycle end, trial start or scheduled change the
+   * observation is made. Razorpay's renewal and its webhook take time; two
+   * hours finds the settled state rather than racing it, and is still far
+   * inside a day for a missed cancellation or failed charge.
+   */
+  checkpointMarginSeconds: envInt("BILLING_CHECKPOINT_MARGIN_SECONDS", 2 * HOUR_SECONDS),
+
+  /**
+   * How long after `expire_by` an unfinished checkout is observed. TEST saw
+   * the move to `expired` 188 s and 322 s late (D6), so ten minutes clears
+   * the observed lag with room to spare.
+   */
+  expireByMarginSeconds: envInt("BILLING_EXPIRE_BY_MARGIN_SECONDS", 10 * 60),
+
+  /**
+   * C7 (IB-9): how long a TRIAL may stay `authenticated` after `start_at` and
+   * keep contributing while Razorpay runs the first charge. Four days covers
+   * the charge day plus the documented card/UPI retries (T+1, T+2, T+3).
+   */
+  trialConversionGraceSeconds: envInt("BILLING_TRIAL_CONVERSION_GRACE_SECONDS", 4 * DAY_SECONDS),
+
+  heartbeats: {
+    /** An unfinished checkout either completes or expires quickly. */
+    pendingAuthenticationSeconds: envInt("BILLING_HEARTBEAT_PENDING_AUTH_SECONDS", 6 * HOUR_SECONDS),
+    trialingSeconds: envInt("BILLING_HEARTBEAT_TRIALING_SECONDS", 2 * DAY_SECONDS),
+    /** Renewals and cycle ends are checkpoints; this only bounds a missed mid-cycle Dashboard change. */
+    activeSeconds: envInt("BILLING_HEARTBEAT_ACTIVE_SECONDS", 7 * DAY_SECONDS),
+    /** Retries are daily for cards and UPI. */
+    pastDueSeconds: envInt("BILLING_HEARTBEAT_PAST_DUE_SECONDS", DAY_SECONDS),
+    pausedSeconds: envInt("BILLING_HEARTBEAT_PAUSED_SECONDS", 7 * DAY_SECONDS),
+    /** SB-PF-05: a halted subscription is observed less often the longer it stays halted, and is never dropped. */
+    haltedFirstWeekSeconds: envInt("BILLING_HEARTBEAT_HALTED_SECONDS", DAY_SECONDS),
+    haltedFirstMonthSeconds: envInt("BILLING_HEARTBEAT_HALTED_AFTER_WEEK_SECONDS", 7 * DAY_SECONDS),
+    haltedAfterMonthSeconds: envInt("BILLING_HEARTBEAT_HALTED_AFTER_MONTH_SECONDS", 30 * DAY_SECONDS),
+  },
 } as const;

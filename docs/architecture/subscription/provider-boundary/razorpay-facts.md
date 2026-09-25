@@ -933,6 +933,17 @@ either side.** "Safe to rely on" states the conservative reading the current des
 
 **Not exercised:** a UPI or e-mandate checkout (A16), the confirm call's signature check with a real payment (the webhook won), a checkout whose payment fails, and a create refused by Razorpay.
 
+## Phase VI lifecycle run (2026-09-25 UTC)
+
+**What this section is.** The API-only part of Phase VI's TEST verification, driven by `pnpm billing:lifecycle-verify` through the real command runner, commands, provider and apply path, against the dev database and throwaway verification users. Only scenarios that need no browser were run. Every scenario that needs an authenticated card subscription (active, pending, halted, paused, domestic or international card) was **not run**: see [the Phase VI runbook](../implementation-plan/phase-VI/manual-test.md) for its status.
+
+| Probe (runbook ID) | Observed at ~19:17 UTC |
+| --- | --- |
+| Customer cancel of a pending checkout (`created`), `IMMEDIATE` = abandon (C1) | `CANCEL_IMMEDIATELY` root `SUCCEEDED`, request `{atCycleEnd: false, reason: CUSTOMER_CANCEL}`. The response was applied, then a fresh fetch read `cancelled`; local `PENDING_AUTHENTICATION → CANCELLED` (cause `KIZUNIA_COMMAND`). The command answered `CANCELLED` only after that fetch. No anomaly |
+| Plan update on a `created` subscription at `now` and at `cycle_end`, straight through the provider (P6) | Both `FAILURE`, class `REJECTED`, code `BAD_REQUEST_ERROR` (as on 2026-09-24). A refetch showed the subscription unchanged: `created`, the same plan, `has_scheduled_changes = false` |
+
+**Not run (need a customer's authentication, an owner-approved international card, or UPI):** the cycle-end cancel of an `active` card subscription, immediate cancels of `pending`/`halted`/`paused` through the new command, supersession of a `halted` subscription, the domestic-card refusal classified through ChangePlan, a successful native change (A3, A15), the payment-method change on a halted subscription, and every UPI behavior (A16 (c)–(f), IB-22). Earlier observations of the raw cancel matrix (A1, 2026-09-24) still stand; they were made against the API, not through Phase VI's commands.
+
 ## Research pass 2 (2026-09-24)
 
 A documentation-focused second pass over the questions still open after the TEST pass. Evidence

@@ -32,6 +32,7 @@ import { getProviderHealth } from "../../provider/provider-factory";
 import { getProviderMode, type ResolvedProviderMode } from "../../provider/provider-mode";
 import { SyncClaimRepository } from "../sync/claim.repository";
 import { SyncService, type DrainCounts } from "../sync/sync.service";
+import { UnmatchedEventResolver } from "../webhooks/unmatched-resolver";
 
 /** Resolves unmatched webhook events (the tick's backstop for `after()`). */
 export interface UnmatchedEventDrain {
@@ -58,9 +59,11 @@ export class BillingSyncTask {
   private readonly health: () => ProviderHealth | null;
   private readonly resolvedMode: () => ResolvedProviderMode;
   private readonly now: () => Date;
+  private readonly unmatched: UnmatchedEventDrain;
 
-  constructor(private readonly deps: BillingSyncTaskDeps = {}) {
+  constructor(deps: BillingSyncTaskDeps = {}) {
     this.now = deps.now ?? (() => new Date());
+    this.unmatched = deps.unmatched ?? new UnmatchedEventResolver({ now: this.now });
     this.sync = deps.sync ?? new SyncService({ now: this.now });
     this.health = deps.health ?? getProviderHealth;
     this.resolvedMode = deps.resolvedMode ?? getProviderMode;
@@ -83,8 +86,8 @@ export class BillingSyncTask {
     if (verdict === "CLEAR") {
       drained = await this.sync.drain({ mode, deadline });
 
-      if (this.deps.unmatched && drained.stoppedBy === "EMPTY" && this.now().getTime() < deadline.getTime()) {
-        unmatched = await this.deps.unmatched.resolvePending({ mode, now: this.now(), deadline });
+      if (drained.stoppedBy === "EMPTY" && this.now().getTime() < deadline.getTime()) {
+        unmatched = await this.unmatched.resolvePending({ mode, now: this.now(), deadline });
       }
     }
 

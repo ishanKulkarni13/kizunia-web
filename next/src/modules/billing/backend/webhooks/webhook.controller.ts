@@ -23,6 +23,7 @@ import { rateLimitService } from "@/lib/rate-limit/service";
 
 import { ALERT_CONFIG } from "../../config/billing-config";
 import { BillingAlertCondition, logBillingAlert, logBillingEvent } from "../../observability/log";
+import { UnmatchedEventResolver } from "./unmatched-resolver";
 import { WebhookService } from "./webhook.service";
 
 /** Runs work after the response has been sent: `after` from `next/server` in the route. */
@@ -32,7 +33,7 @@ export class BillingWebhookController {
   static async razorpay(
     request: Request,
     afterResponse: AfterResponse,
-    service: WebhookService = new WebhookService(),
+    service: WebhookService = new WebhookService({ unmatched: new UnmatchedEventResolver() }),
   ) {
     const startedAt = Date.now();
 

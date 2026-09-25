@@ -39,6 +39,7 @@ import { getProviderMode, type ResolvedProviderMode } from "../../provider/provi
 import { ProviderPriority, type BillingProvider } from "../../provider/types";
 import { AnomalySubject } from "../anomalies/anomaly.repository";
 import { applyObservation, raiseAnomaly, type Effects } from "../sync/apply";
+import { bindProvisioning } from "../sync/binding";
 import { SyncClaimRepository } from "../sync/claim.repository";
 
 export type UnmatchedOutcome =
@@ -189,9 +190,11 @@ export class UnmatchedEventResolver {
   }
 
   /**
-   * Binds the provider ID to the PROVISIONING row the notes name. `null` when
-   * that row does not qualify (missing, other mode, already bound, not
-   * PROVISIONING), or another row holds the provider ID already.
+   * Binds the provider ID to the PROVISIONING row the notes name
+   * (`bindProvisioning`), then links the events and back-fills money facts in
+   * the same transaction. `null` when that row does not qualify (missing, other
+   * mode, bound to another ID, not PROVISIONING), or another row holds the
+   * provider ID already.
    */
   private async bind(
     mode: ProviderMode,
@@ -203,51 +206,28 @@ export class UnmatchedEventResolver {
 
     try {
       const bound = await prisma.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT 1 FROM "public"."subscription" WHERE "id" = ${subscriptionId} FOR UPDATE`;
-        const row = await tx.subscription.findUnique({ where: { id: subscriptionId } });
-
-        if (!row || row.providerMode !== mode || row.phase !== "PROVISIONING" || row.providerSubscriptionId !== null) {
-          return null;
-        }
-
-        await tx.subscription.update({ where: { id: row.id }, data: { providerSubscriptionId } });
-
-        const operation = operationId
-          ? await tx.billingOperation.findFirst({
-              where: { id: operationId, subscriptionId: row.id, kind: "CREATE_SUBSCRIPTION" },
-              select: { id: true, status: true },
-            })
-          : null;
-
-        if (operation && (operation.status === "IN_FLIGHT" || operation.status === "OUTCOME_UNKNOWN")) {
-          await tx.billingOperation.update({
-            where: { id: operation.id },
-            data: { status: "SUCCEEDED", resolvedAt: now },
-          });
-        }
-
-        await tx.subscriptionHistoryEntry.create({
-          data: {
-            subscriptionId: row.id,
-            userId: row.userId,
-            change: "BINDING",
-            fromValue: null,
-            toValue: providerSubscriptionId,
-            cause: operation ? "KIZUNIA_COMMAND" : "LOCAL",
-            trigger: "WEBHOOK",
-            operationId: operation?.id ?? null,
-          },
+        const result = await bindProvisioning(tx, {
+          mode,
+          providerSubscriptionId,
+          subscriptionId,
+          operationId,
+          trigger: "WEBHOOK",
+          now,
         });
 
-        await linkEvents(tx, mode, providerSubscriptionId, row.id);
-        // Durable before the apply below: if that fails, the tick fetches it.
-        await SyncClaimRepository.markDue(tx, row.id, "WEBHOOK", now, { eventDriven: true, now });
+        if (result.outcome === "REFUSED") return null;
+
+        await linkEvents(tx, mode, providerSubscriptionId, result.subscriptionId);
         await tx.billingMoneyFact.updateMany({
           where: { providerMode: mode, subscriptionId: null, billingEvent: { providerSubscriptionId } },
-          data: { subscriptionId: row.id, userId: row.userId },
+          data: { subscriptionId: result.subscriptionId, userId: result.userId },
         });
 
-        return { id: row.id, userId: row.userId, operationId: operation?.id ?? null };
+        return {
+          id: result.subscriptionId,
+          userId: result.userId,
+          operationId: result.outcome === "BOUND" ? result.operationId : null,
+        };
       });
 
       if (bound) {

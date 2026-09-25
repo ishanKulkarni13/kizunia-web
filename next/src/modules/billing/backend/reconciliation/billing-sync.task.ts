@@ -30,6 +30,7 @@ import { BillingAlertCondition, logBillingAlert, logBillingEvent } from "../../o
 import type { ProviderHealth } from "../../provider/budgeted-provider";
 import { getProviderHealth } from "../../provider/provider-factory";
 import { getProviderMode, type ResolvedProviderMode } from "../../provider/provider-mode";
+import { BillingOperationRepository } from "../commands/operation.repository";
 import { SyncClaimRepository } from "../sync/claim.repository";
 import { SyncService, type DrainCounts } from "../sync/sync.service";
 import { UnmatchedEventResolver } from "../webhooks/unmatched-resolver";
@@ -122,33 +123,9 @@ export class BillingSyncTask {
     return summary;
   }
 
-  /**
-   * An `IN_FLIGHT` operation whose lease lapsed died with its outcome unknown
-   * (a crash after the request left). It becomes `OUTCOME_UNKNOWN`, and its
-   * subscription is marked due so the next observation settles it (SB-CM-03).
-   */
+  /** Lapsed `IN_FLIGHT` operations become `OUTCOME_UNKNOWN` (shared with the command runner's self-heal). */
   private async expireLapsedOperations(mode: ProviderMode, now: Date): Promise<number> {
-    return prisma.$transaction(async (tx) => {
-      const lapsed = await tx.billingOperation.findMany({
-        where: { providerMode: mode, status: "IN_FLIGHT", leaseUntil: { lt: now } },
-        select: { id: true, subscriptionId: true },
-      });
-
-      if (lapsed.length === 0) return 0;
-
-      await tx.billingOperation.updateMany({
-        where: { id: { in: lapsed.map((op) => op.id) }, status: "IN_FLIGHT" },
-        data: { status: "OUTCOME_UNKNOWN" },
-      });
-
-      for (const subscriptionId of new Set(lapsed.flatMap((op) => (op.subscriptionId ? [op.subscriptionId] : [])))) {
-        await SyncClaimRepository.markDue(tx, subscriptionId, "COMMAND_CONFIRM", now, { eventDriven: true, now });
-      }
-
-      logBillingEvent("command.outcome_unknown", { mode, count: lapsed.length, cause: "lease_lapsed" });
-
-      return lapsed.length;
-    });
+    return prisma.$transaction((tx) => BillingOperationRepository.expireLapsed(tx, { mode, now }));
   }
 
   private async verdictSafely(): Promise<"CLEAR" | "COOLING_DOWN" | "AUTH_PINNED"> {

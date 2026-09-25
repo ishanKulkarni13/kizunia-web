@@ -125,21 +125,47 @@ export async function applyObservation(
   observation: Observation,
   context: ApplyContext,
 ): Promise<ApplyResult> {
-  const effects: Effects = { alerts: [], events: [] };
+  const effects = newEffects();
 
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT 1 FROM "public"."subscription" WHERE "id" = ${subscriptionId} FOR UPDATE`;
-    const row = await tx.subscription.findUnique({ where: { id: subscriptionId } });
+  const result = await prisma.$transaction((tx) =>
+    applyObservationInTransaction(tx, subscriptionId, observation, context, effects),
+  );
 
-    if (!row) return { outcome: "SUBSCRIPTION_NOT_FOUND" } as const;
-
-    return applyLocked(tx, row, observation, context, effects);
-  });
-
-  for (const { event, fields } of effects.events) logBillingEvent(event, fields);
-  for (const { condition, severity, fields } of effects.alerts) logBillingAlert(condition, severity, fields);
+  emitEffects(effects);
 
   return result;
+}
+
+/**
+ * The same apply, inside a transaction the caller owns: a command's settle
+ * transaction binds the provider ID, applies the returned entity and settles
+ * its operation atomically (command-model step 7, IB-25 item 1). The caller
+ * emits `effects` after its commit, so a rolled-back transaction reports
+ * nothing.
+ */
+export async function applyObservationInTransaction(
+  tx: Prisma.TransactionClient,
+  subscriptionId: string,
+  observation: Observation,
+  context: ApplyContext,
+  effects: Effects,
+): Promise<ApplyResult> {
+  await tx.$executeRaw`SELECT 1 FROM "public"."subscription" WHERE "id" = ${subscriptionId} FOR UPDATE`;
+  const row = await tx.subscription.findUnique({ where: { id: subscriptionId } });
+
+  if (!row) return { outcome: "SUBSCRIPTION_NOT_FOUND" };
+
+  return applyLocked(tx, row, observation, context, effects);
+}
+
+export function newEffects(): Effects {
+  return { alerts: [], events: [] };
+}
+
+/** Logs what a committed transaction decided. Call only after the commit. */
+export function emitEffects(effects: Effects): void {
+  for (const { event, fields } of effects.events) logBillingEvent(event, fields);
+  for (const { condition, severity, fields } of effects.alerts) logBillingAlert(condition, severity, fields);
 }
 
 async function applyLocked(

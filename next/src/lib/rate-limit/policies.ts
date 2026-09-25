@@ -122,6 +122,12 @@ export const RateLimitPolicyId = {
   BILLING_ADMIN_WRITE: "billing-admin:write",
   /** Inbound Razorpay webhook deliveries, by source IP. */
   BILLING_WEBHOOK: "billing:webhook",
+  /** Starting a paid checkout (`POST /me/billing/checkout`). */
+  BILLING_CHECKOUT: "billing:checkout",
+  /** Confirming a checkout after Razorpay Checkout (`POST /me/billing/checkout/confirm`). */
+  BILLING_CHECKOUT_CONFIRM: "billing:checkout-confirm",
+  /** Every other self-serve billing command (cancel, change plan; Phase VI). */
+  BILLING_COMMAND: "billing:command",
 } as const;
 
 export type RateLimitPolicyId =
@@ -493,5 +499,32 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "open",
     description:
       "Razorpay webhook deliveries (docs/architecture/subscription/webhooks/security.md). Generous: bursts after an outage or a Dashboard bulk action are legitimate. It only bounds the cost of garbage traffic before signature verification rejects it, and it fails open because a refused genuine delivery is retried by Razorpay but a stuck limiter must never drop billing events.",
+  },
+  [RateLimitPolicyId.BILLING_CHECKOUT]: {
+    id: RateLimitPolicyId.BILLING_CHECKOUT,
+    limit: 10,
+    windowSeconds: 10 * 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "Starting a paid checkout. A real user needs one or two, plus retries of the same click (same Idempotency-Key) and a plan switch; ten per ten minutes is ample. Each new checkout may cost a provider create (priority 1 of the shared budget), so it fails closed.",
+  },
+  [RateLimitPolicyId.BILLING_CHECKOUT_CONFIRM]: {
+    id: RateLimitPolicyId.BILLING_CHECKOUT_CONFIRM,
+    limit: 30,
+    windowSeconds: 10 * 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "Checkout confirmation after Razorpay Checkout (SB-CM-06: rate-limited per user). Each call may spend a priority-2 provider fetch on the caller's own subscription; it exists for latency only, so refusing it merely delays access until the webhook or the tick.",
+  },
+  [RateLimitPolicyId.BILLING_COMMAND]: {
+    id: RateLimitPolicyId.BILLING_COMMAND,
+    limit: 20,
+    windowSeconds: 10 * 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "Other self-serve billing commands (cancel, plan change; Phase VI). Each may cost a provider mutation at priority 1; one user issuing many billing changes in minutes is never legitimate.",
   },
 } as const;

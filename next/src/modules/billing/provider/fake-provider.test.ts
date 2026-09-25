@@ -122,7 +122,7 @@ describe("FakeBillingProvider — failure semantics", () => {
     for (let i = 0; i < 3; i += 1) {
       expect(await provider.fetchSubscription("sub_x")).toMatchObject({ failureClass: "UNAVAILABLE" });
     }
-    expect(await provider.fetchSubscription("sub_x")).toMatchObject({ failureClass: "NOT_FOUND" });
+    expect(await provider.fetchSubscription("sub_x")).toMatchObject({ failureClass: "REJECTED" });
   });
 
   it('fails any method with "*", and only the scripted method otherwise', async () => {
@@ -130,7 +130,7 @@ describe("FakeBillingProvider — failure semantics", () => {
     provider.failNext("cancelSubscription", "REJECTED");
 
     // A different method is untouched, and does not consume the script.
-    expect(await provider.fetchSubscription("sub_x")).toMatchObject({ failureClass: "NOT_FOUND" });
+    expect(await provider.fetchSubscription("sub_x")).toMatchObject({ failureClass: "REJECTED" });
     expect(await provider.cancelSubscription("sub_x", { atCycleEnd: false })).toMatchObject({
       failureClass: "REJECTED",
     });
@@ -192,7 +192,7 @@ describe("FakeBillingProvider — the happy path", () => {
     expect(outcome.kind === "SUCCESS" && outcome.value.shortUrl).toContain("fake.invalid");
   });
 
-  it("fetches what it created, and reports NOT_FOUND for what it did not", async () => {
+  it("fetches what it created, and answers an unknown ID as Razorpay does (REJECTED, D12)", async () => {
     const provider = fake();
     const created = await provider.createSubscription(createInput);
     if (created.kind !== "SUCCESS") throw new Error("expected success");
@@ -201,7 +201,10 @@ describe("FakeBillingProvider — the happy path", () => {
       kind: "SUCCESS",
       value: { providerSubscriptionId: created.value.providerSubscriptionId },
     });
-    expect(await provider.fetchSubscription("sub_missing")).toMatchObject({ failureClass: "NOT_FOUND" });
+    expect(await provider.fetchSubscription("sub_missing")).toMatchObject({
+      failureClass: "REJECTED",
+      providerErrorCode: "BAD_REQUEST_ERROR",
+    });
   });
 
   it("cancels immediately, refuses a second cancel, and leaves a cycle-end cancel unobservable", async () => {

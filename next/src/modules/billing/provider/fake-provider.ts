@@ -22,6 +22,11 @@
  *  - **Realistic verification.** Signatures use the same HMAC scheme as the
  *    real provider, and `signWebhook` / `signCheckout` produce valid ones.
  *
+ * An ID it does not hold is answered as Razorpay TEST answers one: a `400
+ * BAD_REQUEST_ERROR`, classified `REJECTED`, never a `NOT_FOUND` (D12 in
+ * razorpay-facts.md). The sync path relies on that to detect a missing
+ * provider subscription (IB-23), so the fake must not be kinder than reality.
+ *
  * It records every network call in `calls`, in order. It deliberately does
  * not model Razorpay's lifecycle (charges, retries, halting): a test that needs
  * a subscription in a given state seeds it with `seed`.
@@ -195,7 +200,7 @@ export class FakeBillingProvider implements BillingProvider {
     return this.run("updateSubscriptionPlan", [ref, input], () => {
       const current = this.subscriptions.get(ref);
 
-      if (!current) return this.fail("NOT_FOUND");
+      if (!current) return this.unknownId();
       if (current.rawStatus !== "active" && current.rawStatus !== "authenticated") {
         return this.fail("REJECTED", { providerErrorCode: "BAD_REQUEST_ERROR" });
       }
@@ -216,7 +221,7 @@ export class FakeBillingProvider implements BillingProvider {
     return this.run("cancelScheduledChange", [ref], () => {
       const current = this.subscriptions.get(ref);
 
-      if (!current) return this.fail("NOT_FOUND");
+      if (!current) return this.unknownId();
       if (!current.hasScheduledChanges) {
         return this.fail("REJECTED", { providerErrorCode: "BAD_REQUEST_ERROR" });
       }
@@ -235,7 +240,7 @@ export class FakeBillingProvider implements BillingProvider {
     return this.run("cancelSubscription", [ref, input], () => {
       const current = this.subscriptions.get(ref);
 
-      if (!current) return this.fail("NOT_FOUND");
+      if (!current) return this.unknownId();
       if (TERMINAL_STATUSES.has(current.rawStatus)) {
         return this.fail("REJECTED", { providerErrorCode: "BAD_REQUEST_ERROR" });
       }
@@ -257,7 +262,7 @@ export class FakeBillingProvider implements BillingProvider {
     return this.run("fetchSubscription", [ref], () => {
       const current = this.subscriptions.get(ref);
 
-      return current ? providerSuccess(current, this.now()) : this.fail("NOT_FOUND");
+      return current ? providerSuccess(current, this.now()) : this.unknownId();
     });
   }
 
@@ -285,7 +290,7 @@ export class FakeBillingProvider implements BillingProvider {
     return this.run("fetchAuthorizationPaymentMethod", [paymentRef], () => {
       const info = this.paymentMethods.get(paymentRef);
 
-      return info ? providerSuccess(info, this.now()) : this.fail("NOT_FOUND");
+      return info ? providerSuccess(info, this.now()) : this.unknownId();
     });
   }
 
@@ -341,6 +346,17 @@ export class FakeBillingProvider implements BillingProvider {
     }
 
     return Promise.resolve(happyPath());
+  }
+
+  /**
+   * What Razorpay TEST returns for a well-formed ID it does not know (D12,
+   * observed 2026-09-25): a `400 BAD_REQUEST_ERROR`, so `REJECTED`.
+   */
+  private unknownId() {
+    return this.fail("REJECTED", {
+      providerErrorCode: "BAD_REQUEST_ERROR",
+      providerErrorDescription: "The ID provided is invalid or could not be found.",
+    });
   }
 
   private fail(failureClass: ProviderFailureClass, details: ProviderFailureDetails = {}) {

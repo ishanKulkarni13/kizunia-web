@@ -150,7 +150,7 @@ describe("a rejected key stops everything until it changes", () => {
       { inner, store: new PostgresRateLimitStore() },
     );
 
-    expect(await rotated.fetchSubscription("sub_missing")).toMatchObject({ failureClass: "NOT_FOUND" });
+    expect(await rotated.fetchSubscription("sub_missing")).toMatchObject({ failureClass: "REJECTED" });
     expect(inner.calls).toHaveLength(2);
   });
 });
@@ -166,7 +166,7 @@ describe("the budget caps a burst", () => {
     }
 
     // P3's ceiling is 4 of 10.
-    expect(outcomes).toEqual(["NOT_FOUND", "NOT_FOUND", "NOT_FOUND", "NOT_FOUND", "BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED"]);
+    expect(outcomes).toEqual(["REJECTED", "REJECTED", "REJECTED", "REJECTED", "BUDGET_EXHAUSTED", "BUDGET_EXHAUSTED"]);
     expect(inner.calls).toHaveLength(4);
   });
 
@@ -177,7 +177,7 @@ describe("the budget caps a burst", () => {
 
     const command = await build(inner, ProviderPriority.COMMAND).cancelSubscription("sub_a", { atCycleEnd: false });
 
-    expect(command).toMatchObject({ kind: "FAILURE", failureClass: "NOT_FOUND" });
+    expect(command).toMatchObject({ kind: "FAILURE", failureClass: "REJECTED" });
     expect(command).toHaveProperty("requestSentAt");
   });
 

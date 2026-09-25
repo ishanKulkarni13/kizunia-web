@@ -62,6 +62,7 @@ Every ruling records who made it. The two kinds are kept apart on purpose:
 | [IB-22](#ib-22--upi-recovery-ux) | UPI recovery UX | PRODUCT / UX | PROVIDER-DEPENDENT | Architecture (autonomous) capability; UX pending verification | VI |
 | [IB-23](#ib-23--detecting-a-missing-provider-subscription) | Detecting a missing provider subscription | ARCHITECTURE | DECIDED (operation context) | Architecture (autonomous) | IV |
 | [IB-24](#ib-24--phase-iv-implementation-rulings) | Phase IV implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | IV |
+| [IB-25](#ib-25--phase-v-implementation-rulings) | Phase V implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | V |
 | IB-8 | Launch enforcement for existing users | — | [Withdrawn](#withdrawn-findings) | — | — |
 
 Phase numbers refer to the [phase-wise implementation plan](../implementation-plan/README.md).
@@ -575,6 +576,28 @@ Places where the Phase IV design left a detail open, ruled before the code relie
 11. **Admin "sync now"** is `POST`, requires `VIEW_BILLING` (IB-15), runs at priority 1 through the targeted claim, takes no `Idempotency-Key` (it mutates nothing at the provider; IB-6 covers provider mutations), and returns no provider identifier (SB-PB-04).
 12. **IB-20's hosting route** for TEST verification is a stable ngrok domain in front of the local dev server. A Vercel deployment-protection bypass is needed only if a hosted TEST deployment is used later.
 13. **TEST plans for verification** are created by an idempotent TEST-only tool (`pnpm billing:test-plans`) and wired into the TEST plan catalog. Their prices (Pro ₹10/month and ₹12/year, Pro+ ₹20/month and ₹22/year) are **temporary TEST-only verification values** set by the owner. They are not Kizunia pricing (B6 stays open) and not a product decision.
+
+### IB-25 — Phase V implementation rulings
+
+| | |
+| --- | --- |
+| **Status** | **DECIDED** — 2026-09-25 |
+| **Decided by** | Architecture/technical decision (autonomous) |
+| **Kind** | ARCHITECTURE |
+| **Affects** | Phase V |
+
+Places where the Phase V design left a detail open, or where the documents and the Phase IV code disagreed, ruled before the code relied on them. None changes a settled decision; each can be overridden by a new ruling.
+
+1. **Tx B composes the apply path.** Command-model step 7 needs "bind, apply, operation `SUCCEEDED`, mark due" in **one** transaction, but `applyObservation` opened its own. The apply path now also exports `applyObservationInTransaction(tx, …)`; `applyObservation` is a thin wrapper with unchanged behavior. Likewise the bind (was private to the unmatched resolver) is `backend/sync/binding.ts`, used with trigger `WEBHOOK`, `COMMAND_RESPONSE` or `ORPHAN_DISCOVERY`, and the lapsed-lease expiry (was private to `billing:sync`) is shared by the tick and the runner's tx A.
+2. **The orphan window closes on a send-time bound.** `requestSentAt` is persisted in tx B (command-model step 5), so a crash between the call and tx B leaves it null. The close rule uses `COALESCE(requestSentAt, leaseUntil) + overlap ≤ watermark`: a live process always sends before its lease ends, because the lease (60 s) is far longer than the client timeout (10 s). Conservative: it can only close later, never earlier.
+3. **A local precondition refusal is recorded without a new column.** The operation is marked `REJECTED` in tx A with `failureClass` and `requestSentAt` null, which means "refused before anything was sent". A same-key replay returns that recorded refusal and never re-executes; its explanation is derived from current local state through the same precondition policy. Provider and budget refusals keep `failureClass` and `providerErrorCode` as designed. Reuse answers (a `PROVISIONING` or unexpired `PENDING_AUTHENTICATION` checkout for the same plan) roll tx A back and persist no operation, because nothing is mutated.
+4. **Abandon-then-create is rooted at the create.** No parent kind fits (`SUPERSEDE` and `CHANGE_PLAN` are Phase VI's). The root is the `CREATE_SUBSCRIPTION` operation, with `subscriptionId` null until its `PROVISIONING` row exists; the abandon is a `CANCEL_IMMEDIATELY` child. When the targeted sync observes the old checkout terminal, a short transaction inserts the `PROVISIONING` row and links it to the root (a one-time fill of a null reference, like a bind), then the create proceeds. When it does not, the root is `REJECTED` (nothing created; `failureClass` null) and the response is `CONFIRMING`. A create root never ends `SUCCEEDED` without a create.
+5. **A checkout is reused only with time left.** A pending checkout for the same plan and cycle is reused only if at least `BILLING_CHECKOUT_REUSE_MIN_REMAINING_SECONDS` (5 min) remain before `expire_by`; otherwise it is treated as expired (abandon, then create). Stricter than "not passed", so a user is never handed a checkout that expires mid-payment.
+6. **`billing:orphan-discovery` runs last in the tick.** The IB-10 arithmetic leaves no room for another provider-calling task before notifications. The task is read-only, low-frequency (≥ 900 s), bounded by its own soft budget, and persists its cursor after every page, so a run cut short by `maxDuration` loses nothing.
+7. **Provider identifiers reach the browser only in the checkout response.** `checkout.js` needs `key` and `subscription_id`; they are returned to the owner of the checkout, in that one response. `GET /me/billing` and every other response carry none (SB-PB-04).
+8. **Checkout confirmation takes no `Idempotency-Key`.** It is a read-only trigger with no `BillingOperation` (the command catalog's "none"), like admin sync-now (IB-24 item 11). The signature is verified against the server-held ID only (SB-CM-06); a subscription ID the browser sends is compared for a security log and otherwise ignored.
+9. **Sizing uses the observed `expire_by` lag.** D6 recorded 188 s and 322 s; the orphan overlap (15 min) and the reuse margin are sized for at least ~6 minutes, not the "~3 minutes" some documents still stated (corrected with this phase).
+10. **`billing:command`** is defined with the checkout policies for the runner's other user commands; Phase V has no route that uses it (Phase VI does).
 
 ## Withdrawn findings
 

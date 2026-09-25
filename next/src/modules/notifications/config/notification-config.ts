@@ -262,10 +262,13 @@ export const JOB_CONFIG = {
    * and reports that work remains.
    *
    * Must leave headroom under the platform's function timeout for one more job
-   * plus teardown. 45s suits a 60s limit; raise it alongside `maxDuration` on a
-   * platform that allows longer executions.
+   * plus teardown. The tick (`maxDuration` 60 s) runs `billing:sync` first,
+   * with a 10 s soft budget that can overrun by one provider timeout (10 s),
+   * so this drain gets 30 s (IB-10; docs/architecture/workflows/internal-jobs.md).
+   * Raise both alongside `maxDuration` on a platform that allows longer
+   * executions.
    */
-  wallClockBudgetMs: envInt("NOTIFICATION_WORKER_BUDGET_MS", 45_000),
+  wallClockBudgetMs: envInt("NOTIFICATION_WORKER_BUDGET_MS", 30_000),
 
   /**
    * Whether a drain pass that still has work re-invokes the drain endpoint over

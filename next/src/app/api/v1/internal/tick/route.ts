@@ -29,16 +29,11 @@ import { randomUUID } from "node:crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { runDueTasks, type InternalTask } from "@/lib/internal-jobs/registry";
+import { runDueTasks } from "@/lib/internal-jobs/registry";
 import { logger, runWithLogContext } from "@/lib/logger";
-import { PostgresRateLimitStore } from "@/lib/rate-limit/postgres.store";
 import { secretEquals } from "@/lib/security/timing-safe-equal";
-import { assetReconciliationService } from "@/modules/assets/backend/reconciliation.service";
-import { JOB_CONFIG, SCHEDULE_CONFIG } from "@/modules/notifications/config/notification-config";
-import { NotificationTickService } from "@/modules/notifications/backend/notification-tick.service";
 
-/** Three days, matching the cadence those jobs were registered with. */
-const THREE_DAYS_SECONDS = 3 * 24 * 60 * 60;
+import { TICK_TASKS } from "./tasks";
 
 /**
  * Without this, a `GET` handler can be statically evaluated at build time and
@@ -48,59 +43,12 @@ const THREE_DAYS_SECONDS = 3 * 24 * 60 * 60;
 export const dynamic = "force-dynamic";
 
 /**
- * Vercel's Hobby ceiling. Raise alongside `JOB_CONFIG.wallClockBudgetMs` on a
- * plan that allows longer executions; the budget must stay below this with room
- * for one more job plus teardown.
+ * Vercel's Hobby ceiling. Raise alongside the task budgets in `./tasks.ts`
+ * (`SYNC_CONFIG.wallClockMs`, `JOB_CONFIG.wallClockBudgetMs`) on a plan that
+ * allows longer executions; together they must stay below this with room for
+ * one more job plus teardown.
  */
 export const maxDuration = 60;
-
-const tasks: readonly InternalTask[] = [
-  {
-    id: "notifications:tick",
-    // The subsystem's own cadence. The trigger may fire more often than this —
-    // an external pinger, a manual run — and the marker is what keeps the
-    // scheduling pass from running more often than intended.
-    minIntervalSeconds: Math.min(SCHEDULE_CONFIG.sweepIntervalSeconds, 300),
-    run: async () => {
-      const result = await NotificationTickService.run({
-        budgetMs: JOB_CONFIG.wallClockBudgetMs,
-      });
-
-      // Flattened, with the two discovery passes kept distinct: they enqueue
-      // different work, and collapsing both into one `enqueued` would make a
-      // silent failure in either invisible in the tick's own output.
-      return {
-        enqueued: result.scheduled.enqueued,
-        duplicates: result.scheduled.duplicates,
-        adminNoticesEnqueued: result.adminNotices.enqueued,
-        adminNoticesDuplicates: result.adminNotices.duplicates,
-        ...result.drained,
-        pruned: result.pruned,
-      };
-    },
-  },
-
-  /*
-   * The two pre-existing maintenance jobs, moved here from their own cron
-   * entries so the project fits inside Hobby's two-slot limit.
-   *
-   * Nothing about them changes: same services, same three-day cadence, same
-   * dedicated routes still available for a manual run. Only the trigger is
-   * shared. Both are safety-net reconciliations whose writes are already
-   * compare-and-set, so running them from a shared tick is no different from
-   * running them from their own.
-   */
-  {
-    id: "rate-limit:prune",
-    minIntervalSeconds: THREE_DAYS_SECONDS,
-    run: async () => ({ pruned: await new PostgresRateLimitStore().prune() }),
-  },
-  {
-    id: "assets:reconcile",
-    minIntervalSeconds: THREE_DAYS_SECONDS,
-    run: async () => ({ ...(await assetReconciliationService.runAll()) }),
-  },
-];
 
 export async function GET(request: NextRequest) {
   const expectedSecret = process.env.CRON_SECRET;
@@ -119,7 +67,7 @@ export async function GET(request: NextRequest) {
 
   return runWithLogContext(randomUUID(), async () => {
     try {
-      const summary = await runDueTasks(tasks, new Date());
+      const summary = await runDueTasks(TICK_TASKS, new Date());
 
       // A task that failed is reported in the body but does not fail the request.
       // The platform's retry keys off the status, and re-running the whole tick

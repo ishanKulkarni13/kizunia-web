@@ -81,6 +81,20 @@ export function getBillingProvider(priority: ProviderPriority): BillingProvider 
   return buildBillingProvider(configuration, priority, shared);
 }
 
+/**
+ * The shared provider-health verdict for this process's mode, or `null` when
+ * billing is disabled. Background tasks ask it once per run, before claiming
+ * any work, so a cooldown or an auth pin skips the run instead of refusing
+ * each call. The credentials stay here: only their fingerprint is used.
+ */
+export function getProviderHealth(): ProviderHealth | null {
+  const configuration = getProviderConfiguration();
+
+  if (configuration.mode === "DISABLED") return null;
+
+  return new ProviderHealthTracker(configuration.mode, keyFingerprint(configuration.razorpay.keyId));
+}
+
 /** For tests, which need a fresh decision per case. */
 export function resetBillingProviderForTests(): void {
   shared = null;

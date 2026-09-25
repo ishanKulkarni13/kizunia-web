@@ -1,6 +1,6 @@
 # Subscription & Billing — Phase-wise Implementation Plan
 
-> **Status:** Engineering roadmap — Phases I, II, III and IV implemented; Phase V is next
+> **Status:** Engineering roadmap — Phases I, II, III, IV and V implemented; Phase VI is next
 >
 > **Created:** 2026-09-24, after the implementation decision close-out
 >

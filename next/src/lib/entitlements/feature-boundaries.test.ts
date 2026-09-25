@@ -95,6 +95,23 @@ describe("feature modules consume entitlements through one seam", () => {
     expect(offenders(/\bentitlementGrant\b|\bgrantAuditEntry\b/)).toEqual([]);
   });
 
+  it("never read the subscription tables directly: a paid subscription is one more resolver source", () => {
+    // `prisma.subscription` and friends, on any client or transaction handle.
+    // (`pushSubscription` is the web-push table and is a different word.)
+    expect(offenders(/\b(?:prisma|db|tx|client)\.subscription\b/)).toEqual([]);
+    expect(
+      offenders(/\b(?:prisma|db|tx|client)\.(?:billingOperation|billingEvent|billingMoneyFact|subscriptionHistoryEntry|billingAnomaly|billingProviderState)\b/),
+    ).toEqual([]);
+  });
+
+  it("never name a billing concept: phase, provider mode, cycle or failure class", () => {
+    // Feature code has no use for how a subscription is billed or where it
+    // lives; it asks what the user may do. These belong to modules/billing.
+    expect(
+      offenders(/\b(?:SubscriptionPhase|SubscriptionKind|ProviderMode|BillingCycle|ProviderFailureClass|BillingProvider)\b/),
+    ).toEqual([]);
+  });
+
   it("never build a second capability catalog or plan resolver", () => {
     expect(offenders(/\bPLAN_CATALOG\b|\bmaxPlan\b|\bplanHasCapability\b/)).toEqual([]);
   });

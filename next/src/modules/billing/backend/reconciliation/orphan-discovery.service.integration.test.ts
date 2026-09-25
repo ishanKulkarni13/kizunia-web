@@ -17,6 +17,7 @@ import { ProviderPriority } from "../../provider/types";
 import { AnomalySubject } from "../anomalies/anomaly.repository";
 import { CommandRunner, type CommandRunnerDeps } from "../commands/command-runner";
 import { StartCheckoutCommand } from "../commands/start-checkout";
+import { SupersedeCommand } from "../commands/supersede";
 import { OrphanDiscoveryService, type OrphanDiscoverySettings, type OrphanRunResult } from "./orphan-discovery.service";
 
 const PREFIX = "__vitest_billing_orphan__";
@@ -65,6 +66,18 @@ async function startCheckout(userId: string, deps: CommandRunnerDeps = {}) {
   const runner = new CommandRunner({ providerFor: () => fake, resolvedMode: () => "TEST", assertEnabled: () => {}, now, catalog, ...deps });
 
   return runner.run(new StartCheckoutCommand({ plan: "PRO", cycle: "MONTHLY" }, { keyId: () => "k" }), {
+    actor: { userId, actorKind: "USER", actorUserId: userId },
+    idempotencyKey: `key_${PREFIX.replace(/[^A-Za-z0-9_]/g, "")}${Date.now()}_${(sequence += 1)}`,
+  });
+}
+
+/** A HALTED subscription superseded through the runner (Phase VI): its create is a child of a SUPERSEDE root. */
+async function supersede(userId: string) {
+  const old = await insertBoundSubscription(userId, { phase: "HALTED", providerPlanId: "plan_fake_PRO_MONTHLY", lastAppliedObservationAt: new Date(clock.getTime() - MINUTE) });
+  fake.seed({ providerSubscriptionId: old.providerSubscriptionId!, rawStatus: "halted", providerPlanId: "plan_fake_PRO_MONTHLY", notes: { kz_sub: old.id } }, new Date(clock.getTime() - 60 * MINUTE));
+  const runner = new CommandRunner({ providerFor: () => fake, resolvedMode: () => "TEST", assertEnabled: () => {}, now, catalog });
+
+  return runner.run(new SupersedeCommand({ plan: "PRO", cycle: "MONTHLY", supersedesSubscriptionId: old.id }, { keyId: () => "k" }), {
     actor: { userId, actorKind: "USER", actorUserId: userId },
     idempotencyKey: `key_${PREFIX.replace(/[^A-Za-z0-9_]/g, "")}${Date.now()}_${(sequence += 1)}`,
   });
@@ -257,5 +270,34 @@ describe("orphan discovery — closing the window (ABANDONED / NOT_APPLIED)", ()
 
     expect(result).toMatchObject({ operationsExpired: 1, closed: 1 });
     expect(await prisma.billingOperation.findUniqueOrThrow({ where: { id: operation.id } })).toMatchObject({ status: "NOT_APPLIED" });
+  });
+});
+
+describe("orphan discovery — a supersession's create is a child (Phase VI)", () => {
+  it("closes a child create the provider never made, once the window passes it", async () => {
+    const userId = await createBillingUser(PREFIX);
+    fake.failNext("createSubscription", "TIMEOUT");
+    expect((await supersede(userId)).status).toBe("CONFIRMING");
+    const create = await prisma.billingOperation.findFirstOrThrow({ where: { userId, kind: "CREATE_SUBSCRIPTION" } });
+    expect(create.parentOperationId).not.toBeNull();
+
+    advance(30 * MINUTE);
+    expect(await scan()).toMatchObject({ closed: 1 });
+
+    expect(await prisma.billingOperation.findUniqueOrThrow({ where: { id: create.id } })).toMatchObject({ status: "NOT_APPLIED" });
+    expect(await prisma.subscription.findUniqueOrThrow({ where: { id: create.subscriptionId! } })).toMatchObject({ phase: "ABANDONED" });
+  });
+
+  it("binds a child create whose response was lost, through its own kz_op", async () => {
+    const userId = await createBillingUser(PREFIX);
+    fake.failNext("createSubscription", "TIMEOUT", { afterApplying: true });
+    await supersede(userId);
+    const create = await prisma.billingOperation.findFirstOrThrow({ where: { userId, kind: "CREATE_SUBSCRIPTION" } });
+
+    advance(10 * MINUTE);
+    await scan();
+
+    expect(await prisma.billingOperation.findUniqueOrThrow({ where: { id: create.id } })).toMatchObject({ status: "SUCCEEDED" });
+    expect(await prisma.subscription.findUniqueOrThrow({ where: { id: create.subscriptionId! } })).toMatchObject({ phase: "PENDING_AUTHENTICATION" });
   });
 });

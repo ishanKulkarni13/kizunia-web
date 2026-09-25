@@ -398,7 +398,9 @@ export class OrphanDiscoveryService {
    * Closes creates the completed window proves never happened: an unbound
    * PROVISIONING record whose create is OUTCOME_UNKNOWN and was sent (at the
    * latest) `overlap` before the watermark. Anything the provider created in
-   * that span would have been listed and bound above.
+   * that span would have been listed and bound above. A create is closed the
+   * same way whether it is a root (StartCheckout) or a supersession's child
+   * (Phase VI).
    */
   private async closeExhausted(mode: ProviderMode, watermark: Date, now: Date): Promise<number> {
     const overlapMs = this.settings.overlapSeconds * 1000;
@@ -406,7 +408,6 @@ export class OrphanDiscoveryService {
       where: {
         providerMode: mode,
         kind: "CREATE_SUBSCRIPTION",
-        parentOperationId: null,
         status: "OUTCOME_UNKNOWN",
         subscription: { phase: "PROVISIONING", providerSubscriptionId: null },
       },

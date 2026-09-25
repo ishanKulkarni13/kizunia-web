@@ -25,7 +25,7 @@ The persistence boundary between phases is part of the [phase-wise implementatio
 | [III](../implementation-plan/phase-III/README.md) — billing persistence | Every other enum above except the Phase VII values; `Subscription`, `BillingOperation`, `BillingEvent`, `BillingMoneyFact`, `SubscriptionHistoryEntry`, `BillingAnomaly`, `BillingProviderState`, with their partial unique indexes and CHECKs; `User` back-relations |
 | [VII](../implementation-plan/phase-VII/README.md) — promotions and trials | `EntitlementSource.PROMOTION` and `BillingAnomalyType.TRIAL_CONVERSION_OVERDUE` (each in its own `ALTER TYPE` migration); `Promotion`, `PromotionRedemption`; `EntitlementGrant.promotionId` and `GrantAuditEntry.promotionId` with `Restrict` FKs and the `source <> 'PROMOTION' OR "promotionId" IS NOT NULL` CHECK |
 
-Phases IV–VI and VIII create no tables. If one of them needs a new enum value (for example a sync reason), it adds it in its own `ALTER TYPE … ADD VALUE` migration, named in that phase's document.
+Phases IV–VI and VIII create no tables. If one of them needs a new enum value (for example a sync reason), it adds it in its own `ALTER TYPE … ADD VALUE` migration, named in that phase's document. Phase IV added one: `BillingAnomalyType.TERMINAL_STATE_CONTRADICTED` (migration `20260925000100_add_terminal_state_contradicted_anomaly`).
 
 ## Enums
 
@@ -50,7 +50,7 @@ Phases IV–VI and VIII create no tables. If one of them needs a new enum value 
 | `EntitlementSource` | `ADMIN_GRANT`, `PROMOTION` | Extensible (future one-time purchases). `PROMOTION` is added by its own `ALTER TYPE … ADD VALUE` migration | I (`ADMIN_GRANT`); VII adds `PROMOTION` |
 | `GrantStatus` | `ACTIVE`, `REVOKED` | No `EXPIRED` (SB-EA-09) | I |
 | `GrantAuditAction` | `CREATED`, `EXTENDED`, `REVOKED` | | I |
-| `BillingAnomalyType` | `MULTIPLE_OPEN_SUBSCRIPTIONS`, `UNMATCHED_PROVIDER_SUBSCRIPTION`, `NOTES_CONFLICT`, `UNMAPPED_PROVIDER_PLAN`, `PROVIDER_MODE_MISMATCH`, `PROVIDER_SUBSCRIPTION_MISSING`, `CANCELLATION_NOT_EFFECTIVE`, `TRIAL_CONVERSION_OVERDUE` (IB-9) | `MALFORMED` is alert-only, not an anomaly (IB-17(d), decided) | III; VII adds `TRIAL_CONVERSION_OVERDUE` |
+| `BillingAnomalyType` | `MULTIPLE_OPEN_SUBSCRIPTIONS`, `UNMATCHED_PROVIDER_SUBSCRIPTION`, `NOTES_CONFLICT`, `UNMAPPED_PROVIDER_PLAN`, `PROVIDER_MODE_MISMATCH`, `PROVIDER_SUBSCRIPTION_MISSING`, `CANCELLATION_NOT_EFFECTIVE`, `TERMINAL_STATE_CONTRADICTED` (IB-24), `TRIAL_CONVERSION_OVERDUE` (IB-9) | `MALFORMED` is alert-only, not an anomaly (IB-17(d), decided) | III; IV adds `TERMINAL_STATE_CONTRADICTED`; VII adds `TRIAL_CONVERSION_OVERDUE` |
 
 ## Models
 

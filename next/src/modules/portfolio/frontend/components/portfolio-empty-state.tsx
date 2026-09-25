@@ -5,11 +5,21 @@ import { Plus } from "lucide-react";
 interface PortfolioEmptyStateProps {
   isCreating: boolean;
   onCreate: () => void;
+  /** The last create failure, as the server phrased it. */
+  error?: string | null;
+  /**
+   * Server-derived copy shown when the user's plan does not include
+   * portfolios (e.g. "Portfolios require Pro."). Informational only: the
+   * button stays available and the server decides.
+   */
+  upgradeHint?: string | null;
 }
 
 export function PortfolioEmptyState({
   isCreating,
   onCreate,
+  error,
+  upgradeHint,
 }: PortfolioEmptyStateProps) {
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-6">
@@ -35,6 +45,16 @@ export function PortfolioEmptyState({
         >
           {isCreating ? "Creating..." : "Create Portfolio"}
         </button>
+
+        {upgradeHint && (
+          <p className="mt-4 text-sm text-muted-foreground">{upgradeHint}</p>
+        )}
+
+        {error && (
+          <p role="alert" className="mt-4 text-sm text-destructive">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );

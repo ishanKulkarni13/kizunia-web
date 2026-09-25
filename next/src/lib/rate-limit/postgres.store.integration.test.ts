@@ -79,3 +79,61 @@ describe("PostgresRateLimitStore.prune", () => {
     expect(liveRow).not.toBeNull();
   });
 });
+
+describe("PostgresRateLimitStore.incrementIfBelow", () => {
+  it("admits exactly the ceiling under concurrency, however many callers race for it", async () => {
+    const store = new PostgresRateLimitStore();
+    const key = testKey("conditional-concurrent");
+    const expiresAt = new Date(Date.now() + 60_000);
+
+    // The real claim: one atomic `INSERT ... ON CONFLICT DO UPDATE ... WHERE
+    // count < ceiling`. 25 callers race for 10 slots. A read-then-write would
+    // over-admit here; this must admit exactly 10, with the counts 1..10 each
+    // handed out once, and refuse the other 15.
+    const results = await Promise.all(
+      Array.from({ length: 25 }, () => store.incrementIfBelow(key, 10, expiresAt)),
+    );
+
+    const admitted = results.flatMap((result) => (result.acquired ? [result.count] : []));
+
+    expect(admitted.sort((a, b) => a - b)).toEqual(Array.from({ length: 10 }, (_, i) => i + 1));
+    expect(results.filter((result) => !result.acquired)).toHaveLength(15);
+
+    // Refusals never moved the counter past the ceiling.
+    expect((await prisma.rateLimit.findUnique({ where: { key } }))?.count).toBe(10);
+    expect(await store.incrementIfBelow(key, 10, expiresAt)).toEqual({ acquired: false });
+  });
+
+  it("honours a different ceiling on the same key without disturbing the count", async () => {
+    const store = new PostgresRateLimitStore();
+    const key = testKey("conditional-priority");
+    const expiresAt = new Date(Date.now() + 60_000);
+
+    // Priorities share one counter but have different ceilings: a lower
+    // priority is refused while a higher one still has headroom.
+    for (let i = 0; i < 3; i += 1) await store.incrementIfBelow(key, 3, expiresAt);
+
+    expect(await store.incrementIfBelow(key, 3, expiresAt)).toEqual({ acquired: false });
+    expect(await store.incrementIfBelow(key, 5, expiresAt)).toEqual({ acquired: true, count: 4 });
+  });
+
+  it("admits nothing and writes no row for a ceiling below 1", async () => {
+    const store = new PostgresRateLimitStore();
+    const key = testKey("conditional-zero");
+
+    expect(await store.incrementIfBelow(key, 0, new Date(Date.now() + 60_000))).toEqual({ acquired: false });
+    expect(await prisma.rateLimit.findUnique({ where: { key } })).toBeNull();
+  });
+
+  it("stores the expiry as the instant given, whatever the session time zone", async () => {
+    const store = new PostgresRateLimitStore();
+    const key = testKey("conditional-expiry");
+    const expiresAt = new Date(Date.now() + 90_000);
+
+    await store.incrementIfBelow(key, 1, expiresAt);
+
+    const row = await prisma.rateLimit.findUnique({ where: { key } });
+
+    expect(row?.expiresAt.getTime()).toBe(expiresAt.getTime());
+  });
+});

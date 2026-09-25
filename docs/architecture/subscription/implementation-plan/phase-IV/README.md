@@ -1,6 +1,6 @@
 # Phase IV — Synchronization, Reconciliation and Webhooks
 
-> **Status:** Not started
+> **Status:** Implemented 2026-09-25. Every acceptance criterion is met, and the webhook behavior was verified against Razorpay TEST. The missing-subscription rule is decided: operation context ([IB-23](../../implementation/open-decisions.md#ib-23--detecting-a-missing-provider-subscription)); the other open details are ruled in [IB-24](../../implementation/open-decisions.md#ib-24--phase-iv-implementation-rulings).
 >
 > **Depends on:** Phase III · **Razorpay needed:** TEST, plus a stable public webhook URL · **Old slices:** S6, S7
 
@@ -10,6 +10,8 @@ Build the **one synchronization mechanism** that turns Razorpay's authoritative 
 
 ## Scope
 
+- **The remaining provider-boundary piece:** `parseWebhookEvent` and the `ProviderWebhookEvent` catalog, deferred from Phase III because they need the event catalog ([webhooks](../../implementation/webhooks.md)). Phase III's `razorpay/mapping.ts` is wire-shape translation only; everything that turns a provider status into a Kizunia phase starts here.
+- **How a missing provider subscription is detected: a decision to rule on first.** *Ruled 2026-09-25: operation context ([IB-23](../../implementation/open-decisions.md#ib-23--detecting-a-missing-provider-subscription)).* Phase III's contract suite observed that an unknown ID is a `400` (`REJECTED`), not the `404` (`NOT_FOUND`) the design assumed (D12 in [Razorpay facts](../../provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior)). So `PROVIDER_SUBSCRIPTION_MISSING` and `PROVIDER_MODE_MISMATCH` cannot be keyed on the `NOT_FOUND` class. The options are **operation context** (a `fetchSubscription` of a stored ID can only be refused because the ID is unknown) or a second documented description-match exception. Rule on it, and record the ruling, before the apply path depends on either ([Phase III open items](../phase-III/README.md#open-items)).
 - **State mapping** (`policy/state-mapping.ts`, pure), including the IB-9 trial-conversion rule, whose grace C7 is exercised in Phase VII ([state mapping](../../lifecycle/state-mapping.md#the-mapping)).
 - **`nextDue`** (`policy/next-due.ts`, pure): checkpoints and heartbeats per phase, with `HALTED` decay ([reconciliation](../../implementation/reconciliation.md)).
 - **`SyncService`** ([synchronization](../../implementation/synchronization.md)):
@@ -50,7 +52,7 @@ Paths are relative to `next/src/`.
 
 ## Database and schema work
 
-None beyond Phase III. If a new `SyncReason`/`HistoryTrigger` value proves necessary, add it in its own `ALTER TYPE` migration and name it here.
+None beyond Phase III, except one enum value: `BillingAnomalyType.TERMINAL_STATE_CONTRADICTED`, in its own `ALTER TYPE … ADD VALUE` migration, for a terminal-out transition ([IB-24](../../implementation/open-decisions.md#ib-24--phase-iv-implementation-rulings)).
 
 ## Domain and application work
 
@@ -114,13 +116,13 @@ None beyond Phase III. If a new `SyncReason`/`HistoryTrigger` value proves neces
 
 ## Acceptance criteria
 
-- [ ] A state change made in the Razorpay TEST Dashboard reaches the correct Kizunia phase by webhook, and by the tick when the webhook is withheld.
-- [ ] Out-of-order, duplicate and delayed webhooks never regress state.
-- [ ] Every applied change has a history entry with the correct cause and trigger.
-- [ ] No webhook is acknowledged without being recorded, and none is dropped for being unmatched.
-- [ ] `billing:sync` respects its budget, and notifications still finish within the tick's `maxDuration`.
-- [ ] A6 is verified and recorded (or its fallback is confirmed necessary).
-- [ ] With billing `disabled`, the webhook fails closed and the tasks report `skipped`.
+- [x] A state change made in the Razorpay TEST Dashboard reaches the correct Kizunia phase by webhook, and by the tick when the webhook is withheld. *(A cancel at Razorpay, which is what a Dashboard cancel produces, arrived as `subscription.cancelled` and applied by webhook; the same change with the endpoint stopped was applied by a `billing:sync` run. Other state changes were tested with the fake only, see [Open items](#open-items).)*
+- [x] Out-of-order, duplicate and delayed webhooks never regress state. *(Tests: an older fetch answering after a newer one is discarded; a concurrent pair keeps the newer. Real: six attempts and a replay recorded once.)*
+- [x] Every applied change has a history entry with the correct cause and trigger.
+- [x] No webhook is acknowledged without being recorded, and none is dropped for being unmatched. *(A failed recording transaction is a 500 with no row; unmatched events are kept and bound or flagged.)*
+- [x] `billing:sync` respects its budget, and notifications still finish within the tick's `maxDuration`. *(By configuration and a test pinning the arithmetic: 10 s + one 10 s provider timeout + 30 s. **Not yet measured under realistic notification load**, see [Open items](#open-items).)*
+- [x] A6 is verified and recorded (or its fallback is confirmed necessary). *(Verified for `subscription.cancelled`; the body-hash fallback stays for the other types.)*
+- [x] With billing `disabled`, the webhook fails closed and the tasks report `skipped`.
 
 ## Explicit non-goals
 
@@ -143,3 +145,65 @@ IB-9 (the mapping rule), IB-10, IB-11 (log-only for now), IB-17(d), IB-20, SB-WH
 ## Expected output
 
 The mapping and `nextDue` policies; `SyncService` with guarded apply; anomalies and history; the `billing:sync` task and manual route; the webhook route and service; admin sync-now; `billing.alert` events; the registered TEST webhook; the A6 record; tests.
+
+## Implementation record
+
+Implemented 2026-09-25 on `feat/suscription`, in 26 commits (listed at the end). Every [acceptance criterion](#acceptance-criteria) is met. Paths are relative to `next/src/`.
+
+**What was built**
+
+- **Rulings** ([IB-23](../../implementation/open-decisions.md#ib-23--detecting-a-missing-provider-subscription), [IB-24](../../implementation/open-decisions.md#ib-24--phase-iv-implementation-rulings)), recorded before the code relied on them. The one Phase III left open: **a missing provider subscription is detected by operation context**. In the sync fetch path only, a `fetchSubscription` of a stored ID failing `REJECTED` or `NOT_FOUND` raises `PROVIDER_SUBSCRIPTION_MISSING`; classification is unchanged and no description text is read; the anomaly resolves itself on a later success. `PROVIDER_MODE_MISMATCH` is detected locally, never from a failure.
+- **Pure policies** (`modules/billing/policy/`): `state-mapping` (including the IB-9 trial rule), `next-due` (checkpoints, heartbeats, `HALTED` decay), `sync-failure`, `observation-validation`, `scheduled-change`, `operation-settlement`.
+- **Provider boundary:** `parseWebhookEvent` and the event catalog (`provider/razorpay/webhook-events.ts`); `getProviderAccountId()`, `getProviderHealth()`. The fake now answers an unknown ID as Razorpay does, builds Razorpay-shaped events and supports a previous secret.
+- **Sync** (`backend/sync/`): `claim.repository` (mark-due, `SKIP LOCKED` claims, leases), `apply` (the one write path), `sync-failure.repository`, `sync.service` (targeted sync and the drain), plus `backend/history/`, `backend/anomalies/` and `backend/sql.ts`.
+- **Reconciliation:** the `billing:sync` task (first in the tick, via `app/api/v1/internal/tick/tasks.ts`) and `GET /api/v1/internal/billing/sync`.
+- **Webhooks** (`backend/webhooks/`, `app/api/v1/webhooks/razorpay/route.ts`): the service, the controller, and the unmatched-event resolver, also run from the tick.
+- **Admin "sync now":** `POST /api/v1/admin/billing/subscriptions/{id}/sync` (`VIEW_BILLING`).
+- **Tools:** `pnpm billing:test-plans` (the four TEST plans, with the owner's temporary TEST-only prices) and `pnpm billing:webhook-verify`.
+- **Schema:** one enum value, `BillingAnomalyType.TERMINAL_STATE_CONTRADICTED`, in its own migration.
+- **Configuration:** C3, C4, C7 and the alert thresholds ([configuration](../../implementation/configuration.md#tuning-values-chosen-in-phase-iv)); the notification drain default lowered from 45 s to 30 s.
+
+**Implementation decisions** (Phase IV choices, not changes to settled decisions)
+
+- **The webhook response is only `{received}`** and the follow-up is scheduled through a parameter (`after` in the route), so tests run it synchronously.
+- **Fetch failures never move phase, plan or access;** a call refused before sending (budget, cooldown, auth pin) leaves the row due exactly as it was, counts no attempt and stops the batch.
+- **Alerts fire when an anomaly opens**, not on every repeat; logs and alerts are emitted after the transaction commits, so a rolled-back one reports nothing.
+- **`matchedSecret` is logged as `signedWith`,** because the shared logger redacts any field whose name contains `secret` (found in the real run).
+- **`HALTED` entry time** comes from the latest `PHASE` history entry, so no column was added.
+- **The `after()` and admin paths use the same `SyncService`,** so they claim, fetch and apply identically to the tick.
+
+**Deviations from the documentation**
+
+- **`billing:sync` also resolves `UNMATCHED_PENDING` events** (IB-24 item 4). The design left events that `after()` did not reach with nothing to drain them, since they are not subscription rows.
+- **An event for a terminal subscription is linked and not marked due** (IB-24 item 5), because the database forbids a due terminal row.
+- **`TERMINAL_STATE_CONTRADICTED` is a new anomaly type** (IB-24 item 1); `TRIAL_CONVERSION_OVERDUE` is an alert only until Phase VII adds its enum value (IB-24 item 8).
+- **The tick's tasks moved to `tick/tasks.ts`,** so the order can be tested; a route file may not export them.
+
+**Verification**
+
+- **Unit tests:** 1,110 before Phase IV's first commit, 1,232 after (the whole suite passes). **Integration tests:** 553 before, 660 after, with the same single failure as before (`delivery.integration.test.ts` › "skips a push that is no longer worth sending").
+- **Mutation checks,** each of which made the intended tests fail and was then reverted: the stale-apply guard, the `syncRequestedAt` rule, and verifying the signature before recording.
+- `tsc` is clean and `next build` succeeds, with the three new routes. `eslint` reports no error in any file this phase touched; the errors that remain are in generated Prisma runtime files and the files earlier phases recorded.
+- **Against Razorpay TEST (2026-09-25):** see [the run](../../provider-boundary/razorpay-facts.md#phase-iv-webhook-run-2026-09-25). A cancel at Razorpay arrived as a signed `subscription.cancelled` and bound the unmatched subscription through its notes; with the endpoint stopped, the same kind of change was applied by the tick; the event was attempted six times with one `x-razorpay-event-id` and recorded once; a replay was a duplicate. No alert and no error was logged.
+
+**Known issues, not caused by this phase**
+
+- `delivery.integration.test.ts` › "skips a push that is no longer worth sending" still fails on a clean checkout.
+- `eslint` still reports errors in `app/api/auth/[...all]/route.test.ts`, `authorization/platform/context.ts` and `components/ui/vortex.tsx`, and in the generated Prisma client.
+
+**An incident during this phase, recorded for honesty.** For part of the phase the integration setup loaded the developer's `.env`, which now held real Razorpay TEST credentials, so one integration test that fell back to the default provider sent a real, **read-only** request (a fetch of a fake, malformed subscription ID, answered by the gateway's 404). Nothing was created or changed at Razorpay. It was fixed by blanking `RAZORPAY_*` in the integration setup, with a test that pins it.
+
+### Open items
+
+- **Every real event other than `subscription.cancelled`,** and money facts from a real payload, were not exercised against Razorpay TEST: authenticating a checkout needs the customer flow (Phase V). Their parsing follows Razorpay's documented sample payloads and is unit-tested.
+- **The tick budget has not been measured under realistic notification load** (this document's own risk). It is bounded by configuration (10 s + one provider timeout + 30 s of 60 s) and pinned by a test, and should be measured before LIVE.
+- **The ngrok URL used for the run is temporary.** A free ngrok URL that is not a reserved static domain changes when ngrok restarts; a stable hosted URL is needed before a hosted TEST or LIVE deployment (IB-20).
+- **`CANCELLATION_NOT_EFFECTIVE` (I-4)** and the anomaly-resolution tools are Phases VI and VIII.
+- **UPI** cannot be exercised while it is disabled on TEST ([IB-18](../../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)); the mapping is method-agnostic.
+- **The TEST plan prices are temporary** and not Kizunia's pricing (B6, a LIVE blocker).
+
+**For Phase V.** `applyObservation` is the write path to reuse for a command response and a checkout confirmation (`ApplyContext.trigger`). Phase V writes `BillingOperation.request` as `{ plan, cycle }` for a plan change (`UpdatePlanRequestSchema`) and sets `notes` (`kz_sub`, `kz_op`, `kz_env`) on every create, since the unmatched resolver binds a lost create by them. The TEST catalog already has the four plans. `SyncService.syncTargeted(id, ProviderPriority.CONFIRMATION, { trigger: "CHECKOUT_CONFIRM" })` is the checkout-confirmation sync.
+
+**Commits**
+
+Run `git log --oneline 2454400..HEAD` for the full list. In order: the rulings; the fake provider; the mapping and next-due policies; the four remaining policies; the webhook catalog; the anomaly enum; history and anomaly repositories; the claim repository; the apply path; `SyncService`; the `billing:sync` task and route; webhook recording; the webhook route; unmatched resolution; admin sync-now; the TEST plan tool and catalog; the verification script; the configuration and operations documents; and this record. Four small fix commits sit beside them (the integration-test provider guard, a log field name, and two test corrections).

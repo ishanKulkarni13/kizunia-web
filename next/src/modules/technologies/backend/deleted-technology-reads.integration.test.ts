@@ -25,6 +25,7 @@ import prisma from "@/lib/prisma";
 import { CompetitionRepository } from "@/modules/competitions/backend/repository";
 import { CompetitionService } from "@/modules/competitions/backend/service";
 import { PortfolioMapper } from "@/modules/portfolio/backend/mapper/mapper";
+import { deleteGrantsForEmailPrefix, grantPlanWithFixtureGranter } from "@/testing/entitlement-fixtures";
 import { portfolioService } from "@/modules/portfolio/backend/service";
 import { portfolioTechnologyService } from "@/modules/portfolio/backend/portfolio-technology.service";
 import { ProjectMapper } from "@/modules/projects/backend/mapper/project.mapper";
@@ -93,6 +94,7 @@ afterAll(async () => {
   await prisma.portfolio.deleteMany({
     where: { user: { email: { startsWith: TEST_PREFIX } } },
   });
+  await deleteGrantsForEmailPrefix(TEST_PREFIX);
   await prisma.user.deleteMany({
     where: { email: { startsWith: TEST_PREFIX } },
   });
@@ -117,6 +119,9 @@ describe("Portfolio", () => {
     });
 
     const actor = actorFor(user.id);
+
+    // Public display needs the owner's portfolio capability, via a real grant.
+    await grantPlanWithFixtureGranter(user.id, "PRO", TEST_PREFIX);
 
     await portfolioService.create({ actor });
     await portfolioService.changeVisibility({

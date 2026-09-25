@@ -1,6 +1,7 @@
 import {
   BellIcon,
   BellRingIcon,
+  CreditCardIcon,
   FileCodeIcon,
   FileUser,
   SlidersHorizontalIcon,
@@ -98,6 +99,11 @@ export const SideBarNavMain: SidebarNavSection[] = [
         title: "Announcements",
         url: "/admin/notification-announcements",
       },
+      {
+        id: "admin-billing-grants",
+        title: "Entitlement grants",
+        url: "/admin/billing/grants",
+      },
     ],
   },
   { // portfolio
@@ -156,5 +162,11 @@ export const SideBarNavSecondary: SidebarNavSection[] = [
     title: "Competition Preferences",
     url: "/user/competition-preferences",
     icon: SlidersHorizontalIcon,
+  },
+  {
+    id: "billing",
+    title: "Plan & Billing",
+    url: "/user/billing",
+    icon: CreditCardIcon,
   },
 ];

@@ -14,13 +14,12 @@ const BASELINE: readonly PlatformAction[] = [
     PlatformAction.CREATE_PROJECT,
     PlatformAction.CREATE_COMPETITION_SUGGESTION,
 
-    // Portfolio creation is a baseline capability for every authenticated
-    // role today — there is no subscription/plan system yet. This is the
-    // seam a future plan/entitlement system will restrict: swap this
-    // baseline entry for role- or plan-based grants when that system
-    // exists, without touching PortfolioService.create or PortfolioPolicy.
-    // See AuthorizationCode.UPGRADE_REQUIRED / FEATURE_DISABLED, already
-    // reserved for that future denial path.
+    // "This role may create portfolios" — a baseline capability for every
+    // authenticated role. Whether the user's PLAN includes portfolios is not
+    // decided here: this set is a static role -> action map and must not
+    // become dynamic. The entitlement step lives in PortfolioPolicy's create
+    // chain (`UPGRADE_REQUIRED`, with the admin `platformOverride()` ahead of
+    // it), fed by the actor's effective access — Subscription IB-4.
     PlatformAction.CREATE_PORTFOLIO,
 ];
 
@@ -52,6 +51,8 @@ export const PlatformPermissionSet = {
         PlatformAction.MANAGE_TECHNOLOGIES,
         PlatformAction.MANAGE_MEDIA,
         PlatformAction.MANAGE_NOTIFICATION_ANNOUNCEMENTS,
+        // Billing: view only. Grants and billing writes are SUPER_ADMIN's (IB-15).
+        PlatformAction.VIEW_BILLING,
     ]),
 
     [PlatformRole.SUPER_ADMIN]: new Set<PlatformAction>([
@@ -66,5 +67,8 @@ export const PlatformPermissionSet = {
         PlatformAction.MANAGE_TECHNOLOGIES,
         PlatformAction.MANAGE_MEDIA,
         PlatformAction.MANAGE_NOTIFICATION_ANNOUNCEMENTS,
+        PlatformAction.VIEW_BILLING,
+        PlatformAction.MANAGE_BILLING,
+        PlatformAction.MANAGE_ENTITLEMENT_GRANTS,
     ]),
 } as const;

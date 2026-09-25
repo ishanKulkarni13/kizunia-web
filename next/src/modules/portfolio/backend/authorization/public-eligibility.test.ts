@@ -1,16 +1,35 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const { hasCapabilityMock } = vi.hoisted(() => ({ hasCapabilityMock: vi.fn() }));
+
+vi.mock("@/lib/entitlements", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/entitlements")>()),
+  hasCapability: hasCapabilityMock,
+}));
+
+import { Capability } from "@/lib/entitlements";
 
 import { resolvePortfolioPublicEligibility } from "./public-eligibility";
 
 /**
- * Cheap tripwire: this stub must stay `true` until a real entitlement
- * system backs it (see the doc comment on the function). If this test ever
- * needs updating, that's a signal the seam is being wired up for real — the
- * policy tests (policy.test.ts) already cover both `true` and `false`
- * behavior via a synthetic PortfolioContext.
+ * Replaces the Phase-I-era tripwire ("always true"). Eligibility is now the
+ * OWNER's portfolio capability (IB-5); the policy tests (policy.test.ts) cover
+ * what the policy does with either answer, and the integration suite drives
+ * it with real grants.
  */
 describe("resolvePortfolioPublicEligibility", () => {
-  it("is true for every owner today", () => {
-    expect(resolvePortfolioPublicEligibility({ ownerUserId: "any-user" })).toBe(true);
+  beforeEach(() => hasCapabilityMock.mockReset());
+
+  it("asks for the owner's portfolio capability", async () => {
+    hasCapabilityMock.mockResolvedValue(true);
+
+    await expect(resolvePortfolioPublicEligibility({ ownerUserId: "owner-1" })).resolves.toBe(true);
+    expect(hasCapabilityMock).toHaveBeenCalledWith("owner-1", Capability.PORTFOLIO);
+  });
+
+  it("is false when the owner's access does not include portfolios", async () => {
+    hasCapabilityMock.mockResolvedValue(false);
+
+    await expect(resolvePortfolioPublicEligibility({ ownerUserId: "owner-1" })).resolves.toBe(false);
   });
 });

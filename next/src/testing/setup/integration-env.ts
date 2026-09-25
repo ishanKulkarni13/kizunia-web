@@ -70,3 +70,15 @@ if (appUrl) {
 // Every check above passed — safe to make this the connection Prisma sees
 // for the rest of this test process.
 process.env.DATABASE_URL = testUrl;
+
+// Integration tests never reach the real payment provider. `dotenv` above
+// loads the developer's `.env`, which may hold real Razorpay TEST credentials
+// (the opt-in contract suite and the webhook verification use them). Blanking
+// them makes the provider mode resolve to DISABLED, so a code path that falls
+// back to `getBillingProvider()` instead of an injected fake cannot send a
+// request. They are set to "" rather than deleted: `.env` is loaded again by
+// later imports (Prisma's config), and dotenv refills a missing variable but
+// never overrides one that exists. Tests that need a provider inject the fake.
+for (const name of Object.keys(process.env)) {
+  if (name.startsWith("RAZORPAY_")) process.env[name] = "";
+}

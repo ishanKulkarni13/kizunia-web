@@ -4,4 +4,4 @@ export * from "./project-details.dto";
 export * from "./project-public-details.dto";
 export * from "./project-link.dto";
 export * from "./project-testimonial.dto";
-export * from "./project-technology.dto";
+export * from "./project-technology.dto";export * from "./project-ownership-allowance.dto";

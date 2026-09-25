@@ -9,9 +9,13 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:contract": "vitest run --config vitest.contract.config.mts",
     "test:all": "pnpm test && pnpm test:integration",
     "notifications:tick": "tsx scripts/notifications-tick.ts",
-    "notifications:diagnose": "tsx scripts/notifications-diagnose.ts"
+    "notifications:diagnose": "tsx scripts/notifications-diagnose.ts",
+    "billing:test-plans": "tsx scripts/billing-test-plans.ts",
+    "billing:webhook-verify": "tsx scripts/billing-webhook-verify.ts",
+    "billing:checkout-verify": "tsx scripts/billing-checkout-verify.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

@@ -7,7 +7,7 @@ import {
 import { ProjectStatus, ProjectVisibility } from "@/generated/prisma";
 
 import { ProjectAction } from "./actions";
-import type { ProjectContext } from "./context";
+import type { ProjectContext, ProjectOwnershipQuotaContext } from "./context";
 import { ProjectPermissionSet } from "./permission-set";
 
 export class ProjectPolicy {
@@ -132,6 +132,44 @@ export class ProjectPolicy {
         context.membership?.role ?? null,
         action,
       )
+
+      .evaluate();
+  }
+
+  // ===========================================================================
+  // Owned-project quota
+  // ===========================================================================
+
+  /**
+   * May the actor create one more project that they will own?
+   *
+   * Runs after `PlatformAuthorizer.can(CREATE_PROJECT)`, which stays in
+   * `BASELINE` and already refuses banned accounts. Admins bypass the quota
+   * (IB-7); everyone else needs `owned < limit`. A user above their quota
+   * after a downgrade keeps every project and only loses creation until they
+   * are back under it (SB-DP-01).
+   */
+  static canCreateOwned(
+    context: ProjectOwnershipQuotaContext,
+  ): AuthorizationDecision {
+    return AuthorizationEvaluator
+      .start(context)
+
+      .security(
+        (ctx) => !ctx.actor.banned,
+        AuthorizationCode.ACCOUNT_BANNED,
+        "Your account has been banned.",
+      )
+
+      .platformOverride()
+
+      .require(
+        (ctx) => ctx.owned < ctx.limit,
+        AuthorizationCode.UPGRADE_REQUIRED,
+        `You have reached your plan's limit of ${context.limit} owned projects.`,
+      )
+
+      .grant()
 
       .evaluate();
   }

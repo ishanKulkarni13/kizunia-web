@@ -37,8 +37,8 @@ subscriptions without an audit trail.
 
 A user-facing endpoint never accepts a Kizunia or Razorpay subscription ID that it then acts on
 without checking ownership. Checkout confirmation uses the server-held provider ID of the caller's own
-`PENDING_AUTHENTICATION` record and ignores the client-supplied one for anything but the signature
-check ([SB-CM-06](../../../project/feature-specification/subscription/decisions/commands-and-idempotency.md#sb-cm-06--checkout-confirmation-syncs-only-the-callers-own-subscription)).
+`PENDING_AUTHENTICATION` record, both to verify the signature and to choose what to sync; a
+client-supplied ID is compared only to log a mismatch as a security event and is otherwise ignored ([SB-CM-06](../../../project/feature-specification/subscription/decisions/commands-and-idempotency.md#sb-cm-06--checkout-confirmation-syncs-only-the-callers-own-subscription)).
 A webhook can only affect the Subscription its provider ID is bound to.
 
 ## Provider credential handling

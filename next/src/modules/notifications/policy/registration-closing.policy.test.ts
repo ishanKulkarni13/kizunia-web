@@ -47,6 +47,7 @@ function input(
   return {
     userId: "user-1",
     enabled: true,
+    entitled: true,
     candidates: [],
     relevanceById: new Map(),
     bookmarkedIds: new Set(),
@@ -72,6 +73,30 @@ describe("evaluateRegistrationClosing", () => {
     if (decision.eligible) return;
     // Not "nothing found" — the two are different facts and a support question
     // about "why did I get nothing" needs to distinguish them.
+    expect(decision.reason).toBe("INTENT_DISABLED");
+  });
+
+  it("reports a non-entitled user as NOT_ENTITLED, before looking at candidates", () => {
+    const decision = evaluateRegistrationClosing(
+      input({
+        entitled: false,
+        candidates: [candidate("a", "2026-09-19T13:00:00Z")],
+        relevanceById: new Map([["a", 0.9]]),
+      }),
+    );
+
+    expect(decision.eligible).toBe(false);
+    if (decision.eligible) return;
+    expect(decision.reason).toBe("NOT_ENTITLED");
+  });
+
+  it("reports an opted-out user as opted out even when also not entitled", () => {
+    const decision = evaluateRegistrationClosing(
+      input({ enabled: false, entitled: false }),
+    );
+
+    expect(decision.eligible).toBe(false);
+    if (decision.eligible) return;
     expect(decision.reason).toBe("INTENT_DISABLED");
   });
 

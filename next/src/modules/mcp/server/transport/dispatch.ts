@@ -19,6 +19,7 @@ import { ErrorCategory } from "@/lib/errors/error-category";
 import { RATE_LIMIT_POLICIES, rateLimitService } from "@/lib/rate-limit";
 import { MCP_TOOLS } from "../../tools/registry";
 import type { McpTool } from "../../tools/types";
+import { McpAccess } from "../../authorization/mcp-access";
 import { buildMcpRequestContext } from "../context/build-request-context";
 import {
   isJsonRpcRequest,
@@ -70,7 +71,7 @@ export async function dispatchMcpRequest(
         return jsonRpcResult(request.id, {});
 
       case "tools/list":
-        return jsonRpcResult(request.id, handleToolsList());
+        return jsonRpcResult(request.id, await handleToolsList(token));
 
       case "tools/call":
         return await handleToolsCall(request, token);
@@ -107,7 +108,24 @@ function handleInitialize() {
   };
 }
 
-function handleToolsList() {
+/**
+ * Lists the tools this user can actually call.
+ *
+ * Discovery is honest: a user whose access does not include MCP is shown no
+ * tools, rather than a list whose every entry fails with `UPGRADE_REQUIRED`.
+ * The same gate as `tools/call` (`McpAccess`), so the two cannot disagree.
+ * Authentication runs as before; an unauthenticated token is still a
+ * protocol error.
+ */
+async function handleToolsList(token: OAuthAccessToken) {
+  const context = await buildMcpRequestContext(token, randomUUID());
+
+  const access = await McpAccess.evaluate(context);
+
+  if (!access.allowed) {
+    return { tools: [] };
+  }
+
   return {
     tools: Array.from(MCP_TOOLS.values()).map((tool) => ({
       name: tool.name,
@@ -156,6 +174,11 @@ async function handleToolsCall(
     const context = await buildMcpRequestContext(token, requestId);
 
     await enforceToolRateLimit(tool, context.actor.id);
+
+    // The subscription gate, once for every tool (MCP is a Pro+ capability).
+    // After the actor is resolved and before any input is parsed or any tool
+    // runs; a refusal is reported as a tool error with `UPGRADE_REQUIRED`.
+    await McpAccess.require(context);
 
     const input = tool.inputSchema.parse(rawArguments ?? {});
 

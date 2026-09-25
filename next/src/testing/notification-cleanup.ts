@@ -13,6 +13,8 @@
  */
 import prisma from "@/lib/prisma";
 
+import { deleteGrantsForUsers } from "./entitlement-fixtures";
+
 /**
  * Deletes every row belonging to users whose email starts with `prefix`,
  * including the job rows that only reference them indirectly.
@@ -46,6 +48,9 @@ export async function cleanupNotificationTestData(prefix: string): Promise<void>
       ],
     },
   });
+
+  // Grants restrict user deletion (`onDelete: Restrict`), so they go first.
+  await deleteGrantsForUsers(userIds);
 
   // Cascades to notifications, targets, deliveries, attempts and push
   // subscriptions.

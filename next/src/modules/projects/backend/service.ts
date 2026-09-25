@@ -19,6 +19,7 @@ import {
   ProjectAuthorizer,
   ProjectContextResolver,
   ProjectPermissionResolver,
+  ProjectPolicy,
 } from "./authorization";
 import {
   ProjectNotFoundError,
@@ -43,6 +44,11 @@ import { ProjectDuplicateSlugError } from "@/modules/projects/backend/errors/ind
 import { assertAssetReferenceAllowed } from "@/modules/assets/backend/reference-policy";
 import { assetService } from "@/modules/assets/backend/service";
 import type { ProjectAssetSlot } from "../types/asset-slot";
+import { getQuota, Quota, type EntitlementsDb } from "@/lib/entitlements";
+import { logger } from "@/lib/logger";
+import type { ProjectOwnershipAllowanceDto } from "./dto/output";
+
+const projectLogger = logger.child({ module: "projects" });
 
 const SLOT_PURPOSE: Record<ProjectAssetSlot, AssetPurpose> = {
   logo: AssetPurpose.PROJECT_LOGO,
@@ -271,6 +277,61 @@ export class ProjectService {
   // Create
   // ===========================================================================
 
+  /**
+   * Whether the actor may create another project they will own, for the UI.
+   * The same policy as `create` — without the lock, since nothing is written —
+   * so the "New project" button and the server never disagree about the rule.
+   * Advisory only: `create` re-checks under the lock.
+   */
+  async getOwnershipAllowance({
+    actor,
+  }: {
+    actor: StrictAuthorizationActor;
+  }): Promise<ProjectOwnershipAllowanceDto> {
+    const [owned, limit] = await Promise.all([
+      this.repository.countOwnedByUser({ userId: actor.id }),
+      getQuota(actor.id, Quota.OWNED_PROJECTS),
+    ]);
+
+    const decision = ProjectPolicy.canCreateOwned({ actor, owned, limit });
+
+    return {
+      canCreateOwnedProject: decision.allowed,
+      owned,
+      limit,
+    };
+  }
+
+  private async authorizeOwnedProjectCreation({
+    actor,
+    actorId,
+    repository,
+    db,
+  }: {
+    actor: AuthorizationActor;
+    actorId: string;
+    repository: ProjectRepository;
+    db: EntitlementsDb;
+  }): Promise<void> {
+    const [owned, limit] = await Promise.all([
+      repository.countOwnedByUser({ userId: actorId }),
+      getQuota(actorId, Quota.OWNED_PROJECTS, { db }),
+    ]);
+
+    try {
+      ProjectAuthorizer.createOwned({ actor, owned, limit });
+    } catch (error) {
+      // Never the plan name: feature logs speak in quotas (SB-PL-02).
+      projectLogger.info("project.create_refused_quota", {
+        userId: actorId,
+        limit,
+        owned,
+      });
+
+      throw error;
+    }
+  }
+
   async create({
     actor,
     dto,
@@ -296,6 +357,19 @@ export class ProjectService {
 
     const project = await prisma.$transaction(async (tx) => {
       const repository = new ProjectRepository(tx);
+
+      // Owned-project quota (IB-12). The lock comes first so the count below
+      // cannot be overtaken by a concurrent create for the same user; the
+      // quota is read through `tx` so it is the access in force for this
+      // transaction.
+      await repository.lockOwnedProjectQuota({ userId: actorId });
+
+      await this.authorizeOwnedProjectCreation({
+        actor,
+        actorId,
+        repository,
+        db: tx,
+      });
 
       const project = await repository.create({
         data: {

@@ -23,9 +23,20 @@ export interface PortfolioContext extends AuthorizationContext {
    * publicly. Runtime-computed, never persisted, never the same thing as
    * `portfolio.visibility` (the owner's stored preference). Gates the
    * non-owner VIEW branch only — owners always view and edit regardless of
-   * entitlement state. See ./public-eligibility.ts.
+   * entitlement state. See ./public-eligibility.ts. Only computed where a
+   * non-owner can read (`forPublicRead`, `resolve`); `false` elsewhere, which
+   * is safe because those contexts are owner or admin paths that never
+   * consult it.
    */
   isPubliclyDisplayable: boolean;
+
+  /**
+   * Whether the ACTOR's effective access includes creating a portfolio (the
+   * portfolio capability). Resolved asynchronously by
+   * `PortfolioContextResolver.forCreate` and consulted only by the CREATE
+   * rule (IB-4); `false` in every other context, where it is never read.
+   */
+  actorCanCreatePortfolio: boolean;
 
   /**
    * Whether the portfolio's OWNER is banned (not the actor — that is

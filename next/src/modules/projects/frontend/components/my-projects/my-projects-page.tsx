@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -13,6 +13,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ProjectStatus } from "@/generated/prisma";
+import type { ProjectOwnershipAllowanceDto } from "../../../backend/dto/output";
+import { ProjectApi } from "../../api/project-api";
 import { useMyProjects } from "../../hooks/use-my-projects";
 import { MyProjectCard } from "./my-project-card";
 
@@ -38,6 +40,28 @@ export function MyProjectsPage() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  // Server-computed; the page never counts projects or compares quotas. Until
+  // it loads (or if it fails) creation stays offered — the server enforces.
+  const [allowance, setAllowance] = useState<ProjectOwnershipAllowanceDto | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    ProjectApi.getOwnershipAllowance()
+      .then((result) => {
+        if (!cancelled) setAllowance(result);
+      })
+      .catch(() => {
+        // Advisory only — keep the button available.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const canCreate = allowance?.canCreateOwnedProject ?? true;
+
   const { items, pagination, isLoading, error } = useMyProjects({
     search: search || undefined,
     status,
@@ -56,9 +80,19 @@ export function MyProjectsPage() {
           </p>
         </div>
 
-        <Button asChild>
-          <Link href="/projects/new">New Project</Link>
-        </Button>
+        {canCreate ? (
+          <Button asChild>
+            <Link href="/projects/new">New Project</Link>
+          </Button>
+        ) : (
+          <div className="flex flex-col items-end gap-1">
+            <Button disabled>New Project</Button>
+
+            <p className="text-xs text-muted-foreground">
+              You own {allowance?.owned} of {allowance?.limit} projects. Upgrade your plan to create more.
+            </p>
+          </div>
+        )}
       </header>
 
       <div className="flex flex-wrap items-center gap-3">

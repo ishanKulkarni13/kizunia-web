@@ -55,11 +55,14 @@ Every ruling records who made it. The two kinds are kept apart on purpose:
 | [IB-15](#ib-15--billing-admin-roles) | Billing admin roles | PRODUCT | DECIDED | Product decision (owner) | I, VIII |
 | [IB-16](#ib-16--preferences-for-non-entitled-intents) | Preferences for non-entitled intents | PRODUCT / UX | DECIDED | Architecture (autonomous) | II |
 | [IB-17](#ib-17--stale-documents-and-leftovers) | Stale documents and leftovers | DOCS | DECIDED (docs fixed; code items in Phase III) | Architecture (autonomous) | III |
-| [IB-18](#ib-18--upi-disabled-on-the-razorpay-test-account) | UPI disabled on the Razorpay TEST account | PROVIDER / OPERATIONS | PROVIDER-DEPENDENT — LIVE BLOCKER | — (external action) | V–VII verification, IX |
+| [IB-18](#ib-18--upi-disabled-on-the-razorpay-test-account) | UPI disabled on the Razorpay TEST account (offered in TEST Checkout since 2026-09-25; not yet verified) | PROVIDER / OPERATIONS | PROVIDER-DEPENDENT — LIVE BLOCKER | — (external action) | V–VII verification, IX |
 | [IB-19](#ib-19--tick-cadence-on-the-vercel-hobby-plan) | Tick cadence on the Vercel Hobby plan | OPERATIONS | DEFERRED — LIVE BLOCKER | Architecture (autonomous) | IX |
 | [IB-20](#ib-20--a-public-test-webhook-endpoint) | A public TEST webhook endpoint | OPERATIONS | IMPLEMENTATION-TIME (blocks Phase IV verification) | Architecture (autonomous) | IV |
 | [IB-21](#ib-21--plan-change-extensibility) | Plan-change extensibility | PRODUCT + ARCHITECTURE | DECIDED | Product decision (owner) + Architecture (autonomous) | VI |
 | [IB-22](#ib-22--upi-recovery-ux) | UPI recovery UX | PRODUCT / UX | PROVIDER-DEPENDENT | Architecture (autonomous) capability; UX pending verification | VI |
+| [IB-23](#ib-23--detecting-a-missing-provider-subscription) | Detecting a missing provider subscription | ARCHITECTURE | DECIDED (operation context) | Architecture (autonomous) | IV |
+| [IB-24](#ib-24--phase-iv-implementation-rulings) | Phase IV implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | IV |
+| [IB-25](#ib-25--phase-v-implementation-rulings) | Phase V implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | V |
 | IB-8 | Launch enforcement for existing users | — | [Withdrawn](#withdrawn-findings) | — | — |
 
 Phase numbers refer to the [phase-wise implementation plan](../implementation-plan/README.md).
@@ -447,6 +450,8 @@ Items (c) and (e) are code changes, assigned to [Phase III](../implementation-pl
 
 The UPI behaviors to verify once it is enabled are listed as product open item [A16](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support).
 
+**Update (2026-09-25, Phase V).** UPI now appears as a payment option in Razorpay Checkout for a Kizunia TEST subscription (seen by the owner during the Phase V card checkout; [Razorpay facts](../provider-boundary/razorpay-facts.md#phase-v-checkout-run-2026-09-25)). No UPI subscription has been completed yet, so the A16 behaviors are still unverified and the status is unchanged: verification is now *possible*, not done. The next step is a UPI checkout in TEST.
+
 ### IB-19 — Tick cadence on the Vercel Hobby plan
 
 | | |
@@ -464,7 +469,7 @@ The UPI behaviors to verify once it is enabled are listed as product open item [
 
 | | |
 | --- | --- |
-| **Status** | **IMPLEMENTATION-TIME** (opened 2026-09-24); blocks Phase IV verification only |
+| **Status** | **DONE** for TEST (2026-09-25): an ngrok tunnel to the local dev server was registered in the TEST Dashboard and A6 verified through it. A stable hosted URL is still needed before a hosted TEST or LIVE deployment |
 | **Decided by** | Architecture/technical decision (autonomous) |
 | **Kind** | OPERATIONS |
 | **Affects** | Phase IV |
@@ -524,6 +529,77 @@ The UPI behaviors to verify once it is enabled are listed as product open item [
   - what a customer-paused UPI subscription looks like when fetched;
   - consequently, which option(s) the UI offers to a UPI subscriber, and in what order.
 - The UX is settled after the UPI verification in Phase VI. Until then no document records it as permanent.
+
+### IB-23 — Detecting a missing provider subscription
+
+| | |
+| --- | --- |
+| **Status** | **DECIDED** — 2026-09-25 |
+| **Decided by** | Architecture/technical decision (autonomous) |
+| **Kind** | ARCHITECTURE |
+| **Affects** | Phase IV (sync) |
+
+**Finding.** The design keyed `PROVIDER_SUBSCRIPTION_MISSING` and `PROVIDER_MODE_MISMATCH` on the `NOT_FOUND` class (a `404`). The Phase III contract suite observed that Razorpay answers a **well-formed** unknown subscription ID with `400 BAD_REQUEST_ERROR`, which classifies as `REJECTED`, and gives a `404` only for a malformed ID (D12 in [Razorpay facts](../provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior)). The two options were **operation context** and a second documented description-match exception.
+
+**Ruling (2026-09-25): operation context.**
+
+1. In the **sync fetch path only**, a `fetchSubscription` of a provider ID Kizunia **stored** that fails as `REJECTED` **or** `NOT_FOUND` means the provider does not recognize that ID under the current credentials. It raises `PROVIDER_SUBSCRIPTION_MISSING` (subject `psub:<id>`, alert HIGH).
+2. Local phase, plan and access are unchanged ([SB-RC-07](../../../project/feature-specification/subscription/decisions/reconciliation.md#sb-rc-07--provider-failures-back-off-and-never-change-local-state)). `lastSyncFailureClass` records the real class. The row keeps its ordinary capped backoff and is never marked permanently failed.
+3. A later successful apply resolves the open anomaly automatically, since the observation proves it stale.
+4. Classification is **unchanged**: status and code only, with `CONCURRENT_OPERATION` still the single description match. The interpretation lives in one pure function, `policy/sync-failure.ts`, because only the caller knows the operation.
+5. `PROVIDER_MODE_MISMATCH` is **never** inferred from a fetch failure. It is detected locally: a targeted sync of a row whose `providerMode` differs from the resolved mode (the batch claim already filters by mode), or a fetched entity whose `notes.kz_env` differs. So a `REJECTED` fetch of a same-mode row can only mean "missing".
+6. Mutations never use this interpretation: a `REJECTED` command is a refusal.
+
+**Why.** A GET of a stored ID has no business refusal: the only observed or documented `400` for it is "unknown ID", and Kizunia stores only IDs Razorpay issued (so never a malformed one). Matching the description would break the D8/D10 rule for a string that is itself undocumented and ambiguous ("invalid or could not be found"). The anomaly is a signal for a human and changes nothing, so a false positive costs an alert, never access.
+
+**Documents amended.** [Razorpay facts](../provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior) (D12), [provider rate limits](../reconciliation/provider-rate-limits.md#provider-failure-taxonomy), [provider boundary](provider-boundary.md), [synchronization](synchronization.md), [failure and recovery matrix](failure-recovery-matrix.md).
+
+### IB-24 — Phase IV implementation rulings
+
+| | |
+| --- | --- |
+| **Status** | **DECIDED** — 2026-09-25 |
+| **Decided by** | Architecture/technical decision (autonomous), except item 13's prices (owner) |
+| **Kind** | ARCHITECTURE |
+| **Affects** | Phase IV |
+
+Places where the Phase IV design left a detail open, ruled before the code relied on them:
+
+1. **A terminal-out transition gets its own anomaly type**, `TERMINAL_STATE_CONTRADICTED`, added by its own `ALTER TYPE … ADD VALUE` migration. The acceptance test needs a row, and no existing type fits.
+2. **`parseWebhookEvent` is on the `BillingProvider` interface**, implemented under `provider/razorpay/` (the ESLint boundary forbids `backend/` from reading Razorpay payload shapes). It returns a Kizunia-typed event or `MALFORMED`. Parsing is not network, so it has no budget and no `Outcome`.
+3. **Event and money-fact dedupe use `INSERT … ON CONFLICT DO NOTHING`**, not a caught `P2002`: a failed statement aborts the Postgres transaction the event must be recorded in.
+4. **`billing:sync` also drains `UNMATCHED_PENDING` events.** They are not subscription rows, so the due-claim can never reach them when `after()` did not run. Bounded per run, one fetch per provider subscription, and only events older than a short grace.
+5. **An event for a terminal subscription is linked, never marked due.** The `subscription_terminal_not_due_check` CHECK forbids a due terminal row, and Razorpay documents terminal states as final. Admin "sync now" can still observe one.
+6. **Apply resolves only the anomalies an observation proves stale**: `PROVIDER_SUBSCRIPTION_MISSING` and `UNMAPPED_PROVIDER_PLAN`. Every other type stays open for a human (Phase VIII). An alert fires when an anomaly is newly opened; repeats only bump `occurrences`.
+7. **Apply settles `OUTCOME_UNKNOWN` operations** per [operation model](../commands/operation-model.md#resolving-outcome_unknown), and the tick first moves lapsed `IN_FLIGHT` operations to `OUTCOME_UNKNOWN`. The `request` shape apply reads (`{ plan, cycle }` for a plan change) is defined in Phase IV, and Phase V writes it.
+8. **The trial-conversion rule (IB-9) is in the mapping now**, with C7. The `TRIAL_CONVERSION_OVERDUE` anomaly row waits for Phase VII's enum value, so Phase IV emits the alert only. No trial exists before Phase VII.
+9. **`CANCELLATION_NOT_EFFECTIVE` (I-4) stays in Phase VI.** Phase IV only keeps the invariants: `cancelAtPeriodEnd` is never cleared by a missing field, and an observed `CANCELLED` clears it.
+10. **Tick budgets (IB-10 values):** `billing:sync` runs first with a 10 s soft deadline and sequential fetches (worst-case overrun: one provider timeout), and the notification drain default drops from 45 s to 30 s. Recorded in [internal jobs](../../workflows/internal-jobs.md).
+11. **Admin "sync now"** is `POST`, requires `VIEW_BILLING` (IB-15), runs at priority 1 through the targeted claim, takes no `Idempotency-Key` (it mutates nothing at the provider; IB-6 covers provider mutations), and returns no provider identifier (SB-PB-04).
+12. **IB-20's hosting route** for TEST verification is a stable ngrok domain in front of the local dev server. A Vercel deployment-protection bypass is needed only if a hosted TEST deployment is used later.
+13. **TEST plans for verification** are created by an idempotent TEST-only tool (`pnpm billing:test-plans`) and wired into the TEST plan catalog. Their prices (Pro ₹10/month and ₹12/year, Pro+ ₹20/month and ₹22/year) are **temporary TEST-only verification values** set by the owner. They are not Kizunia pricing (B6 stays open) and not a product decision.
+
+### IB-25 — Phase V implementation rulings
+
+| | |
+| --- | --- |
+| **Status** | **DECIDED** — 2026-09-25 |
+| **Decided by** | Architecture/technical decision (autonomous) |
+| **Kind** | ARCHITECTURE |
+| **Affects** | Phase V |
+
+Places where the Phase V design left a detail open, or where the documents and the Phase IV code disagreed, ruled before the code relied on them. None changes a settled decision; each can be overridden by a new ruling.
+
+1. **Tx B composes the apply path.** Command-model step 7 needs "bind, apply, operation `SUCCEEDED`, mark due" in **one** transaction, but `applyObservation` opened its own. The apply path now also exports `applyObservationInTransaction(tx, …)`; `applyObservation` is a thin wrapper with unchanged behavior. Likewise the bind (was private to the unmatched resolver) is `backend/sync/binding.ts`, used with trigger `WEBHOOK`, `COMMAND_RESPONSE` or `ORPHAN_DISCOVERY`, and the lapsed-lease expiry (was private to `billing:sync`) is shared by the tick and the runner's tx A.
+2. **The orphan window closes on a send-time bound.** `requestSentAt` is persisted in tx B (command-model step 5), so a crash between the call and tx B leaves it null. The close rule uses `COALESCE(requestSentAt, leaseUntil) + overlap ≤ watermark`: a live process always sends before its lease ends, because the lease (60 s) is far longer than the client timeout (10 s). Conservative: it can only close later, never earlier.
+3. **A local precondition refusal is recorded without a new column.** The operation is marked `REJECTED` in tx A with `failureClass` and `requestSentAt` null, which means "refused before anything was sent". A same-key replay returns that recorded refusal and never re-executes; its explanation is derived from current local state through the same precondition policy. Provider and budget refusals keep `failureClass` and `providerErrorCode` as designed. Reuse answers (a `PROVISIONING` or unexpired `PENDING_AUTHENTICATION` checkout for the same plan) roll tx A back and persist no operation, because nothing is mutated.
+4. **Abandon-then-create is rooted at the create.** No parent kind fits (`SUPERSEDE` and `CHANGE_PLAN` are Phase VI's). The root is the `CREATE_SUBSCRIPTION` operation, with `subscriptionId` null until its `PROVISIONING` row exists; the abandon is a `CANCEL_IMMEDIATELY` child. When the targeted sync observes the old checkout terminal, a short transaction inserts the `PROVISIONING` row and links it to the root (a one-time fill of a null reference, like a bind), then the create proceeds. When it does not, the root is `REJECTED` (nothing created; `failureClass` null) and the response is `CONFIRMING`. A create root never ends `SUCCEEDED` without a create.
+5. **A checkout is reused only with time left.** A pending checkout for the same plan and cycle is reused only if at least `BILLING_CHECKOUT_REUSE_MIN_REMAINING_SECONDS` (5 min) remain before `expire_by`; otherwise it is treated as expired (abandon, then create). Stricter than "not passed", so a user is never handed a checkout that expires mid-payment.
+6. **`billing:orphan-discovery` runs last in the tick.** The IB-10 arithmetic leaves no room for another provider-calling task before notifications. The task is read-only, low-frequency (≥ 900 s), bounded by its own soft budget, and persists its cursor after every page, so a run cut short by `maxDuration` loses nothing.
+7. **Provider identifiers reach the browser only in the checkout response.** `checkout.js` needs `key` and `subscription_id`; they are returned to the owner of the checkout, in that one response. `GET /me/billing` and every other response carry none (SB-PB-04).
+8. **Checkout confirmation takes no `Idempotency-Key`.** It is a read-only trigger with no `BillingOperation` (the command catalog's "none"), like admin sync-now (IB-24 item 11). The signature is verified against the server-held ID only (SB-CM-06); a subscription ID the browser sends is compared for a security log and otherwise ignored.
+9. **Sizing uses the observed `expire_by` lag.** D6 recorded 188 s and 322 s; the orphan overlap (15 min) and the reuse margin are sized for at least ~6 minutes, not the "~3 minutes" some documents still stated (corrected with this phase).
+10. **`billing:command`** is defined with the checkout policies for the runner's other user commands; Phase V has no route that uses it (Phase VI does).
 
 ## Withdrawn findings
 

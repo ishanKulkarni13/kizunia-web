@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Portfolio Module - Service
  *
  * Responsible for all business rules:
@@ -72,7 +72,7 @@ export class PortfolioService {
       throw new PortfolioNotFoundError();
     }
 
-    const context = PortfolioContextResolver.forPublicRead({
+    const context = await PortfolioContextResolver.forPublicRead({
       portfolio: authorizationRow,
     });
 
@@ -133,14 +133,13 @@ export class PortfolioService {
       });
     }
 
-    // Platform-level entitlement seam. Every authenticated role is granted
-    // this today (no subscription/plan system exists yet), but routing
-    // creation through PlatformAuthorizer means a future plan/entitlement
-    // system can restrict it by changing PlatformPermissionSet alone,
-    // without touching this service. See permission-set.ts.
+    // Role gate: `CREATE_PORTFOLIO` is in the BASELINE permission set, so
+    // every non-banned role may create portfolios in principle. Whether this
+    // user's plan includes it is decided by PortfolioPolicy's create rule,
+    // from the effective access `forCreate` resolves (IB-4).
     PlatformAuthorizer.can({ actor }, PlatformAction.CREATE_PORTFOLIO);
 
-    const context = PortfolioContextResolver.forCreate({
+    const context = await PortfolioContextResolver.forCreate({
       actor,
     });
 

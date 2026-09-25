@@ -108,6 +108,19 @@ creates by hand.
 - Mode mismatch: find how a row of the other mode got here (restored database, wrong keys). Such rows
   never grant access; remove them only through a reviewed data migration.
 
+## Provider subscription missing
+
+**Signal:** `PROVIDER_SUBSCRIPTION_MISSING` (subject `psub:<provider id>`).
+
+A sync fetch of a provider subscription ID Kizunia stored was refused as unknown (a `400`, or a `404` for a malformed ID; [IB-23](../implementation/open-decisions.md#ib-23--detecting-a-missing-provider-subscription)). Kizunia changed nothing: the subscription keeps its phase and access, and is retried at the capped backoff. The anomaly resolves itself on the next successful fetch.
+
+- Check the ID in the Razorpay Dashboard of the **same mode**. Found there: the refusal was transient; run "sync now" and the anomaly resolves.
+- Not found: the row was bound to an ID from another account or mode (a restored database, swapped keys). Treat it like a mode mismatch (below); never edit the phase by hand.
+
+## Verifying the webhook against Razorpay TEST
+
+`pnpm billing:webhook-verify` (TEST only) seeds a subscription on a TEST catalog plan, cancels it at Razorpay, runs one `billing:sync`, and prints what Kizunia recorded (`status <id>`). With the dev server behind the registered tunnel, a cancel reaches Kizunia as `subscription.cancelled`; with the server stopped, the delivery fails and `tick` observes the change by heartbeat instead. The ngrok inspector (`http://127.0.0.1:4040`) shows every delivery attempt and its `x-razorpay-event-id`, and can replay one (it must come back a duplicate). Deactivate the TEST webhook in the Dashboard when not verifying: Razorpay disables it after 24 hours of failed deliveries.
+
 ## Rotating the webhook secret
 
 1. Generate the new secret in the Dashboard; configure Kizunia with the **new** secret as current and

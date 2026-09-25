@@ -58,6 +58,7 @@ import {
   evaluationOccurrenceKey,
   jobDedupeKey,
 } from "../scheduling/occurrence";
+import { entitledUsersWhereForIntent } from "./notification-entitlement";
 import { SuggestionQueueRepository } from "./suggestion-queue.repository";
 import type { EnqueueJobInput, WorkQueue } from "../jobs/work-queue.port";
 
@@ -123,7 +124,12 @@ export class NotificationSchedulerService {
       let cursor: string | undefined;
 
       for (;;) {
-        const userIds = await this.findEnabledUserIds(intent, pageSize, cursor);
+        const userIds = await this.findEnabledUserIds(
+          intent,
+          input.anchor,
+          pageSize,
+          cursor,
+        );
 
         if (userIds.length === 0) break;
 
@@ -335,6 +341,7 @@ export class NotificationSchedulerService {
    */
   private static async findEnabledUserIds(
     intent: NotificationIntent,
+    now: Date,
     take: number,
     cursor?: string,
   ): Promise<string[]> {
@@ -342,9 +349,18 @@ export class NotificationSchedulerService {
       intent,
       enabled: true,
       ...(cursor ? { userId: { gt: cursor } } : {}),
-      // A banned or deleted user should not be evaluated; the work would be
-      // discarded at best and delivered at worst.
-      user: { banned: { not: true }, status: "ACTIVE" },
+      user: {
+        // A banned or deleted user should not be evaluated; the work would be
+        // discarded at best and delivered at worst.
+        banned: { not: true },
+        status: "ACTIVE",
+        // Only users whose effective access includes the capability this
+        // intent requires (IB-2) — the set-based form of the same rule the
+        // handler and delivery re-check per user, in this one query, with no
+        // per-user round trips. No admin bypass: there is no actor here
+        // (IB-7). Preferences of the users it excludes are left untouched.
+        ...entitledUsersWhereForIntent(intent, now),
+      },
     };
 
     const rows = await prisma.notificationPreference.findMany({

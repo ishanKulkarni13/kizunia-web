@@ -92,20 +92,28 @@ Three consequences worth stating:
 - **Every task keeps its own route.** The dedicated endpoints below still work
   and are still the way to run one job by hand.
 
-**Task order and time budgets (planned for Subscription & Billing; decided
-2026-09-24, [IB-10](../subscription/implementation/open-decisions.md#ib-10--tick-time-budget)).**
-The tick route has `maxDuration = 60` and runs tasks sequentially, and
-`notifications:tick` drains for up to 45 s (`JOB_CONFIG.wallClockBudgetMs`).
-When billing lands:
+**Task order and time budgets (decided 2026-09-24,
+[IB-10](../subscription/implementation/open-decisions.md#ib-10--tick-time-budget);
+values chosen in Subscription & Billing Phase IV, 2026-09-25).** The tick route
+has `maxDuration = 60` and runs its tasks one after another, in the order of
+`next/src/app/api/v1/internal/tick/tasks.ts` (a unit test pins it):
 
-- `billing:sync` is registered **before** `notifications:tick`, with its own
-  wall-clock budget of about 10–12 s.
-- The notification drain default is lowered so the tasks plus teardown
-  headroom fit within 60 s.
-- `billing:orphan-discovery` and `billing:payload-prune` run at low frequency.
+| Order | Task | Minimum interval | Budget |
+|---|---|---|---|
+| 1 | `billing:sync` | 60 s (every tick) | 10 s soft (`BILLING_SYNC_WALL_CLOCK_MS`): no new provider fetch starts after it, so the worst case is 10 s plus one provider timeout (10 s) |
+| 2 | `notifications:tick` | the notification sweep interval (≤ 300 s) | 30 s (`NOTIFICATION_WORKER_BUDGET_MS`, lowered from 45 s) |
+| 3 | `rate-limit:prune` | 3 days | short, database only |
+| 4 | `assets:reconcile` | 3 days | short |
+| 5 | `billing:orphan-discovery` (Phase V) | 900 s (`BILLING_ORPHAN_MIN_INTERVAL_SECONDS`) | 5 s soft (`BILLING_ORPHAN_WALL_CLOCK_MS`), at most 3 list pages; takes whatever the tasks before it leave |
 
-Exact values are chosen and recorded here when the billing phase is
-implemented. Reaching the billing target cadence (about 5 minutes) on the
+Worst case for tasks 1–4: 20 s + 30 s, plus the two three-day tasks and
+teardown, under 60 s. The budget has not yet been measured under realistic
+notification load; do so before LIVE. `billing:orphan-discovery` runs **last**
+(IB-25 item 6): the arithmetic above leaves no room for another
+provider-calling task before notifications, and the scan is read-only and saves
+its cursor after every page, so a run that `maxDuration` cuts short loses
+nothing and the next run resumes. `billing:payload-prune` (Phase VIII) will
+also run at low frequency. Reaching the billing target cadence (about 5 minutes) on the
 Hobby plan needs the external pinger described above; the choice is a
 LIVE-readiness item
 ([IB-19](../subscription/implementation/open-decisions.md#ib-19--tick-cadence-on-the-vercel-hobby-plan)).
@@ -117,6 +125,8 @@ LIVE-readiness item
 | `GET /api/v1/internal/tick` | Standard (above), dispatching the task registry | **Yes — the only cron entry** |
 | `GET /api/v1/internal/rate-limit/prune` | Standard (above) | No — runs as a registered task; route kept for manual runs |
 | `GET /api/v1/internal/assets/reconcile` | Standard (above) | No — runs as a registered task; route kept for manual runs |
+| `GET /api/v1/internal/billing/sync` | Standard (above) | No — runs as the `billing:sync` task; route kept for manual runs (and for TEST, where the daily cron is a slow backstop) |
+| `GET /api/v1/internal/billing/orphan-discovery` | Standard (above) | No — runs as the `billing:orphan-discovery` task; route kept for manual runs (and for TEST) |
 | `POST /api/v1/internal/competitions/lifecycle` | Older `x-internal-secret` / `INTERNAL_LIFECYCLE_SECRET` convention — predates this document | No — depends on an external scheduler this repository does not configure |
 
 The Competition Lifecycle sweep has **not** been migrated to the standard

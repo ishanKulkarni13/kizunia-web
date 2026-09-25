@@ -29,6 +29,7 @@ import { RecommendationService } from "@/modules/recommendations/backend/recomme
 
 import { DeadlineWindowRepository } from "../../backend/deadline-window.repository";
 import { NotificationGenerationService } from "../../backend/notification-generation.service";
+import { isEntitledToIntent } from "../../backend/notification-entitlement";
 import {
   NotificationRepository,
   targetKey,
@@ -73,6 +74,26 @@ export const evaluateRegistrationClosingHandler: JobHandler<
     });
 
     return completed("suppressed:INTENT_DISABLED");
+  }
+
+  // Re-check of the scheduler's entitlement filter (IB-2): the deadline
+  // capability may have been lost since this job was scheduled. Asked of the
+  // current clock, and before the window query and the engine run. No admin
+  // bypass — this job has no actor (IB-7).
+  const entitled = await isEntitledToIntent(
+    payload.userId,
+    NotificationIntent.REGISTRATION_CLOSING,
+  );
+
+  if (!entitled) {
+    logNotificationEvent("evaluation.suppressed", {
+      userId: payload.userId,
+      intent: NotificationIntent.REGISTRATION_CLOSING,
+      occurrenceKey: payload.occurrenceKey,
+      reason: "NOT_ENTITLED",
+    });
+
+    return completed("suppressed:NOT_ENTITLED");
   }
 
   // The window the scheduler froze. Recomputing it here would mean a job
@@ -137,6 +158,8 @@ export const evaluateRegistrationClosingHandler: JobHandler<
   const decision = evaluateRegistrationClosing({
     userId: payload.userId,
     enabled: true,
+    // Both established above; passed so the pure policy states the full rule.
+    entitled: true,
     candidates: closing.map((entry) => ({
       competitionId: entry.competitionId,
       competition: entry.card,

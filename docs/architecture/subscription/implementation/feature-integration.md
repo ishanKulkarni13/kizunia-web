@@ -1,6 +1,6 @@
 # Existing Feature Integration
 
-> **Status:** Implementation plan — not implemented
+> **Status:** Implementation plan — implemented in Phase II (2026-09-25); see the [Phase II implementation record](../implementation-plan/phase-II/README.md#implementation-record)
 >
 > **Last Updated:** 2026-09-24
 >

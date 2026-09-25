@@ -26,29 +26,3 @@ export interface DeviceSession {
     image?: string | null | undefined;
   };
 }
-
-export interface Subscription {
-  limits: Record<string, number> | undefined;
-  priceId: string | undefined;
-  id: string;
-  plan: string;
-  stripeCustomerId?: string;
-  stripeSubscriptionId?: string;
-  trialStart?: Date;
-  trialEnd?: Date;
-  referenceId: string;
-  status:
-    | "active"
-    | "canceled"
-    | "incomplete"
-    | "incomplete_expired"
-    | "past_due"
-    | "paused"
-    | "trialing"
-    | "unpaid";
-  periodStart?: Date;
-  periodEnd?: Date;
-  cancelAtPeriodEnd?: boolean;
-  groupId?: string;
-  seats?: number;
-}

@@ -4,33 +4,30 @@
  *
  * - `visibility` (the owner's stored preference) is never mutated by
  *   entitlement state, in either direction.
- * - Public display additionally requires `resolvePortfolioPublicEligibility`
- *   (the future-entitlement seam) to be true — mocked here to simulate an
- *   inactive entitlement, since the real implementation always returns true
- *   today.
+ * - Public display additionally requires the OWNER's effective access to
+ *   include the portfolio capability (IB-5) — driven here by real grants,
+ *   through the real resolver, not a mock.
  * - The owner can always view/edit their own portfolio regardless of
  *   eligibility.
- * - Losing then regaining eligibility restores public display automatically
- *   from the existing stored `visibility`, with no other write.
+ * - Losing then regaining access restores public display automatically from
+ *   the existing stored `visibility`, with no other write.
+ * - Eligibility follows the owner's access, never their platform role.
  *
  * Requires a reachable test database — see docs/testing/database.md. Fails
  * loudly rather than skipping if `DATABASE_TEST_URL` is not configured,
  * matching this repo's other integration tests.
  */
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-
-const { mockEligibility } = vi.hoisted(() => ({
-  mockEligibility: vi.fn(() => true),
-}));
-
-vi.mock("@/modules/portfolio/backend/authorization/public-eligibility", () => ({
-  resolvePortfolioPublicEligibility: mockEligibility,
-}));
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import prisma from "@/lib/prisma";
 import { PortfolioVisibility } from "@/generated/prisma";
 import type { StrictAuthorizationActor } from "@/authorization";
 import { PlatformRole } from "@/authorization/platform/roles";
+import {
+  deleteGrantsForEmailPrefix,
+  insertGrant,
+  revokeGrants,
+} from "@/testing/entitlement-fixtures";
 import { portfolioService } from "./service";
 import { PortfolioNotFoundError } from "../errors";
 
@@ -47,9 +44,11 @@ function testEmail(name: string): string {
 async function createTestUser({
   name,
   banned = false,
+  role,
 }: {
   name: string;
   banned?: boolean;
+  role?: string;
 }) {
   const username = testUsername(name);
 
@@ -61,6 +60,7 @@ async function createTestUser({
       emailVerified: true,
       username,
       banned,
+      ...(role && { role }),
     },
   });
 }
@@ -88,14 +88,23 @@ function actorFor(userId: string): StrictAuthorizationActor {
   return { id: userId, role: PlatformRole.USER, banned: false };
 }
 
-afterEach(() => {
-  mockEligibility.mockReturnValue(true);
+let granterId: string;
+
+/** The real gate, via a real grant. */
+async function grantPro(userId: string) {
+  return insertGrant(userId, granterId, { plan: "PRO" });
+}
+
+beforeAll(async () => {
+  const granter = await createTestUser({ name: "granter" });
+  granterId = granter.id;
 });
 
 afterAll(async () => {
   await prisma.portfolio.deleteMany({
     where: { user: { email: { startsWith: TEST_PREFIX } } },
   });
+  await deleteGrantsForEmailPrefix(TEST_PREFIX);
   await prisma.user.deleteMany({
     where: { email: { startsWith: TEST_PREFIX } },
   });
@@ -103,8 +112,9 @@ afterAll(async () => {
 });
 
 describe("PortfolioService.findPublicByUsername — visibility model", () => {
-  it("returns a PUBLIC, eligible portfolio", async () => {
+  it("returns a PUBLIC portfolio whose owner has the portfolio capability", async () => {
     const user = await createTestUser({ name: "public-eligible" });
+    await grantPro(user.id);
     await createTestPortfolio({ userId: user.id, visibility: PortfolioVisibility.PUBLIC });
 
     const dto = await portfolioService.findPublicByUsername({ username: user.username! });
@@ -112,11 +122,19 @@ describe("PortfolioService.findPublicByUsername — visibility model", () => {
     expect(dto.user.username).toBe(user.username);
   });
 
-  it("hides a PUBLIC portfolio when public-display eligibility is inactive, without touching the stored preference", async () => {
-    const user = await createTestUser({ name: "public-ineligible" });
+  it("shows a PRO_PLUS owner's portfolio too", async () => {
+    const user = await createTestUser({ name: "plus-owner" });
+    await insertGrant(user.id, granterId, { plan: "PRO_PLUS" });
     await createTestPortfolio({ userId: user.id, visibility: PortfolioVisibility.PUBLIC });
 
-    mockEligibility.mockReturnValue(false);
+    const dto = await portfolioService.findPublicByUsername({ username: user.username! });
+
+    expect(dto.user.username).toBe(user.username);
+  });
+
+  it("hides a PUBLIC portfolio whose owner has no portfolio capability, without touching the stored preference", async () => {
+    const user = await createTestUser({ name: "public-ineligible" });
+    await createTestPortfolio({ userId: user.id, visibility: PortfolioVisibility.PUBLIC });
 
     await expect(
       portfolioService.findPublicByUsername({ username: user.username! }),
@@ -130,6 +148,7 @@ describe("PortfolioService.findPublicByUsername — visibility model", () => {
 
   it("hides a PRIVATE portfolio regardless of eligibility", async () => {
     const user = await createTestUser({ name: "private" });
+    await grantPro(user.id);
     await createTestPortfolio({ userId: user.id, visibility: PortfolioVisibility.PRIVATE });
 
     await expect(
@@ -140,8 +159,6 @@ describe("PortfolioService.findPublicByUsername — visibility model", () => {
   it("lets the owner keep viewing and editing while ineligible for public display", async () => {
     const user = await createTestUser({ name: "owner-ineligible" });
     await createTestPortfolio({ userId: user.id, visibility: PortfolioVisibility.PUBLIC });
-
-    mockEligibility.mockReturnValue(false);
 
     const actor = actorFor(user.id);
 
@@ -155,23 +172,59 @@ describe("PortfolioService.findPublicByUsername — visibility model", () => {
     expect(updated.headline).toBe("Still editable while ineligible");
   });
 
-  it("restores public display automatically when eligibility becomes active again, with no other write", async () => {
+  it("restores public display automatically when access is granted again, with no other write", async () => {
     const user = await createTestUser({ name: "restore" });
     await createTestPortfolio({ userId: user.id, visibility: PortfolioVisibility.PUBLIC });
+    await grantPro(user.id);
 
-    mockEligibility.mockReturnValue(false);
+    await portfolioService.findPublicByUsername({ username: user.username! });
+    const before = await prisma.portfolio.findUniqueOrThrow({ where: { userId: user.id } });
+
+    await revokeGrants(user.id, granterId);
     await expect(
       portfolioService.findPublicByUsername({ username: user.username! }),
     ).rejects.toBeInstanceOf(PortfolioNotFoundError);
 
-    mockEligibility.mockReturnValue(true);
+    await grantPro(user.id);
 
     const dto = await portfolioService.findPublicByUsername({ username: user.username! });
     expect(dto.user.username).toBe(user.username);
+
+    // The portfolio row is exactly what it was: losing and regaining access
+    // wrote nothing to it.
+    const after = await prisma.portfolio.findUniqueOrThrow({ where: { userId: user.id } });
+    expect(after).toEqual(before);
+  });
+
+  it("follows an expired grant by the clock alone, with no job running", async () => {
+    const user = await createTestUser({ name: "expiry" });
+    await createTestPortfolio({ userId: user.id, visibility: PortfolioVisibility.PUBLIC });
+    const grant = await grantPro(user.id);
+
+    await portfolioService.findPublicByUsername({ username: user.username! });
+
+    await prisma.entitlementGrant.update({
+      where: { id: grant.id },
+      data: { validUntil: new Date(Date.now() - 1000) },
+    });
+
+    await expect(
+      portfolioService.findPublicByUsername({ username: user.username! }),
+    ).rejects.toBeInstanceOf(PortfolioNotFoundError);
+  });
+
+  it("follows the owner's access, never their platform role: an admin owner without a grant is not public", async () => {
+    const admin = await createTestUser({ name: "admin-owner", role: PlatformRole.ADMIN });
+    await createTestPortfolio({ userId: admin.id, visibility: PortfolioVisibility.PUBLIC });
+
+    await expect(
+      portfolioService.findPublicByUsername({ username: admin.username! }),
+    ).rejects.toBeInstanceOf(PortfolioNotFoundError);
   });
 
   it("hides a portfolio whose owner is banned, even when PUBLIC and eligible", async () => {
     const user = await createTestUser({ name: "owner-banned", banned: true });
+    await grantPro(user.id);
     await createTestPortfolio({ userId: user.id, visibility: PortfolioVisibility.PUBLIC });
 
     await expect(
@@ -181,6 +234,7 @@ describe("PortfolioService.findPublicByUsername — visibility model", () => {
 
   it("hides a soft-deleted portfolio", async () => {
     const user = await createTestUser({ name: "deleted" });
+    await grantPro(user.id);
     await createTestPortfolio({
       userId: user.id,
       visibility: PortfolioVisibility.PUBLIC,

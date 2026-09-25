@@ -32,6 +32,7 @@ function createContext({
   deletedAt = null,
   ownerBannedOverride,
   isPubliclyDisplayable = true,
+  actorCanCreatePortfolio = true,
   portfolio: portfolioOverride,
 }: {
   actor?: AuthorizationActor;
@@ -39,6 +40,7 @@ function createContext({
   deletedAt?: Date | null;
   ownerBannedOverride?: boolean;
   isPubliclyDisplayable?: boolean;
+  actorCanCreatePortfolio?: boolean;
   portfolio?: PortfolioContext["portfolio"];
 } = {}): PortfolioContext {
   const portfolio =
@@ -59,6 +61,7 @@ function createContext({
     portfolio,
     isOwner,
     isPubliclyDisplayable,
+    actorCanCreatePortfolio,
     ownerBanned: ownerBannedOverride ?? false,
   };
 }
@@ -93,6 +96,61 @@ describe("PortfolioPolicy - CREATE", () => {
       decide(context, PortfolioAction.CREATE),
       AuthorizationCode.ACCOUNT_BANNED,
     );
+  });
+});
+
+describe("PortfolioPolicy - CREATE (entitlement, IB-4 / IB-7)", () => {
+  it("denies with UPGRADE_REQUIRED when the actor's access lacks the portfolio capability", () => {
+    const context = createContext({ portfolio: null, actorCanCreatePortfolio: false });
+    expectDenied(
+      decide(context, PortfolioAction.CREATE),
+      AuthorizationCode.UPGRADE_REQUIRED,
+    );
+  });
+
+  it("names the lowest plan that includes portfolios, from the catalog", () => {
+    const decision = decide(
+      createContext({ portfolio: null, actorCanCreatePortfolio: false }),
+      PortfolioAction.CREATE,
+    );
+    if (decision.allowed) throw new Error("expected a denial");
+    expect(decision.message).toBe("Creating a portfolio requires Pro.");
+  });
+
+  it("allows when the actor's access includes the capability", () => {
+    const context = createContext({ portfolio: null, actorCanCreatePortfolio: true });
+    expect(decide(context, PortfolioAction.CREATE).allowed).toBe(true);
+  });
+
+  it.each([PlatformRole.ADMIN, PlatformRole.SUPER_ADMIN])(
+    "lets %s through without the capability (interactive admin bypass)",
+    (role) => {
+      const context = createContext({
+        actor: { id: OWNER_ID, role, banned: false },
+        portfolio: null,
+        actorCanCreatePortfolio: false,
+      });
+      expect(decide(context, PortfolioAction.CREATE).allowed).toBe(true);
+    },
+  );
+
+  it("does not let a moderator through without the capability", () => {
+    const context = createContext({
+      actor: { id: OWNER_ID, role: PlatformRole.MODERATOR, banned: false },
+      portfolio: null,
+      actorCanCreatePortfolio: false,
+    });
+    expectDenied(
+      decide(context, PortfolioAction.CREATE),
+      AuthorizationCode.UPGRADE_REQUIRED,
+    );
+  });
+
+  it("never lets the capability affect an owner's edit rights", () => {
+    const context = createContext({ actorCanCreatePortfolio: false, isPubliclyDisplayable: false });
+    expect(decide(context, PortfolioAction.EDIT).allowed).toBe(true);
+    expect(decide(context, PortfolioAction.CHANGE_VISIBILITY).allowed).toBe(true);
+    expect(decide(context, PortfolioAction.MANAGE_PROJECTS).allowed).toBe(true);
   });
 });
 

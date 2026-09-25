@@ -1,6 +1,6 @@
 # Phase I — Entitlement Foundation and Admin Grants
 
-> **Status:** Not started
+> **Status:** Implemented 2026-09-24 — not yet committed; see [Implementation record](#implementation-record)
 >
 > **Depends on:** — (first phase) · **Razorpay needed:** no · **Old slices:** S1, S2
 
@@ -140,3 +140,29 @@ IB-3 (resolver signature), IB-14 (storage), IB-15 (roles), SB-EA-01…09, SB-PL-
 ## Expected output
 
 The catalog and the async resolver in `lib/entitlements`; grant schema and migration; the grant service, API and minimal admin UI; the billing platform actions and roles; `GET /me/entitlements`; the `modules/billing` skeleton with logging and errors; tests.
+
+## Implementation record
+
+Implemented 2026-09-24. Everything in the [acceptance criteria](#acceptance-criteria) is met and covered by a test. Code: `next/src/lib/entitlements/`, `next/src/modules/billing/`, the grant migration `20260924000100_add_entitlement_grants`, and the routes and admin page listed below.
+
+**Delivered beyond the bullet list, or decided while implementing** (each is a Phase I implementation choice, not a change to a documented decision):
+
+- **Two extra database CHECKs**, beyond the two this document names (validity window, no self-grant):
+  - a revoked grant always has `revokedAt`, and only a revoked grant does;
+  - `reason` is non-blank on both tables.
+- **An extension must lengthen the grant.** It must end later than the grant currently does and in the future. To shorten a grant, revoke it. A grant that already has no expiry cannot be extended. An *expired* (not revoked) grant can be extended, as the admin-grants design requires.
+- **Extending a grant made to yourself is refused**, as SB-EA-08 covers extending as well as creating. Revoking one's own grant is allowed (it only reduces access).
+- **A grant's recipient is given by user ID or by e-mail.**
+- **Authorization re-reads the actor from the database** (`PlatformContextResolver`), so a demotion or a ban applies immediately rather than at the end of a session.
+- **The explain function is built, but no route or view exposes it** — that is Phase VIII, as this document says.
+- **`MANAGE_BILLING` is assigned to `SUPER_ADMIN` but nothing uses it yet.**
+- **Three rate-limit policies were added** (`entitlements:read`, `billing-admin:read`, `billing-admin:write`); the rate-limit service, resolver and stores are untouched.
+
+**Surfaces added:** `GET /api/v1/me/entitlements`; `GET` and `POST /api/v1/admin/billing/grants`; `POST /api/v1/admin/billing/grants/{id}/extend` and `/revoke`; the admin page `/admin/billing/grants`, with a sidebar entry.
+
+**Verification.** New tests: 7 new files plus the extended `permission-set.test.ts` — 95 cases (35 unit, which include the existing permission-set cases, and 60 integration). Concurrent extend-versus-revoke is exercised 8 times with a forced lock interleaving, and was confirmed to fail when the row lock is removed. The full unit suite passes (716). The full integration suite passes except one test that is already failing on an untouched `HEAD`. `tsc`, `eslint` on the files touched, and `next build` are clean.
+
+**Known issues found, not caused by this phase:**
+
+- `src/modules/notifications/delivery/delivery.integration.test.ts` › "skips a push that is no longer worth sending" fails identically on a clean checkout of `eb04f93`. It looks date-dependent (a hard-coded `NOW`).
+- `eslint` reports one error in `src/authorization/platform/context.ts` (an empty interface), a file this phase does not modify.

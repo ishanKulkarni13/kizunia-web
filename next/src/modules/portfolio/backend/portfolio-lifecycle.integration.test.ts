@@ -42,6 +42,7 @@ import {
   PortfolioNotDeletedError,
   PortfolioNotFoundError,
 } from "../errors";
+import { deleteGrantsForEmailPrefix, grantPlanWithFixtureGranter } from "@/testing/entitlement-fixtures";
 import { PortfolioController } from "./controller";
 import { portfolioService } from "./service";
 
@@ -58,7 +59,7 @@ function unique(name: string): string {
 async function createUser(name: string, { banned = false } = {}) {
   const key = unique(name);
 
-  return prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       id: key,
       name: "Lifecycle Test User",
@@ -68,6 +69,12 @@ async function createUser(name: string, { banned = false } = {}) {
       banned,
     },
   });
+
+  // This suite is about the portfolio lifecycle, not entitlements: its users
+  // hold the portfolio capability, through a real grant.
+  await grantPlanWithFixtureGranter(user.id, "PRO", TEST_PREFIX);
+
+  return user;
 }
 
 function actorFor(
@@ -113,6 +120,7 @@ afterAll(async () => {
   await prisma.portfolio.deleteMany({
     where: { user: { email: { startsWith: TEST_PREFIX } } },
   });
+  await deleteGrantsForEmailPrefix(TEST_PREFIX);
   await prisma.user.deleteMany({
     where: { email: { startsWith: TEST_PREFIX } },
   });

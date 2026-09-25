@@ -23,6 +23,7 @@ export function PortfolioRequired({ children }: PortfolioRequiredProps) {
   const portfolio = usePortfolioStore((state) => state.portfolio);
   const isLoading = usePortfolioStore((state) => state.isLoading);
   const getMine = usePortfolioStore((state) => state.getMine);
+  const error = usePortfolioStore((state) => state.error);
 
   const {
     usernameDialogOpen,
@@ -67,6 +68,12 @@ export function PortfolioRequired({ children }: PortfolioRequiredProps) {
       >
         {isCreating ? "Creating..." : "Create Portfolio"}
       </button>
+
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
       <UsernameDialog
         open={usernameDialogOpen}

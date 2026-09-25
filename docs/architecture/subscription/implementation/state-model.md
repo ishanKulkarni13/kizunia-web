@@ -56,7 +56,7 @@ Transitions (from `state-mapping.md`, plus the local ones):
 | `PROVISIONING` | `PENDING_AUTHENTICATION` (or any phase the bound entity shows) | Create response bound; or orphan discovery / webhook `notes.kz_sub` match | Binding + applied observation |
 | `PROVISIONING` | `ABANDONED` | Create `REJECTED`/`BUDGET_EXHAUSTED` (nothing sent or refused), or `OUTCOME_UNKNOWN` create whose orphan window closed unmatched | Local |
 | `PENDING_AUTHENTICATION` | `TRIALING` / `ACTIVE` | Checkout authenticated (confirm, webhook or sync) | Observation |
-| `PENDING_AUTHENTICATION` | `EXPIRED` | `expire_by` passed (lag ≤ ~3 min, A8) | Observation |
+| `PENDING_AUTHENTICATION` | `EXPIRED` | `expire_by` passed (lag 156–322 s observed, A8/D6) | Observation |
 | `PENDING_AUTHENTICATION` | `CANCELLED` | Abandon-checkout cancel (reuse with a different plan) | Observation after command |
 | `TRIALING` | `ACTIVE` / `PAST_DUE` / `CANCELLED` | Conversion / first charge fails (A7, inferred) / immediate cancel | Observation |
 | `ACTIVE` | `PAST_DUE` / `CANCELLED` / `PAUSED` / `COMPLETED` | Renewal fails / cancel took effect / Dashboard or UPI pause / end of cycles | Observation |

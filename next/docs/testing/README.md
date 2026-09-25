@@ -5,7 +5,7 @@ first; `database.md` and `conventions.md` go deeper on specific topics.
 
 ## Tiers
 
-There are two tiers, distinguished by file suffix only — tests are
+There are three tiers, distinguished by file suffix only — tests are
 co-located next to the source they cover (e.g. `service.ts` next to
 `service.test.ts`), not moved into a separate `tests/` directory.
 
@@ -14,6 +14,12 @@ co-located next to the source they cover (e.g. `service.ts` next to
 - **Integration** — `*.integration.test.ts`. Allowed to hit a real Postgres
   database (through the app's own `@/lib/prisma` singleton), and to exercise
   multiple layers together. Run with `pnpm test:integration`.
+- **Contract** — `*.contract.test.ts`. Calls a real third-party API to check
+  that our implementation of it still matches how the provider behaves; today
+  only the Razorpay provider (TEST mode). Opt-in: needs network access and
+  provider TEST keys, creates and cleans up real TEST-mode objects, and is never
+  part of `pnpm test`, `pnpm test:integration` or CI by default. Run with
+  `pnpm test:contract`.
 
 A test that exercises a `route.ts` handler's exported functions directly
 in-process (no real HTTP server) — e.g.
@@ -32,19 +38,25 @@ suffix is enough.
 `vitest.integration.config.mts` discovers every `src/**/*.integration.test.ts`
 file the same way.
 
+`vitest.contract.config.mts` discovers every `src/**/*.contract.test.ts` file. The
+default config excludes them, so they can never run by accident.
+
 ## Commands
 
 | Command | Runs | Requires a database? |
 |---|---|---|
 | `pnpm test` | unit tests | no |
 | `pnpm test:integration` | integration tests | yes — `DATABASE_TEST_URL` |
-| `pnpm test:all` | both | yes, for the integration half |
+| `pnpm test:contract` | contract tests (opt-in) | no — Razorpay TEST keys and network; see the header of `razorpay-provider.contract.test.ts` |
+| `pnpm test:all` | unit and integration (not contract) | yes, for the integration half |
 
 ## Adding a new test
 
 1. Does it touch the database (directly, or through a service that calls
    Prisma)? If yes, name it `<thing>.integration.test.ts`. If no, name it
-   `<thing>.test.ts`.
+   `<thing>.test.ts`. (A test that calls a real external API is a contract
+   test, `<thing>.contract.test.ts`, and is rarely the right choice: prefer a
+   stubbed `fetch` and keep the real call to one opt-in suite per provider.)
 2. Put it next to the file it's testing.
 3. See `conventions.md` for how to handle time and mocking.
 4. See `database.md` before writing an integration test — you'll need

@@ -5,11 +5,18 @@
  * Repositories should never contain business rules.
  */
 
-import { Prisma, PrismaClient, Project } from "@/generated/prisma";
+import { Prisma, PrismaClient, Project, ProjectRole } from "@/generated/prisma";
 import prisma from "@/lib/prisma";
 import type { SearchQuery } from "@/lib/search";
 import { ProjectMineQueryDto } from "../search";
 import { ProjectNotFoundError } from "./errors";
+
+/**
+ * Advisory-lock namespace for owned-project creation (see
+ * `lockOwnedProjectQuota`). Any value unique among the application's advisory
+ * locks; a new lock picks its own constant.
+ */
+const OWNED_PROJECT_QUOTA_LOCK_NAMESPACE = 0x0b1d_0001;
 
 /**
  * A fully-built public-discovery query, as produced by `buildSearchQuery`
@@ -471,6 +478,56 @@ export class ProjectRepository {
         query,
       }),
     });
+  }
+
+  // =============================================================================
+  // Owned-project quota
+  // =============================================================================
+
+  /**
+   * Projects the user owns and has not deleted (IB-12). Only `OWNER`
+   * memberships count — being a member of someone else's project never uses
+   * quota — and a soft-deleted project keeps its `OWNER` row, so it is
+   * excluded here: deleting a project frees a slot. This is the one
+   * definition of "owned" for the quota; nothing else counts it.
+   *
+   * Served by `project_member (userId, role)`.
+   */
+  async countOwnedByUser({ userId }: { userId: string }): Promise<number> {
+    return this.db.projectMember.count({
+      where: {
+        userId,
+        role: ProjectRole.OWNER,
+        project: { deletedAt: null },
+      },
+    });
+  }
+
+  /**
+   * Serializes owned-project creation per user, for the rest of the current
+   * transaction.
+   *
+   * Pattern — transaction-scoped advisory lock (the repository's first):
+   *
+   * - Use it when a check-then-write must be atomic but there is no row to
+   *   `SELECT … FOR UPDATE`. Here the check is a *count* of rows that may not
+   *   exist yet, and no per-user row belongs to the projects module.
+   * - `pg_advisory_xact_lock(namespace, key)` blocks until any other
+   *   transaction holding the same pair commits or rolls back, and releases
+   *   itself at the end of this transaction. It must therefore only be called
+   *   on a transaction client, and before the count it protects.
+   * - The first argument namespaces the lock, so unrelated features choosing
+   *   their own namespace can never contend with this one. The second is
+   *   `hashtext(userId)`; a hash collision only makes two users wait for each
+   *   other briefly, it never lets a race through.
+   *
+   * Without it, two concurrent creates at `limit - 1` would both count
+   * `limit - 1` and both insert.
+   */
+  async lockOwnedProjectQuota({ userId }: { userId: string }): Promise<void> {
+    await this.db.$executeRaw`
+      SELECT pg_advisory_xact_lock(${OWNED_PROJECT_QUOTA_LOCK_NAMESPACE}::int4, hashtext(${userId}))
+    `;
   }
 
   async findMembership({

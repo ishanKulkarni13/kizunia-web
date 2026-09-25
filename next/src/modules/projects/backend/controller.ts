@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Projects Module - Controller
  *
  * Responsible for:
@@ -122,6 +122,21 @@ export class ProjectController {
       // -----------------------------------------------------------------------
 
       return ApiResponse.ok(result);
+    });
+  }
+
+  /**
+   * Whether the authenticated actor may create another project they will
+   * own — the server flag behind the "New project" button. Advisory: the
+   * create endpoint enforces the same rule under a lock.
+   */
+  static async getOwnershipAllowance(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      const allowance = await projectService.getOwnershipAllowance({ actor });
+
+      return ApiResponse.ok(allowance);
     });
   }
 

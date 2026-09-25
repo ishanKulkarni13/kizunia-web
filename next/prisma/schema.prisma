@@ -54,9 +54,24 @@ model User {
   // ---------------------------------------------------------------------------
   // MCP / OAuth provider
   // ---------------------------------------------------------------------------
-  oauthApplications               OauthApplication[]        @relation("oauthApplicationOwner")
-  oauthAccessTokens               OauthAccessToken[]        @relation("oauthAccessTokenUser")
-  oauthConsents                   OauthConsent[]             @relation("oauthConsentUser")
+  oauthApplications OauthApplication[] @relation("oauthApplicationOwner")
+  oauthAccessTokens OauthAccessToken[] @relation("oauthAccessTokenUser")
+  oauthConsents     OauthConsent[]     @relation("oauthConsentUser")
+
+  // ---------------------------------------------------------------------------
+  // Subscription & Billing — entitlement grants (Phase I)
+  // ---------------------------------------------------------------------------
+  entitlementGrants EntitlementGrant[] @relation("entitlementGrantRecipient")
+  grantAuditEntries GrantAuditEntry[]  @relation("grantAuditTarget")
+
+  // ---------------------------------------------------------------------------
+  // Subscription & Billing — billing persistence (Phase III)
+  // ---------------------------------------------------------------------------
+  subscriptions              Subscription[]             @relation("subscriptionOwner")
+  billingOperations          BillingOperation[]         @relation("billingOperationUser")
+  billingMoneyFacts          BillingMoneyFact[]         @relation("billingMoneyFactUser")
+  subscriptionHistoryEntries SubscriptionHistoryEntry[] @relation("subscriptionHistoryUser")
+  billingAnomalies           BillingAnomaly[]           @relation("billingAnomalyUser")
 
   @@map("user")
 }
@@ -985,6 +1000,8 @@ model ProjectMember {
   user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([projectId, userId])
+  // Owned-project quota: counts a user's OWNER rows (IB-12).
+  @@index([userId, role])
   @@map("project_member")
 }
 
@@ -1771,4 +1788,543 @@ model OauthConsent {
   @@index([clientId])
   @@index([userId])
   @@map("oauth_consent")
+}
+
+// =============================================================================
+// Subscription & Billing — entitlement grants (Phase I)
+// =============================================================================
+//
+// Kizunia-owned entitlement persistence. Nothing here refers to a payment
+// provider: grants are how paid capabilities are given without payment, and
+// they work with Razorpay never configured. Subscription and billing tables
+// arrive in Phase III; promotion columns in Phase VII.
+// See docs/architecture/subscription/implementation-plan/README.md#persistence-boundary.
+//
+// Every reference to the recipient is a NULLABLE `userId` with
+// `onDelete: Restrict` plus `subjectPseudonym` (IB-14): a user who has grant
+// rows cannot be hard-deleted by a cascade, and a future account-removal
+// workflow pseudonymizes instead of deleting history. Actor columns
+// (`grantedByUserId`, `revokedByUserId`, `performedByUserId`) are plain strings
+// so an administrator's own removal never rewrites audit history.
+//
+// Hand-written CHECK constraints (validity window, no self-grant, revocation
+// consistency, non-blank reasons) live in migration
+// 20260924000100_add_entitlement_grants.
+
+/// A non-billing entitlement source: currently only an admin grant.
+///
+/// Status is ACTIVE or REVOKED only. "Expired" is derived from the validity
+/// window when read and is never written (SB-EA-09) — there is no expiry job.
+model EntitlementGrant {
+  id               String            @id @default(cuid())
+  /// Recipient. Nulled only by a future pseudonymization workflow.
+  userId           String?
+  subjectPseudonym String?
+  plan             MembershipPlan
+  source           EntitlementSource
+  status           GrantStatus       @default(ACTIVE)
+  validFrom        DateTime
+  /// `null` = no expiry. Contributes while `validFrom <= now < validUntil`.
+  validUntil       DateTime?
+  /// The granting administrator. Never the recipient (SB-EA-08, also a CHECK).
+  grantedByUserId  String?
+  reason           String
+  revokedAt        DateTime?
+  revokedByUserId  String?
+  revokeReason     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user         User?             @relation("entitlementGrantRecipient", fields: [userId], references: [id], onDelete: Restrict)
+  auditEntries GrantAuditEntry[]
+
+  /// The resolver's read: a user's ACTIVE grants whose window has not ended.
+  @@index([userId, status, validUntil])
+  @@map("entitlement_grant")
+}
+
+/// Append-only record of every grant creation, extension and revocation,
+/// written in the same transaction as the change it records. Never updated,
+/// never deleted.
+model GrantAuditEntry {
+  id                 String           @id @default(cuid())
+  grantId            String
+  action             GrantAuditAction
+  performedByUserId  String
+  targetUserId       String?
+  subjectPseudonym   String?
+  plan               MembershipPlan
+  previousValidUntil DateTime?
+  newValidUntil      DateTime?
+  reason             String
+  createdAt          DateTime         @default(now())
+
+  grant      EntitlementGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  targetUser User?            @relation("grantAuditTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+
+  @@index([grantId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@map("grant_audit_entry")
+}
+
+/// Paid plans only. FREE is deliberately unrepresentable in storage: it is what
+/// "no other source is valid" resolves to (SB-EA-01). Declaration order is
+/// tier order.
+enum MembershipPlan {
+  PRO
+  PRO_PLUS
+}
+
+/// How a grant came to exist. PROMOTION is added in Phase VII.
+enum EntitlementSource {
+  ADMIN_GRANT
+}
+
+enum GrantStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum GrantAuditAction {
+  CREATED
+  EXTENDED
+  REVOKED
+}
+
+// =============================================================================
+// Subscription & Billing — billing persistence (Phase III)
+// =============================================================================
+//
+// Everything billing stores. This is the first part of the schema that knows a
+// payment provider exists; provider identifiers (`providerSubscriptionId`,
+// `providerPlanId`, `offerId`, `providerStatus`, …) are billing-internal and
+// never leave `modules/billing` (SB-PB-04). The read side (`lib/entitlements`)
+// reads `plan`, `phase` and `providerMode` only.
+// See docs/architecture/subscription/implementation/database-design.md.
+//
+// Every row is stamped with the provider mode it belongs to; only the
+// deployment's expected mode contributes access (SB-EA-07).
+//
+// Every reference to a user is a NULLABLE `userId` with `onDelete: Restrict`
+// plus `subjectPseudonym` (IB-14), exactly like the grant tables above: a user
+// who has billing rows cannot be hard-deleted by a cascade. Actor columns
+// (`actorUserId`, `resolvedByUserId`) are plain strings so an administrator's
+// removal never rewrites audit. Billing-to-billing FKs are Restrict: nothing
+// billing is ever deleted, except raw payload content (nulled, never the row).
+//
+// Hand-written partial indexes and CHECK constraints (the root-only IN_FLIGHT
+// slot, the sync-due claim index, the open-anomaly slot, terminal phases never
+// due) live in migration 20260925000000_add_billing_persistence. The Prisma
+// client does not know about them: a P2002 on those indexes must be caught.
+
+/// Kizunia's record of one provider subscription, from the moment a checkout
+/// starts (`PROVISIONING`, before the provider call) to a terminal phase.
+/// `phase` is written only by the sync apply path, plus the local
+/// `PROVISIONING` and `ABANDONED` writes.
+model Subscription {
+  id               String            @id @default(cuid())
+  /// Owner. Nulled only by a future pseudonymization workflow (IB-14).
+  userId           String?
+  subjectPseudonym String?
+  /// Stamped at creation, immutable.
+  kind             SubscriptionKind
+  /// Stamped at creation, immutable. `disabled` is never stamped.
+  providerMode     ProviderMode
+  /// Requested at creation; afterwards as last observed.
+  plan             MembershipPlan
+  cycle            BillingCycle
+  phase            SubscriptionPhase @default(PROVISIONING)
+
+  /// Bound once (SB-UQ-01). NULL while `PROVISIONING`.
+  providerSubscriptionId String?
+  providerPlanId         String?
+  offerId                String?
+  marketingCode          String?
+  /// The last observed provider status and entity (billing-internal).
+  providerStatus         String?
+  providerSnapshot       Json?
+
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  chargeAt           DateTime?
+  startAt            DateTime?
+  expireBy           DateTime?
+  endedAt            DateTime?
+
+  /// A pending plan change (at most one, SB-LC-08).
+  scheduledPlan           MembershipPlan?
+  scheduledCycle          BillingCycle?
+  scheduledProviderPlanId String?
+  scheduledChangeAt       DateTime?
+  scheduledByOperationId  String?
+
+  /// Kizunia's own claim: a requested cycle-end cancellation is not
+  /// observable at the provider (A2).
+  cancelAtPeriodEnd            Boolean   @default(false)
+  cancelRequestedAt            DateTime?
+  cancelRequestedByOperationId String?
+
+  /// UX only (SB-LC-07); never an input to access or command rules.
+  advisoryPaymentMethod     String?
+  advisoryInternationalCard Boolean?
+
+  /// Set on first entry to a contributing phase; backs trial and offer eligibility.
+  firstContributedAt DateTime?
+
+  syncDueAt                DateTime?
+  syncReason               SyncReason?
+  syncRequestedAt          DateTime?
+  syncAttempts             Int                   @default(0)
+  syncLeaseUntil           DateTime?
+  lastSyncedAt             DateTime?
+  /// Request send time of the last applied observation (the stale-apply guard).
+  lastAppliedObservationAt DateTime?
+  lastSyncFailureClass     ProviderFailureClass?
+
+  supersededById String?  @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User?                      @relation("subscriptionOwner", fields: [userId], references: [id], onDelete: Restrict)
+  supersededBy   Subscription?              @relation("subscriptionSupersession", fields: [supersededById], references: [id], onDelete: Restrict)
+  supersedes     Subscription?              @relation("subscriptionSupersession")
+  operations     BillingOperation[]
+  events         BillingEvent[]
+  moneyFacts     BillingMoneyFact[]
+  historyEntries SubscriptionHistoryEntry[]
+
+  /// A provider subscription is bound to one Kizunia record (SB-UQ-01).
+  @@unique([providerMode, providerSubscriptionId])
+  /// Effective-access resolution and the open-subscription count.
+  @@index([userId, phase])
+  /// Admin, metrics and the orphan window.
+  @@index([providerMode, phase])
+  /// Trial eligibility.
+  @@index([userId, kind])
+  @@map("subscription")
+}
+
+/// One Kizunia-initiated provider mutation (or a composed parent of several).
+/// At most one IN_FLIGHT root per user (partial unique index, IB-6).
+model BillingOperation {
+  id                       String                 @id @default(cuid())
+  userId                   String?
+  subjectPseudonym         String?
+  subscriptionId           String?
+  /// Set on a child of a composed command (`SUPERSEDE`, `CHANGE_PLAN`).
+  parentOperationId        String?
+  kind                     BillingOperationKind
+  status                   BillingOperationStatus @default(IN_FLIGHT)
+  providerMode             ProviderMode
+  actorKind                BillingActorKind
+  /// Plain string, no FK: audit survives an administrator's removal.
+  actorUserId              String?
+  idempotencyKey           String
+  /// The normalized intent — never a raw provider payload.
+  request                  Json
+  leaseUntil               DateTime?
+  requestSentAt            DateTime?
+  resolvedAt               DateTime?
+  failureClass             ProviderFailureClass?
+  /// Diagnosis only; never shown to a user.
+  providerErrorCode        String?
+  providerErrorDescription String?
+  createdAt                DateTime               @default(now())
+  updatedAt                DateTime               @updatedAt
+
+  user           User?                      @relation("billingOperationUser", fields: [userId], references: [id], onDelete: Restrict)
+  subscription   Subscription?              @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  parent         BillingOperation?          @relation("billingOperationChildren", fields: [parentOperationId], references: [id], onDelete: Restrict)
+  children       BillingOperation[]         @relation("billingOperationChildren")
+  historyEntries SubscriptionHistoryEntry[]
+
+  /// A client retry with the same Idempotency-Key finds the original.
+  @@unique([userId, idempotencyKey])
+  /// Lease expiry.
+  @@index([status, leaseUntil])
+  /// The outcome-unknown window.
+  @@index([userId, status, createdAt])
+  @@index([subscriptionId, createdAt])
+  @@map("billing_operation")
+}
+
+/// A verified provider webhook delivery. No `userId`: an event reaches a user
+/// only through its Subscription.
+model BillingEvent {
+  id                     String             @id @default(cuid())
+  provider               BillingProvider
+  /// The mode of the webhook secret that verified it.
+  providerMode           ProviderMode
+  dedupeKey              String
+  /// `HEADER` | `BODY_SHA256` (CHECK in the migration).
+  dedupeSource           String
+  eventType              String
+  providerSubscriptionId String?
+  accountId              String?
+  providerCreatedAt      DateTime?
+  receivedAt             DateTime           @default(now())
+  /// `CURRENT` | `PREVIOUS` (CHECK in the migration).
+  matchedSecret          String
+  status                 BillingEventStatus
+  subscriptionId         String?
+  duplicateCount         Int                @default(0)
+  /// Pruned after the retention period; the row itself is never deleted.
+  rawPayload             Json?
+  payloadPrunedAt        DateTime?
+
+  subscription   Subscription?              @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  moneyFacts     BillingMoneyFact[]
+  historyEntries SubscriptionHistoryEntry[]
+
+  @@unique([provider, dedupeKey])
+  @@index([providerSubscriptionId, receivedAt])
+  /// Unmatched-event review.
+  @@index([status, receivedAt])
+  /// `WEBHOOK_SILENCE`.
+  @@index([providerMode, receivedAt])
+  @@map("billing_event")
+}
+
+/// A charge, refund or dispute observed at the provider. Recorded, never
+/// acted on: money facts never change access by themselves.
+model BillingMoneyFact {
+  id                String        @id @default(cuid())
+  kind              MoneyFactKind
+  providerMode      ProviderMode
+  /// The provider's payment, refund or dispute id.
+  providerObjectId  String
+  subscriptionId    String?
+  userId            String?
+  subjectPseudonym  String?
+  billingEventId    String?
+  amountMinor       Int
+  currency          String
+  providerInvoiceId String?
+  periodStart       DateTime?
+  periodEnd         DateTime?
+  occurredAt        DateTime
+  createdAt         DateTime      @default(now())
+
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  user         User?         @relation("billingMoneyFactUser", fields: [userId], references: [id], onDelete: Restrict)
+  billingEvent BillingEvent? @relation(fields: [billingEventId], references: [id], onDelete: Restrict)
+
+  @@unique([providerMode, kind, providerObjectId])
+  @@map("billing_money_fact")
+}
+
+/// Append-only record of every change to a Subscription's phase, plan,
+/// scheduled change, cancel claim, binding or supersession.
+model SubscriptionHistoryEntry {
+  id               String         @id @default(cuid())
+  subscriptionId   String
+  userId           String?
+  subjectPseudonym String?
+  change           HistoryChange
+  fromValue        String?
+  toValue          String?
+  cause            HistoryCause
+  trigger          HistoryTrigger
+  operationId      String?
+  billingEventId   String?
+  /// Plain string, no FK.
+  actorUserId      String?
+  observationAt    DateTime?
+  recordedAt       DateTime       @default(now())
+
+  subscription Subscription      @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+  user         User?             @relation("subscriptionHistoryUser", fields: [userId], references: [id], onDelete: Restrict)
+  operation    BillingOperation? @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  billingEvent BillingEvent?     @relation(fields: [billingEventId], references: [id], onDelete: Restrict)
+
+  @@index([subscriptionId, recordedAt])
+  @@index([userId, recordedAt])
+  @@map("subscription_history_entry")
+}
+
+/// A condition that needs a human. Raising is an upsert on the open row
+/// (partial unique on open `(type, subjectKey)`), so repeated detection bumps
+/// `lastSeenAt`/`occurrences` instead of adding rows.
+model BillingAnomaly {
+  id                     String             @id @default(cuid())
+  type                   BillingAnomalyType
+  providerMode           ProviderMode
+  userId                 String?
+  subjectPseudonym       String?
+  subscriptionIds        String[]
+  providerSubscriptionId String?
+  /// e.g. `user:<id>` or `psub:<id>`.
+  subjectKey             String
+  details                Json
+  firstSeenAt            DateTime           @default(now())
+  lastSeenAt             DateTime           @default(now())
+  occurrences            Int                @default(1)
+  resolvedAt             DateTime?
+  /// Plain string, no FK.
+  resolvedByUserId       String?
+  resolutionReason       String?
+
+  user User? @relation("billingAnomalyUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("billing_anomaly")
+}
+
+/// Per-mode provider health: the global cooldown shared by every instance,
+/// the auth-failure pin, and the orphan-discovery cursor.
+model BillingProviderState {
+  providerMode                    ProviderMode @id
+  cooldownUntil                   DateTime?
+  cooldownLevel                   Int          @default(0)
+  consecutiveFailures             Int          @default(0)
+  /// While this equals the configured key's fingerprint, every provider call
+  /// is refused. Rotating the key and redeploying un-pins it.
+  authFailurePinnedKeyFingerprint String?
+  orphanWatermark                 DateTime?
+  orphanWindowTo                  DateTime?
+  orphanSkip                      Int          @default(0)
+  updatedAt                       DateTime     @updatedAt
+
+  @@map("billing_provider_state")
+}
+
+enum BillingCycle {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionKind {
+  STANDARD
+  TRIAL
+}
+
+/// `disabled` is a runtime state, never stamped on a row.
+enum ProviderMode {
+  TEST
+  LIVE
+}
+
+/// Kizunia's lifecycle phase, distinct from the raw provider status.
+/// Contributing phases: TRIALING, ACTIVE, PAST_DUE.
+enum SubscriptionPhase {
+  PROVISIONING
+  PENDING_AUTHENTICATION
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  HALTED
+  PAUSED
+  CANCELLED
+  EXPIRED
+  COMPLETED
+  ABANDONED
+}
+
+enum SyncReason {
+  WEBHOOK
+  CHECKOUT_CONFIRM
+  COMMAND_CONFIRM
+  CHECKPOINT
+  HEARTBEAT
+  RETRY
+  ADMIN
+}
+
+/// The provider failure taxonomy (reconciliation/provider-rate-limits.md).
+enum ProviderFailureClass {
+  TIMEOUT
+  UNAVAILABLE
+  RATE_LIMITED
+  CONCURRENT_OPERATION
+  REJECTED
+  NOT_FOUND
+  AUTH_FAILURE
+  MALFORMED
+  UNMAPPED_PLAN
+  BUDGET_EXHAUSTED
+}
+
+/// `SUPERSEDE` and `CHANGE_PLAN` are parents of composed commands.
+enum BillingOperationKind {
+  CREATE_SUBSCRIPTION
+  UPDATE_PLAN
+  CANCEL_AT_CYCLE_END
+  CANCEL_IMMEDIATELY
+  CANCEL_SCHEDULED_CHANGE
+  SUPERSEDE
+  CHANGE_PLAN
+}
+
+enum BillingOperationStatus {
+  IN_FLIGHT
+  SUCCEEDED
+  REJECTED
+  OUTCOME_UNKNOWN
+  NOT_APPLIED
+}
+
+enum BillingActorKind {
+  USER
+  ADMIN
+  SYSTEM
+}
+
+enum BillingEventStatus {
+  RECORDED
+  UNMATCHED_PENDING
+  UNMATCHED
+  SKIPPED_UNSUPPORTED
+}
+
+/// Exists only because `(provider, dedupeKey)` is the documented event identity.
+enum BillingProvider {
+  RAZORPAY
+}
+
+enum MoneyFactKind {
+  CHARGE
+  REFUND
+  DISPUTE
+}
+
+enum HistoryChange {
+  PHASE
+  PLAN
+  SCHEDULED_CHANGE
+  CANCEL_AT_PERIOD_END
+  BINDING
+  SUPERSESSION
+}
+
+enum HistoryCause {
+  KIZUNIA_COMMAND
+  PROVIDER_OBSERVED
+  LOCAL
+}
+
+enum HistoryTrigger {
+  WEBHOOK
+  CHECKOUT_CONFIRM
+  COMMAND_RESPONSE
+  COMMAND_CONFIRM
+  CHECKPOINT
+  HEARTBEAT
+  RETRY
+  ORPHAN_DISCOVERY
+  ADMIN_SYNC
+  SYSTEM
+}
+
+/// `MALFORMED` is alert-only, not an anomaly (IB-17(d)).
+/// `TERMINAL_STATE_CONTRADICTED` (Phase IV): Razorpay reported a subscription
+/// held in a terminal phase in another state; never applied.
+/// `TRIAL_CONVERSION_OVERDUE` is added in Phase VII by its own ALTER TYPE migration.
+enum BillingAnomalyType {
+  MULTIPLE_OPEN_SUBSCRIPTIONS
+  UNMATCHED_PROVIDER_SUBSCRIPTION
+  NOTES_CONFLICT
+  UNMAPPED_PROVIDER_PLAN
+  PROVIDER_MODE_MISMATCH
+  PROVIDER_SUBSCRIPTION_MISSING
+  CANCELLATION_NOT_EFFECTIVE
+  TERMINAL_STATE_CONTRADICTED
 }

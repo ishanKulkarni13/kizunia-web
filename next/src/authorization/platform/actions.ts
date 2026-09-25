@@ -52,6 +52,18 @@ export enum PlatformAction {
   // than riding on ACCESS_ADMIN_DASHBOARD.
   MANAGE_NOTIFICATION_ANNOUNCEMENTS = "MANAGE_NOTIFICATION_ANNOUNCEMENTS",
 
+  // Subscription & Billing (role assignment: IB-15, docs/architecture/subscription/implementation/open-decisions.md)
+  // Creating, extending or revoking an entitlement grant. A grant is
+  // money-equivalent — it gives paid access for free — so it is its own
+  // permission, held only by SUPER_ADMIN.
+  MANAGE_ENTITLEMENT_GRANTS = "MANAGE_ENTITLEMENT_GRANTS",
+  // Reading billing state: grants, and later subscriptions, history and
+  // anomalies. Never a write.
+  VIEW_BILLING = "VIEW_BILLING",
+  // Billing writes other than grants (admin immediate cancel, anomaly
+  // resolution, bulk re-sync). Assigned now; first used in a later phase.
+  MANAGE_BILLING = "MANAGE_BILLING",
+
   // Site
   MANAGE_SITE_SETTINGS = "MANAGE_SITE_SETTINGS",
   VIEW_AUDIT_LOGS = "VIEW_AUDIT_LOGS",

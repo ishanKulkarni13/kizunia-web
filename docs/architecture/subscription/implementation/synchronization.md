@@ -1,6 +1,6 @@
 # Synchronization
 
-> **Status:** Implementation plan — not implemented
+> **Status:** Implemented in [Phase IV](../implementation-plan/phase-IV/README.md) (2026-09-25)
 >
 > **Last Updated:** 2026-09-24
 >
@@ -40,7 +40,7 @@ BEGIN
 COMMIT
 ```
 
-- **Failure:** `syncAttempts += 1`; `syncDueAt = now + min(cap, base·2^attempts)·U(0.5, 1.0)`; `lastSyncFailureClass`; release the lease. Local phase, plan and access are untouched. `SYNC_OVERDUE` alerts past a threshold. `NOT_FOUND` raises `PROVIDER_SUBSCRIPTION_MISSING`/mode mismatch; `AUTH_FAILURE` pins cooldown.
+- **Failure:** `syncAttempts += 1`; `syncDueAt = now + min(cap, base·2^attempts)·U(0.5, 1.0)`; `lastSyncFailureClass`; release the lease. Local phase, plan and access are untouched. `SYNC_OVERDUE` alerts past a threshold. A missing provider subscription raises `PROVIDER_SUBSCRIPTION_MISSING`: a sync fetch of a stored ID failing `REJECTED` or `NOT_FOUND` (operation context, [IB-23](open-decisions.md#ib-23--detecting-a-missing-provider-subscription); Razorpay answers a real unknown ID with a `400`, D12). A mode mismatch is detected locally, never from a failure; `AUTH_FAILURE` pins cooldown.
 - **Stale protection, precisely:** the watermark is the **request send time** of the observation (fetch or command). It is compared under the row lock, and applied only if strictly newer. A slow response to an early request can never overwrite a later request's result, whatever order they arrive in. Webhook-vs-fetch-in-flight is closed by `syncRequestedAt`: a trigger recorded after a fetch was sent forces another fetch.
 - **Concurrent webhook + command + reconciliation:** all three are observations through the same guard. Commands are additionally serialized per user; claims are exclusive (`SKIP LOCKED` + lease).
 - **Plan changes, cancellations, lifecycle and Dashboard changes** all arrive as the same observation shape. Attribution is by whether the observation settles a Kizunia operation.

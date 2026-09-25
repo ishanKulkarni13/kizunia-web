@@ -27,6 +27,18 @@ export class ApiResponse {
         });
     }
 
+    /** The request was accepted but its outcome is not final yet; the client polls. */
+    static accepted<T>(data: T) {
+        const body: SuccessResponse<T> = {
+            success: true,
+            data,
+        };
+
+        return NextResponse.json(body, {
+            status: HttpStatus.ACCEPTED,
+        });
+    }
+
     static noContent() {
         return new NextResponse(null, {
             status: 204,

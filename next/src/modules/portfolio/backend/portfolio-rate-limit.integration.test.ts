@@ -30,6 +30,7 @@ vi.mock("@/lib/auth/session", () => ({
   },
 }));
 
+import { deleteGrantsForEmailPrefix, grantPlanWithFixtureGranter } from "@/testing/entitlement-fixtures";
 import { PortfolioController } from "./controller";
 
 const TEST_PREFIX = "__vitest_portfolio_rate_limit__";
@@ -40,7 +41,7 @@ async function createUser(name: string) {
   counter += 1;
   const key = `${TEST_PREFIX}_${name}_${Date.now()}_${counter}`;
 
-  return prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       id: key,
       name: "Rate Limit Test User",
@@ -49,6 +50,12 @@ async function createUser(name: string) {
       username: key.toLowerCase(),
     },
   });
+
+  // Rate limiting is the subject here, not entitlements: the user may create
+  // portfolios, through a real grant.
+  await grantPlanWithFixtureGranter(user.id, "PRO", TEST_PREFIX);
+
+  return user;
 }
 
 function request(method: string, body?: unknown): NextRequest {
@@ -67,6 +74,7 @@ afterAll(async () => {
   await prisma.portfolio.deleteMany({
     where: { user: { email: { startsWith: TEST_PREFIX } } },
   });
+  await deleteGrantsForEmailPrefix(TEST_PREFIX);
   await prisma.user.deleteMany({
     where: { email: { startsWith: TEST_PREFIX } },
   });

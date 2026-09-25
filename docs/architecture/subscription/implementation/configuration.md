@@ -91,7 +91,27 @@ C3, C4, C7 and the alert thresholds, in `billing-config.ts` (`SYNC_SCHEDULE_CONF
 | `BILLING_WEBHOOK_LATENCY_ALERT_MS` | 3000 | `WEBHOOK_LATENCY` (Razorpay's limit is 5 s) |
 | `BILLING_WEBHOOK_SIGNATURE_FAILURES_PER_HOUR` | 20 | `WEBHOOK_SIGNATURE_FAILURES`, once per mode per hour |
 
-The notification drain default (`NOTIFICATION_WORKER_BUDGET_MS`) was lowered from 45 000 to 30 000 ms to make room for `billing:sync` in the tick ([internal jobs](../../workflows/internal-jobs.md#the-tick-one-cron-entry-many-tasks)). The inbound rate-limit policy `billing:webhook` allows 600 deliveries per minute per IP and fails open. The remaining tuning values (heartbeats and margins, batch sizes, the `after()` cap, the `expire_by` horizon, the operation lease, the outcome-unknown window, orphan discovery settings, payload retention, trial-conversion grace and length, `total_count` per cycle) belong to the phases that use them, and are added here as each lands.
+The notification drain default (`NOTIFICATION_WORKER_BUDGET_MS`) was lowered from 45 000 to 30 000 ms to make room for `billing:sync` in the tick ([internal jobs](../../workflows/internal-jobs.md#the-tick-one-cron-entry-many-tasks)). The inbound rate-limit policy `billing:webhook` allows 600 deliveries per minute per IP and fails open. The remaining tuning values (payload retention, trial length) belong to the phases that use them, and are added here as each lands.
+
+## Tuning values chosen in Phase V
+
+C5, `total_count`, the outcome-unknown window and orphan discovery, in `billing-config.ts` (`COMMAND_CONFIG`, `CHECKOUT_CONFIG`, `ORPHAN_CONFIG`, `ALERT_CONFIG`), each with its reasoning there. All IMPLEMENTATION-TIME; tune in TEST.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BILLING_OPERATION_LEASE_SECONDS` (C5) | 60 | How long an `IN_FLIGHT` operation holds the user's slot before it counts as `OUTCOME_UNKNOWN`. Far longer than one provider timeout (10 s) plus the settle transaction; also the send-time bound after a crash (IB-25 item 2) |
+| `BILLING_OUTCOME_UNKNOWN_WINDOW_SECONDS` | 1800 | A younger `OUTCOME_UNKNOWN` operation refuses the user's next command as "still being confirmed" |
+| `BILLING_CHECKOUT_EXPIRE_BY_SECONDS` (C5) | 1800 | `expire_by` on a create: the customer's time to authenticate |
+| `BILLING_CHECKOUT_REUSE_MIN_REMAINING_SECONDS` | 300 | A pending checkout is handed back only with at least this long left; otherwise it is abandoned and recreated (IB-25 item 5) |
+| `BILLING_TOTAL_COUNT_MONTHLY` / `_YEARLY` | 1200 / 100 | `total_count` per cycle: the A13 ceilings |
+| `BILLING_CHECKOUT_FINISHING_UP_SECONDS` | 600 | How long after a confirmation or webhook `/me/billing` reports "finishing up" |
+| `BILLING_ORPHAN_OVERLAP_SECONDS` | 900 | Window overlap, and the margin before an unmatched unknown create is closed `ABANDONED`; well past the ~6 min lag D6 observed |
+| `BILLING_ORPHAN_SETTLE_DELAY_SECONDS` | 300 | The newest minutes are left unscanned |
+| `BILLING_ORPHAN_PAGE_SIZE` / `_MAX_PAGES_PER_RUN` | 100 / 3 | Items per list page (Razorpay's maximum) and pages per run |
+| `BILLING_ORPHAN_WALL_CLOCK_MS` / `_MIN_INTERVAL_SECONDS` | 5000 / 900 | The task's soft budget, and how often the tick runs it (last, IB-25 item 6) |
+| `BILLING_OPERATION_OUTCOME_UNKNOWN_ALERT_SECONDS` | 172800 | `OPERATION_OUTCOME_UNKNOWN`, raised by `billing:sync` (tolerates the daily Hobby cron in TEST, like `SYNC_OVERDUE`) |
+
+The checkout rate-limit policies (`lib/rate-limit/policies.ts`, all per user and failing closed) are `billing:checkout` (10 per 10 min), `billing:checkout-confirm` (30 per 10 min) and `billing:command` (20 per 10 min; defined for Phase VI's commands, IB-25 item 10). `GET /api/v1/me/billing` shares `entitlements:read`. The browser gets the key ID only in the checkout response (IB-25 item 7): there is no `NEXT_PUBLIC_RAZORPAY_*`, and a unit test fails the build if code reads one.
 
 ---
 

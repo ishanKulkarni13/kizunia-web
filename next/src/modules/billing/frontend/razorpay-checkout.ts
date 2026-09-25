@@ -15,6 +15,8 @@ export const RAZORPAY_CHECKOUT_SRC = "https://checkout.razorpay.com/v1/checkout.
 interface RazorpayCheckoutOptions {
   key: string;
   subscription_id: string;
+  /** Razorpay's payment-method change for an existing subscription (recovery). */
+  subscription_card_change?: 0 | 1;
   name: string;
   description: string;
   handler: (response: RazorpayCheckoutResponse) => void;
@@ -60,6 +62,12 @@ export interface OpenCheckoutInput {
   readonly keyId: string;
   readonly subscriptionId: string;
   readonly description: string;
+  /**
+   * Open Razorpay's payment-method change for this (on-hold) subscription
+   * instead of a first payment. Kizunia collects nothing; it observes the
+   * result through "check now", webhooks and sync.
+   */
+  readonly cardChange?: boolean;
   readonly onAuthorized: (response: RazorpayCheckoutResponse) => void;
   readonly onClosed: () => void;
 }
@@ -71,6 +79,7 @@ export async function openRazorpayCheckout(input: OpenCheckoutInput): Promise<vo
   const checkout = new Razorpay({
     key: input.keyId,
     subscription_id: input.subscriptionId,
+    ...(input.cardChange && { subscription_card_change: 1 as const }),
     name: "Kizunia",
     description: input.description,
     handler: input.onAuthorized,

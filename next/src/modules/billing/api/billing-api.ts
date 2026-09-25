@@ -3,10 +3,13 @@ import { HttpClient } from "@/lib/http/client";
 // Type-only imports from `backend/`: they erase at compile time, so no server
 // code reaches the browser bundle.
 import type { BillingSummaryDTO } from "../backend/billing-summary.service";
+import type { CancelResult } from "../backend/commands/cancel";
+import type { ChangePlanResult } from "../backend/commands/change-plan";
 import type { ConfirmCheckoutResult } from "../backend/commands/confirm-checkout";
 import type { StartCheckoutResult } from "../backend/commands/start-checkout";
+import type { CheckNowResult, RecoveryParams } from "../backend/recovery.service";
 
-export type { BillingSummaryDTO, ConfirmCheckoutResult, StartCheckoutResult };
+export type { BillingSummaryDTO, CancelResult, ChangePlanResult, CheckNowResult, ConfirmCheckoutResult, RecoveryParams, StartCheckoutResult };
 
 export interface RazorpayCheckoutResponse {
   readonly razorpay_payment_id: string;
@@ -14,12 +17,18 @@ export interface RazorpayCheckoutResponse {
   readonly razorpay_signature: string;
 }
 
+type PaidPlan = "PRO" | "PRO_PLUS";
+type Cycle = "MONTHLY" | "YEARLY";
+
 /**
  * The signed-in user's billing. Every answer is computed on the server —
- * the effective plan, what may be bought, whether a checkout is finishing
- * up — and the UI only renders it. It never talks to Razorpay's API: only
- * Razorpay Checkout runs in the browser, opened with the `keyId` the server
- * returns (there is no `NEXT_PUBLIC_RAZORPAY_*`).
+ * the effective plan, what may be bought, cancelled or changed, whether a
+ * checkout is finishing up — and the UI only renders it. It never talks to
+ * Razorpay's API: only Razorpay Checkout runs in the browser, opened with the
+ * `keyId` the server returns (there is no `NEXT_PUBLIC_RAZORPAY_*`).
+ *
+ * Every mutating call takes an `idempotencyKey`: one per user click, reused
+ * when that click is retried, so a retry returns the same answer.
  */
 export class BillingApi {
   static async getSummary(): Promise<BillingSummaryDTO> {
@@ -28,16 +37,25 @@ export class BillingApi {
     return response.data;
   }
 
+  /** Starts (or resumes) a checkout. */
+  static async startCheckout(input: { plan: PaidPlan; cycle: Cycle }, idempotencyKey: string): Promise<StartCheckoutResult> {
+    const response = await HttpClient.post<StartCheckoutResult, typeof input>("/api/v1/me/billing/checkout", input, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+
+    return response.data;
+  }
+
   /**
-   * Starts (or resumes) a checkout. `idempotencyKey` is one per user click:
-   * retrying that click with the same key returns the same checkout rather
-   * than starting another.
+   * Starts a new subscription that replaces an on-hold one. Only after the
+   * customer confirmed that the old one is cancelled permanently.
    */
-  static async startCheckout(
-    input: { plan: "PRO" | "PRO_PLUS"; cycle: "MONTHLY" | "YEARLY" },
+  static async supersede(
+    input: { plan: PaidPlan; cycle: Cycle; supersedesSubscriptionId: string },
     idempotencyKey: string,
   ): Promise<StartCheckoutResult> {
-    const response = await HttpClient.post<StartCheckoutResult, typeof input>("/api/v1/me/billing/checkout", input, {
+    const body = { ...input, confirmSupersession: true as const };
+    const response = await HttpClient.post<StartCheckoutResult, typeof body>("/api/v1/me/billing/checkout", body, {
       headers: { "Idempotency-Key": idempotencyKey },
     });
 
@@ -56,5 +74,38 @@ export class BillingApi {
     );
 
     return result.data;
+  }
+
+  /** Cancels with the timing the customer was shown and confirmed. */
+  static async cancel(timing: "CYCLE_END" | "IMMEDIATE", idempotencyKey: string): Promise<CancelResult> {
+    const response = await HttpClient.post<CancelResult, { timing: string }>(
+      "/api/v1/me/billing/cancel",
+      { timing },
+      { headers: { "Idempotency-Key": idempotencyKey } },
+    );
+
+    return response.data;
+  }
+
+  static async changePlan(input: { plan: PaidPlan; cycle: Cycle }, idempotencyKey: string): Promise<ChangePlanResult> {
+    const response = await HttpClient.post<ChangePlanResult, typeof input>("/api/v1/me/billing/change-plan", input, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    });
+
+    return response.data;
+  }
+
+  /** What Razorpay's payment-method change needs, for the caller's on-hold subscription. */
+  static async recovery(): Promise<RecoveryParams> {
+    const response = await HttpClient.post<RecoveryParams, Record<string, never>>("/api/v1/me/billing/recovery", {});
+
+    return response.data;
+  }
+
+  /** "Check now": the server re-reads the subscription from Razorpay and answers with the summary. */
+  static async checkNow(): Promise<CheckNowResult> {
+    const response = await HttpClient.post<CheckNowResult, Record<string, never>>("/api/v1/me/billing/sync", {});
+
+    return response.data;
   }
 }

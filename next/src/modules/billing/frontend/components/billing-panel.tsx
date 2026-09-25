@@ -16,6 +16,7 @@ import { ApiError } from "@/lib/http";
 import { BillingApi, type BillingSummaryDTO, type StartCheckoutResult } from "../../api/billing-api";
 import { useBillingSummary } from "../hooks/use-billing-summary";
 import { openRazorpayCheckout } from "../razorpay-checkout";
+import { CancelSubscriptionCard, OnHoldCard, PlanChangeCard } from "./subscription-actions";
 
 type PaidPlan = "PRO" | "PRO_PLUS";
 type Cycle = "MONTHLY" | "YEARLY";
@@ -50,10 +51,10 @@ const REFUSAL_MESSAGE: Record<string, string> = {
 };
 
 const PLAN_CHANGE_MESSAGE: Record<string, string> = {
-  NATIVE_UPDATE_POSSIBLE: "Plan changes for your payment method arrive soon.",
+  NATIVE_UPDATE_POSSIBLE: "To switch plans, use Change plan below.",
   V1_LIMITATION:
     "To switch plans, cancel at the end of your billing period and choose the new plan once it ends. Your access continues until then.",
-  UNKNOWN: "Plan changes arrive soon.",
+  UNKNOWN: "To switch plans, use Change plan below.",
 };
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -65,14 +66,17 @@ function formatDate(iso: string | null): string | null {
 }
 
 /**
- * The user's billing page: the current plan, and the plans they may buy.
+ * The user's billing page: the current plan, the plans they may buy, and the
+ * lifecycle actions on their subscription (cancel, change plan, recover or
+ * replace one on hold).
  *
- * Every decision is the server's: which plans may be started or resumed
- * (`allowedActions`), whether a checkout is finishing up or being confirmed
+ * Every decision is the server's: which plans may be started or resumed,
+ * which cancellation timing applies, which plan changes are offered
+ * (`allowedActions`), whether something is finishing up or being confirmed
  * (`facets`), and whether billing is available at all. The component renders
  * those answers, opens Razorpay Checkout with the server's key and
  * subscription, and polls `/me/billing` — never Razorpay — until access
- * changes.
+ * changes. It never claims an effect the server has not observed.
  */
 export function BillingPanel() {
   const { summary, loading, failed, refresh, watch, polling } = useBillingSummary();
@@ -155,6 +159,8 @@ export function BillingPanel() {
     <div className="flex flex-col gap-4">
       <CurrentPlanCard summary={summary} />
       <StatusAlerts summary={summary} polling={polling} />
+      <OnHoldCard summary={summary} onChanged={refresh} watch={watch} />
+      <PlanChangeCard summary={summary} onChanged={refresh} watch={watch} />
 
       {summary.billingAvailable && (
         <Card>
@@ -205,12 +211,20 @@ export function BillingPanel() {
           </CardContent>
         </Card>
       )}
+
+      {summary.allowedActions.cancel && (
+        <div className="flex justify-end">
+          <CancelSubscriptionCard summary={summary} onChanged={refresh} watch={watch} />
+        </div>
+      )}
     </div>
   );
 }
 
 function CurrentPlanCard({ summary }: { summary: BillingSummaryDTO }) {
   const renews = formatDate(summary.subscription?.currentPeriodEnd ?? null);
+  const scheduled = summary.subscription?.scheduledChange ?? null;
+  const scheduledOn = formatDate(scheduled?.effectiveAt ?? null);
 
   return (
     <Card>
@@ -235,8 +249,16 @@ function CurrentPlanCard({ summary }: { summary: BillingSummaryDTO }) {
         <p className="mt-2">Up to {summary.quotas.ownedProjects} owned projects.</p>
       </CardContent>
       {summary.subscription && renews && summary.subscription.phase === "ACTIVE" && (
-        <CardFooter className="text-sm text-muted-foreground">
-          {summary.subscription.cancelAtPeriodEnd ? `Ends on ${renews}.` : `Renews on ${renews}.`}
+        <CardFooter className="flex flex-col items-start gap-1 text-sm text-muted-foreground">
+          {/* A request, never an observation (I-1): "requested", not "cancelled". */}
+          <span>{summary.subscription.cancelAtPeriodEnd ? `Cancellation requested. Your plan ends on ${renews}.` : `Renews on ${renews}.`}</span>
+          {scheduled && (
+            <span>
+              {scheduled.plan && scheduled.cycle
+                ? `Changes to ${PLAN_DISPLAY_NAME[scheduled.plan]} · ${CYCLE_LABEL[scheduled.cycle]} on ${scheduledOn ?? renews}.`
+                : `A plan change is scheduled for ${scheduledOn ?? renews}.`}
+            </span>
+          )}
         </CardFooter>
       )}
     </Card>
@@ -250,6 +272,19 @@ function StatusAlerts({ summary, polling }: { summary: BillingSummaryDTO; pollin
         <AlertCircleIcon />
         <AlertTitle>Paid subscriptions are temporarily unavailable</AlertTitle>
         <AlertDescription>Your current plan and access are not affected. Please check back later.</AlertDescription>
+      </Alert>
+    );
+  }
+
+  if (summary.facets.cancellationNotEffective) {
+    return (
+      <Alert variant="destructive">
+        <AlertCircleIcon />
+        <AlertTitle>Your cancellation didn&apos;t take effect</AlertTitle>
+        <AlertDescription>
+          You&apos;re still subscribed and may be charged. You can cancel again below; if you were charged after cancelling,
+          please contact support.
+        </AlertDescription>
       </Alert>
     );
   }
@@ -268,13 +303,16 @@ function StatusAlerts({ summary, polling }: { summary: BillingSummaryDTO; pollin
     return (
       <Alert>
         {polling ? <Loader2Icon className="animate-spin" /> : <AlertCircleIcon />}
-        <AlertTitle>Confirming your checkout</AlertTitle>
+        <AlertTitle>Confirming your billing change</AlertTitle>
         <AlertDescription>We&apos;re confirming your last billing change. You don&apos;t need to do anything.</AlertDescription>
       </Alert>
     );
   }
 
   const refusal = summary.allowedActions.refusal;
+
+  // On hold: the recovery card below explains the choices.
+  if (summary.allowedActions.recover || summary.allowedActions.supersede) return null;
 
   if (refusal && REFUSAL_MESSAGE[refusal]) {
     const planChange = summary.allowedActions.planChange;

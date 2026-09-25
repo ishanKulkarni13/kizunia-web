@@ -19,6 +19,7 @@ import type {
   BillingOperation,
   BillingOperationKind,
   Prisma,
+  PrismaClient,
   ProviderFailureClass,
   ProviderMode,
 } from "@/generated/prisma";
@@ -113,7 +114,7 @@ export class BillingOperationRepository {
   }
 
   /** An unresolved `MULTIPLE_OPEN_SUBSCRIPTIONS` anomaly pauses the user's self-serve commands (SB-UQ-05). */
-  static async hasOpenMultipleSubscriptionsAnomaly(tx: Tx, userId: string, mode: ProviderMode): Promise<boolean> {
+  static async hasOpenMultipleSubscriptionsAnomaly(tx: Tx | PrismaClient, userId: string, mode: ProviderMode): Promise<boolean> {
     const count = await tx.billingAnomaly.count({
       where: {
         type: "MULTIPLE_OPEN_SUBSCRIPTIONS",

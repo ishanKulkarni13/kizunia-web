@@ -323,6 +323,14 @@ export const CHECKOUT_CONFIG = {
     MONTHLY: envInt("BILLING_TOTAL_COUNT_MONTHLY", 1200),
     YEARLY: envInt("BILLING_TOTAL_COUNT_YEARLY", 100),
   },
+
+  /**
+   * How long after a confirmation or a webhook a pending checkout is shown as
+   * "finishing up" (the UI polls `/me/billing` meanwhile). Authentication and
+   * the first charge settle within seconds to a minute; past this the UI stops
+   * implying progress and the due sync takes over.
+   */
+  finishingUpSeconds: envInt("BILLING_CHECKOUT_FINISHING_UP_SECONDS", 10 * 60),
 } as const;
 
 // ---------------------------------------------------------------------------

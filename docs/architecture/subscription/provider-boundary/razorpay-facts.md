@@ -593,11 +593,7 @@ the best-practices page is silent on retries. **[INFERENCE]** equality across re
 Engineering reading: using the header as the primary de-duplication key, with a hash-of-raw-body
 fallback, is consistent with the documentation; nothing documented makes it *guaranteed*.
 
-**OPEN — NOT VERIFIED (A6).** Whether the header is present on every delivery and identical across
-retries of one event (implied, not stated). Observing it needs a public HTTPS endpoint registered in
-the Dashboard's TEST webhooks (Razorpay offers no API to register one) and a way to fail deliveries on
-purpose; no such endpoint existed and the decision for this verification was to skip webhooks (see
-[TEST verification](#test-verification-2026-09-24)). **No webhook behavior of any kind was verified.**
+**TEST-OBSERVED (Phase IV webhook run, 2026-09-25; A6, was OPEN).** The header was present on **every** delivery observed (three distinct events) and **identical across retries of one event**. With the endpoint made unavailable, one `subscription.cancelled` was attempted five times (the original and four retries, at about 0, 1, 8, 19 and 40 s), each answered `502` by the tunnel and each carrying the same `x-razorpay-event-id`; the sixth attempt, at about 80 s and once the endpoint was back, was accepted and carried the same ID again. Kizunia recorded it once with `dedupeSource = HEADER`. A replay of the delivered request (the tunnel inspector's Replay, with the original signature) was recorded as a duplicate (`duplicateCount` 1), with no second sync. **A6 is verified for `subscription.cancelled`**; other event types were not exercised, so the body-hash fallback stays in place. Retry timing is TEST-observed and not a documented guarantee. See [the Phase IV webhook run](#phase-iv-webhook-run-2026-09-25).
 
 **FACT.** "Razorpay follows at-least-once delivery semantics." A response must be 2xx within 5
 seconds; "Razorpay considers any non-2xx response as an event delivery failure"; failed deliveries
@@ -880,6 +876,23 @@ either side.** "Safe to rely on" states the conservative reading the current des
 
 **Not exercised** (all remain as recorded above): every state that needs a customer to authenticate (`authenticated`, `active`, `pending`, `halted`, `paused`), cycle-end cancellation on an `active` subscription, a native plan change and its `change_scheduled_at`, Offers, UPI (unavailable on TEST, [IB-18](../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)) and every webhook behavior (Phase IV).
 
+## Phase IV webhook run (2026-09-25)
+
+**What this section is.** The record of the first real webhook deliveries from Razorpay TEST to Kizunia's endpoint (`POST /api/v1/webhooks/razorpay`, a local dev server behind an ngrok tunnel, registered in the TEST Dashboard with the SB-WH-08 events). It ran through the real route, service, parser and apply path, driven by `pnpm billing:webhook-verify`. Every subscription it created was cancelled at Razorpay. It exercised **`subscription.cancelled` only**: nothing here says how any other event type behaves.
+
+| Probe | Observed | Notes |
+| --- | --- | --- |
+| Unsigned POST through the public URL | `400`, `webhook.rejected_signature`, no row | Verification before any write |
+| A TEST subscription created with Kizunia's notes, its create response deliberately not bound, then cancelled at Razorpay | `subscription.cancelled` delivered in about 2 s after the cancel; recorded `UNMATCHED_PENDING`, then bound through `notes` (`kz_sub`, `kz_op`, `kz_env`) by the `after()` follow-up, the create operation settled `SUCCEEDED`, phase `PROVISIONING → CANCELLED` by trigger `WEBHOOK` | The lost-create recovery path (SB-WH-06, SB-CM-03) works against the real payload. Response time to Razorpay: 28 ms |
+| Same, with the endpoint stopped when the cancel was issued | Five attempts (the original and four retries at about 1, 8, 19 and 40 s), each answered `502` by the tunnel, all with one `x-razorpay-event-id`. With the endpoint back, the sixth attempt (about 80 s after the first) was accepted | Retry cadence is observed, not documented. The event is recorded once; the row it named was already `CANCELLED` (by the heartbeat, below), so it was linked and not marked due (`webhook.terminal_subscription`) |
+| The same subscription, observed with the webhook unavailable | `billing:sync` (one run, 642 ms) applied `PENDING_AUTHENTICATION → CANCELLED` by trigger `HEARTBEAT` (the heartbeat was set to 30 s for the run) with no webhook | Reconciliation catches what a missed webhook missed |
+| Replay of the delivered request | `200`, recorded as a duplicate (`duplicateCount` 1) | |
+| `x-razorpay-event-id` | Present on every delivery; identical across retries | A6 |
+| Signature | `X-Razorpay-Signature` verified against the raw body with the current secret every time (`matchedSecret` `CURRENT`) | |
+| Payload | `account_id` matched the configured account; `bytes` 1430 for `subscription.cancelled` | No mode flag in the payload, as documented |
+
+**Not exercised:** every other event type (`authenticated`, `activated`, `charged`, `pending`, `halted`, `paused`, `resumed`, `updated`, `completed`, `refund.processed`, `payment.dispute.created`), money facts from a real payload, a real customer authentication, the previous-secret path, UPI ([IB-18](../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)), and A3 and A9. Their parsing rests on Razorpay's documented sample payloads and is covered by unit tests, not yet by a real delivery.
+
 ## Research pass 2 (2026-09-24)
 
 A documentation-focused second pass over the questions still open after the TEST pass. Evidence
@@ -893,7 +906,7 @@ page as served on 2026-09-24. One small API-only TEST check was added (A4 state/
 | --- | --- | --- | --- |
 | A3 | Documentation names **no** event for scheduling, applying, or cancelling a scheduled plan change; `subscription.updated` is documented for immediate updates only; the pending change is fetchable and the entity carries `has_scheduled_changes`/`change_scheduled_at`; the payload has no previous-plan field. **Still open** for actual delivery | [Upgrade / downgrade](#upgrade--downgrade) | Webhook endpoint + international-card TEST subscription, or Support |
 | A4 | Documented refusals compared against TEST (table). UPI/e-mandate refusals documented but not reproduced. Classification by code (`BAD_REQUEST_ERROR`) is sufficient. **Partly open** | [Upgrade / downgrade](#upgrade--downgrade), D10 | A UPI or e-mandate subscription (LIVE, or a TEST e-mandate that completes) |
-| A6 | Header documented as unique per event and recommended for de-duplication; equality across retries and presence on every delivery **not documented** (inference only); retries of pre-change events use the old secret. **Still open** | [Webhooks](#webhooks) | Webhook endpoint that can fail deliveries, or Support |
+| A6 | Header documented as unique per event and recommended for de-duplication; equality across retries and presence on every delivery **not documented** (inference only); retries of pre-change events use the old secret. **Verified in TEST on 2026-09-25** (Phase IV): present on every delivery seen and identical across six attempts and a replay | [Webhooks](#webhooks), [Phase IV run](#phase-iv-webhook-run-2026-09-25) | Nothing further for `subscription.cancelled`; other types unexercised |
 | A7 | Trial mechanism documented; **first post-trial charge failure not documented anywhere read**. **Still open** | [Trials](#trials) | Support, or a LIVE observation |
 | A9 | Invoice events documented (`invoice.partially_paid`/`paid`/`expired`); not documented for subscription invoices; not needed. **Resolved as a documentation question** (recommendation: subscribe to nothing more) | [Webhooks](#webhooks) | Delivery for subscription invoices stays unverified (endpoint needed) — no Kizunia impact |
 | A10 | Documented per method (table): UPI → `subscription.cancelled`; e-mandate → next payment fails; cards → "multiple webhooks". Resulting statuses and restoration **not documented**. **Still open** | [Payment methods…](#payment-methods-and-customer-originated-changes) | Support or a LIVE observation (TEST cannot revoke) |

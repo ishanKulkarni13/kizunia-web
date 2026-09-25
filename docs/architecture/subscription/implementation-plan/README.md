@@ -1,6 +1,6 @@
 # Subscription & Billing — Phase-wise Implementation Plan
 
-> **Status:** Engineering roadmap — Phases I, II and III implemented; Phase IV in progress (the missing-subscription detection is ruled in IB-23)
+> **Status:** Engineering roadmap — Phases I, II, III and IV implemented; Phase V is next
 >
 > **Created:** 2026-09-24, after the implementation decision close-out
 >
@@ -102,7 +102,7 @@ Things that block a *later* phase:
 | Item | Blocks | Status |
 | --- | --- | --- |
 | UPI enabled for Subscriptions on the Razorpay TEST account ([IB-18](../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)); the **owner asks Razorpay Support**, and should do it early because of the lead time | UPI verification in V–VII | PROVIDER-DEPENDENT |
-| Stable public TEST webhook URL ([IB-20](../implementation/open-decisions.md#ib-20--a-public-test-webhook-endpoint)) | Phase IV webhook verification | IMPLEMENTATION-TIME |
+| Stable public TEST webhook URL ([IB-20](../implementation/open-decisions.md#ib-20--a-public-test-webhook-endpoint)) | Phase IV webhook verification | Done for TEST (ngrok, 2026-09-25); a hosted URL is still needed later |
 | Trial length (owner) | Phase VII | Owner decision before VII |
 | Whether launch waits for trials, Offers and Promotions (owner) | Phase IX scope | Owner decision before IX |
 

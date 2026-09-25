@@ -466,7 +466,7 @@ The UPI behaviors to verify once it is enabled are listed as product open item [
 
 | | |
 | --- | --- |
-| **Status** | **IMPLEMENTATION-TIME** (opened 2026-09-24); blocks Phase IV verification only |
+| **Status** | **DONE** for TEST (2026-09-25): an ngrok tunnel to the local dev server was registered in the TEST Dashboard and A6 verified through it. A stable hosted URL is still needed before a hosted TEST or LIVE deployment |
 | **Decided by** | Architecture/technical decision (autonomous) |
 | **Kind** | OPERATIONS |
 | **Affects** | Phase IV |

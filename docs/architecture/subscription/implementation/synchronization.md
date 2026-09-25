@@ -1,6 +1,6 @@
 # Synchronization
 
-> **Status:** Implementation plan — not implemented
+> **Status:** Implemented in [Phase IV](../implementation-plan/phase-IV/README.md) (2026-09-25)
 >
 > **Last Updated:** 2026-09-24
 >

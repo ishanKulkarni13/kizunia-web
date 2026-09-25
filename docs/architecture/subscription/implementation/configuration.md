@@ -35,7 +35,7 @@ Required configuration, TEST/LIVE separation, secrets, webhook secrets, tuning v
   - the key must start `rzp_test_` or `rzp_live_`, and its mode must equal the expected mode.
   - Every failure message names variables, never values. The check is skipped during `next build`.
 - **Tick cadence:** the only Vercel cron entry is daily (Hobby). The C6 target needs an external pinger or finer cron before LIVE ([IB-19](open-decisions.md#ib-19--tick-cadence-on-the-vercel-hobby-plan)).
-- **TEST webhook URL:** a stable public URL with deployment protection bypassed for the webhook path only ([IB-20](open-decisions.md#ib-20--a-public-test-webhook-endpoint)).
+- **TEST webhook URL:** a stable public URL with deployment protection bypassed for the webhook path only ([IB-20](open-decisions.md#ib-20--a-public-test-webhook-endpoint)). Phase IV used an ngrok tunnel to the local dev server: `https://<tunnel>/api/v1/webhooks/razorpay`, registered in the TEST Dashboard with `RAZORPAY_WEBHOOK_SECRET` and exactly the SB-WH-08 events. A free ngrok URL that is not a reserved static domain changes when ngrok restarts; update the Dashboard when it does.
 
 ## TEST verification plans (Phase IV)
 
@@ -68,7 +68,30 @@ The mechanisms are decided; these are the **IMPLEMENTATION-TIME** values C1 and 
 | `BILLING_COOLDOWN_FAILURE_THRESHOLD` | 5 | Consecutive timeouts or 5xx, with no success between, that enter a cooldown as a 429 does |
 | `BILLING_PROVIDER_TIMEOUT_MS` | 10000 | How long one provider request may take before it counts as a timeout |
 
-The resulting ceilings on the shared counter are P1 = 60, P2 = 45, P3 = 30 and P4 = 10 of 60. The remaining tuning values (heartbeats and margins, batch sizes, the `after()` cap, the `expire_by` horizon, the operation lease, the outcome-unknown window, orphan discovery settings, payload retention, trial-conversion grace and length, `total_count` per cycle) belong to the phases that use them, and are added here as each lands.
+The resulting ceilings on the shared counter are P1 = 60, P2 = 45, P3 = 30 and P4 = 10 of 60.
+
+## Tuning values chosen in Phase IV
+
+C3, C4, C7 and the alert thresholds, in `billing-config.ts` (`SYNC_SCHEDULE_CONFIG`, `SYNC_CONFIG`, `ALERT_CONFIG`), each with its reasoning there. All IMPLEMENTATION-TIME; tune in TEST.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BILLING_CHECKPOINT_MARGIN_SECONDS` | 7200 | A checkpoint (renewal, cycle end, trial start, scheduled change) is observed two hours after it |
+| `BILLING_EXPIRE_BY_MARGIN_SECONDS` | 600 | An unfinished checkout's `expire_by` is observed ten minutes after it (the expiry lag seen was 188–322 s, D6) |
+| `BILLING_TRIAL_CONVERSION_GRACE_SECONDS` (C7) | 345600 | A TRIAL still `authenticated` past `start_at` counts for four days (charge day plus the T+1..T+3 retries, IB-9) |
+| `BILLING_HEARTBEAT_PENDING_AUTH_SECONDS` / `_TRIALING_` / `_ACTIVE_` / `_PAST_DUE_` / `_PAUSED_` | 21600 / 172800 / 604800 / 86400 / 604800 | The longest a subscription in that phase goes unobserved with no checkpoint near |
+| `BILLING_HEARTBEAT_HALTED_SECONDS` → `_AFTER_WEEK_` → `_AFTER_MONTH_` | 86400 → 604800 → 2592000 | `HALTED` decays daily, weekly after a week, monthly after a month (SB-PF-05) |
+| `BILLING_SYNC_BATCH_SIZE` | 5 | Rows claimed per batch by the drain |
+| `BILLING_SYNC_LEASE_SECONDS` | 60 | How long a claim holds a row (deadline plus one provider timeout, with room) |
+| `BILLING_SYNC_WALL_CLOCK_MS` | 10000 | `billing:sync`'s soft budget inside the tick (IB-10) |
+| `BILLING_WEBHOOK_AFTER_SYNC_CAP` | 3 | Subscriptions one webhook's `after()` resolves or syncs |
+| `BILLING_UNMATCHED_BATCH_SIZE` / `BILLING_UNMATCHED_GRACE_SECONDS` | 10 / 120 | The tick's backstop for unmatched events: per run, and how old an event must be |
+| `BILLING_SYNC_OVERDUE_ATTEMPTS` / `BILLING_SYNC_OVERDUE_SECONDS` | 6 / 172800 | `SYNC_OVERDUE`: consecutive failures of one row (and every multiple), or the oldest due row's age |
+| `BILLING_WEBHOOK_SILENCE_SECONDS` | 604800 | `WEBHOOK_SILENCE` while synced open subscriptions exist |
+| `BILLING_WEBHOOK_LATENCY_ALERT_MS` | 3000 | `WEBHOOK_LATENCY` (Razorpay's limit is 5 s) |
+| `BILLING_WEBHOOK_SIGNATURE_FAILURES_PER_HOUR` | 20 | `WEBHOOK_SIGNATURE_FAILURES`, once per mode per hour |
+
+The notification drain default (`NOTIFICATION_WORKER_BUDGET_MS`) was lowered from 45 000 to 30 000 ms to make room for `billing:sync` in the tick ([internal jobs](../../workflows/internal-jobs.md#the-tick-one-cron-entry-many-tasks)). The inbound rate-limit policy `billing:webhook` allows 600 deliveries per minute per IP and fails open. The remaining tuning values (heartbeats and margins, batch sizes, the `after()` cap, the `expire_by` horizon, the operation lease, the outcome-unknown window, orphan discovery settings, payload retention, trial-conversion grace and length, `total_count` per cycle) belong to the phases that use them, and are added here as each lands.
 
 ---
 

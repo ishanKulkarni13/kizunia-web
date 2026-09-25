@@ -170,7 +170,10 @@ See [`../../subscription/history-and-audit/subscription-history.md`](../../subsc
 A situation synchronization detected and deliberately did not resolve automatically:
 `MULTIPLE_OPEN_SUBSCRIPTIONS`, `UNMATCHED_PROVIDER_SUBSCRIPTION`, `NOTES_CONFLICT`,
 `UNMAPPED_PROVIDER_PLAN`, `PROVIDER_MODE_MISMATCH`, `PROVIDER_SUBSCRIPTION_MISSING`,
-`CANCELLATION_NOT_EFFECTIVE`, and `TRIAL_CONVERSION_OVERDUE` (added 2026-09-24 by
+`CANCELLATION_NOT_EFFECTIVE`, `TERMINAL_STATE_CONTRADICTED` (added in Phase IV, 2026-09-25, by
+[IB-24](../../subscription/implementation/open-decisions.md#ib-24--phase-iv-implementation-rulings):
+Razorpay reported a subscription Kizunia holds in a terminal phase in another state), and
+`TRIAL_CONVERSION_OVERDUE` (added 2026-09-24 by
 [IB-9](../../subscription/implementation/open-decisions.md#ib-9--trial-conversion-gap)). Carries the
 user/subscriptions involved, first/last seen, and resolved at/by/reason. Resolving one records a
 human decision; it never changes billing state by itself.

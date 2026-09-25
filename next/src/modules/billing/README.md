@@ -29,11 +29,25 @@ Roadmap: [`implementation-plan/`](../../../../docs/architecture/subscription/imp
 - the provider boundary: the `BillingProvider` interface, a `fetch`-based Razorpay implementation,
   a fake, and the `BudgetedProvider` that owns the shared request budget, the global cooldown and
   the authentication pin;
-- the per-mode plan catalog (empty until plans exist) and an Offer catalog stub;
+- the per-mode plan catalog (TEST holds the Phase IV verification plans; LIVE is empty until pricing
+  is decided) and an Offer catalog stub;
 - the resolver reading contributing subscriptions of the expected mode, beside grants.
 
-Nothing calls the provider yet. Synchronization, webhooks, checkout and the subscription commands
-arrive in Phases IV–VI, on top of this boundary.
+**Phase IV — synchronization, reconciliation and webhooks.** Implemented:
+
+- the pure policies: state mapping, next due time, what a failed fetch means (a `REJECTED` or
+  `NOT_FOUND` fetch of a stored ID is a missing provider subscription, IB-23), observation
+  validation, scheduled changes and operation settlement;
+- `SyncService` and the one guarded apply path (stale guard, validation, terminal guard, history,
+  settlement, anomalies, next due time);
+- the `billing:sync` tick task (first in the tick) and `GET /api/v1/internal/billing/sync`;
+- `POST /api/v1/webhooks/razorpay`: verify, record once, mark due, `after()` sync, unmatched
+  events bound through notes;
+- admin "sync now": `POST /api/v1/admin/billing/subscriptions/{id}/sync`;
+- the TEST verification plans (`pnpm billing:test-plans`) and verification helper
+  (`pnpm billing:webhook-verify`).
+
+Checkout and the subscription commands arrive in Phases V–VI, on top of this.
 
 ## Responsibilities
 
@@ -49,6 +63,12 @@ arrive in Phases IV–VI, on top of this boundary.
 | Getting a provider, at a caller's priority | `provider/provider-factory.ts` |
 | The request budget, cooldown and auth pin | `provider/budgeted-provider.ts`, `backend/budget/`, `policy/` |
 | Plan and Offer catalogs; tuning values | `config/` |
+| Status to phase, next due time, and the other sync decisions (pure) | `policy/` |
+| The one apply path; claims and mark-due; SyncService | `backend/sync/` |
+| History and anomalies | `backend/history/`, `backend/anomalies/` |
+| Webhook ingestion, the webhook controller, unmatched events | `backend/webhooks/` |
+| The `billing:sync` task | `backend/reconciliation/` |
+| Admin "sync now" | `backend/admin-sync.service.ts` |
 | HTTP (admin grants; my entitlements) | `backend/admin.controller.ts`, `backend/controller.ts` |
 | Request validation | `schemas/grant.ts` |
 | Errors and error codes | `errors/` |

@@ -1,6 +1,6 @@
 # Reliability and Idempotency
 
-> **Status:** Design — not implemented
+> **Status:** Implemented in [Phase IV](../implementation-plan/phase-IV/README.md) (2026-09-25); verified against Razorpay TEST
 >
 > **Last Updated:** 2026-09-24 (pipeline revised: the separate processing job was replaced by the
 > sync-due marker and an immediate post-response sync)

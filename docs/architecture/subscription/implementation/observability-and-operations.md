@@ -1,6 +1,6 @@
 # Observability and Operations
 
-> **Status:** Implementation plan — not implemented
+> **Status:** Partly implemented. Phase IV (2026-09-25) emits the `webhook.*`, `sync.*`, `anomaly.*`, `command.settled|outcome_unknown` and `billing.alert` events below (conditions named in `observability/log.ts` `BillingAlertCondition`); the health summary and the other admin tools arrive in Phase VIII
 >
 > **Last Updated:** 2026-09-24
 >

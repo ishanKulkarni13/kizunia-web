@@ -1,6 +1,6 @@
 # State Mapping
 
-> **Status:** Design — not implemented
+> **Status:** Implemented in Phase IV (2026-09-25): `modules/billing/policy/state-mapping.ts`
 >
 > **Last Updated:** 2026-09-24
 

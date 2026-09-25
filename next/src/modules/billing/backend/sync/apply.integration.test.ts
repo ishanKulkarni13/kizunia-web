@@ -419,3 +419,161 @@ describe("applyObservation — webhook history", () => {
     });
   });
 });
+
+describe("applyObservation — CANCELLATION_NOT_EFFECTIVE (I-4, Phase VI)", () => {
+  const PERIOD_END = at(29 * DAY);
+
+  /** An ACTIVE row whose cycle-end cancel was requested an hour ago, in the period ending at PERIOD_END. */
+  async function cancelling(overrides: Partial<Prisma.SubscriptionUncheckedCreateInput> = {}) {
+    const { userId, sub, psub } = await subscription({
+      phase: "ACTIVE",
+      providerPlanId: "plan_pro_m",
+      currentPeriodEnd: PERIOD_END,
+      lastAppliedObservationAt: at(-2 * HOUR),
+      ...overrides,
+    });
+    const request = await insertOperation(userId, {
+      kind: "CANCEL_AT_CYCLE_END",
+      status: "SUCCEEDED",
+      subscriptionId: sub.id,
+      requestSentAt: at(-HOUR),
+      request: { atCycleEnd: true, periodEnd: PERIOD_END.toISOString() },
+    });
+
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { cancelAtPeriodEnd: true, cancelRequestedAt: at(-HOUR), cancelRequestedByOperationId: request.id },
+    });
+
+    return { userId, sub, psub };
+  }
+
+  const notEffective = (subscriptionId: string) => anomaliesOf(AnomalySubject.subscription(subscriptionId));
+
+  it("keeps the request while observations agree with it", async () => {
+    const { sub, psub } = await cancelling();
+
+    await applyObservation(sub.id, { state: state({ providerSubscriptionId: psub }), observationAt: NOW }, context);
+
+    expect(await reload(sub.id)).toMatchObject({ cancelAtPeriodEnd: true });
+    expect(await notEffective(sub.id)).toHaveLength(0);
+  });
+
+  it("(i) raises it, and clears the flag, when still active after the requested period end + margin", async () => {
+    const { sub, psub } = await cancelling();
+    const late = new Date(PERIOD_END.getTime() + schedule.checkpointMarginSeconds * 1000 + MIN);
+
+    await applyObservation(
+      sub.id,
+      { state: state({ providerSubscriptionId: psub, currentStart: PERIOD_END, currentEnd: at(59 * DAY) }), observationAt: late },
+      { ...context, now: late },
+    );
+
+    expect(await reload(sub.id)).toMatchObject({ cancelAtPeriodEnd: false, phase: "ACTIVE" });
+    expect(await notEffective(sub.id)).toEqual([
+      expect.objectContaining({ type: "CANCELLATION_NOT_EFFECTIVE", resolvedAt: null, details: expect.objectContaining({ reason: "PERIOD_PASSED" }) }),
+    ]);
+    expect(await historyOf(sub.id)).toContainEqual(
+      expect.objectContaining({ change: "CANCEL_AT_PERIOD_END", fromValue: "true", toValue: "false", cause: "PROVIDER_OBSERVED" }),
+    );
+  });
+
+  it("(ii) raises it for a CHARGE dated after the cancel request was sent", async () => {
+    const { userId, sub, psub } = await cancelling();
+
+    await prisma.billingMoneyFact.create({
+      data: {
+        kind: "CHARGE",
+        providerMode: "TEST",
+        providerObjectId: `pay_${PREFIX}${Date.now()}`,
+        subscriptionId: sub.id,
+        userId,
+        amountMinor: 1000,
+        currency: "INR",
+        occurredAt: at(-MIN),
+      },
+    });
+    await applyObservation(sub.id, { state: state({ providerSubscriptionId: psub }), observationAt: NOW }, context);
+
+    expect(await reload(sub.id)).toMatchObject({ cancelAtPeriodEnd: false });
+    expect((await notEffective(sub.id))[0]?.details).toMatchObject({ reason: "CHARGED_AFTER_REQUEST" });
+  });
+
+  it("(ii) ignores the charge that paid the current period, before the request", async () => {
+    const { userId, sub, psub } = await cancelling();
+
+    await prisma.billingMoneyFact.create({
+      data: {
+        kind: "CHARGE",
+        providerMode: "TEST",
+        providerObjectId: `pay_${PREFIX}${Date.now()}`,
+        subscriptionId: sub.id,
+        userId,
+        amountMinor: 1000,
+        currency: "INR",
+        occurredAt: at(-DAY),
+      },
+    });
+    await applyObservation(sub.id, { state: state({ providerSubscriptionId: psub }), observationAt: NOW }, context);
+
+    expect(await reload(sub.id)).toMatchObject({ cancelAtPeriodEnd: true });
+  });
+
+  it("(iii) raises it when the subscription is HALTED with the flag set", async () => {
+    const { sub, psub } = await cancelling();
+
+    await applyObservation(sub.id, { state: state({ providerSubscriptionId: psub, rawStatus: "halted" }), observationAt: NOW }, context);
+
+    expect(await reload(sub.id)).toMatchObject({ phase: "HALTED", cancelAtPeriodEnd: false });
+    expect((await notEffective(sub.id))[0]?.details).toMatchObject({ reason: "HALTED", observedPhase: "HALTED" });
+  });
+
+  it("clears the flag without an anomaly when the cancellation is observed", async () => {
+    const { sub, psub } = await cancelling();
+
+    await applyObservation(sub.id, { state: state({ providerSubscriptionId: psub, rawStatus: "cancelled" }), observationAt: NOW }, context);
+
+    expect(await reload(sub.id)).toMatchObject({ phase: "CANCELLED", cancelAtPeriodEnd: false });
+    expect(await notEffective(sub.id)).toHaveLength(0);
+  });
+
+  it("never grants or cuts access on the strength of the request (I-5)", async () => {
+    const { userId, sub, psub } = await cancelling();
+
+    await applyObservation(sub.id, { state: state({ providerSubscriptionId: psub }), observationAt: NOW }, context);
+
+    expect((await resolveEffectiveAccess(userId, { expectedMode: "TEST", now: NOW })).plan).toBe("PRO");
+  });
+});
+
+describe("applyObservation — an unknown cycle-end update proven by the flag (Phase VI)", () => {
+  it("settles it and adopts its target, with history", async () => {
+    const { userId, sub, psub } = await subscription({
+      phase: "ACTIVE",
+      plan: "PRO_PLUS",
+      providerPlanId: "plan_plus_m",
+      lastAppliedObservationAt: at(-2 * HOUR),
+    });
+    const update = await insertOperation(userId, {
+      kind: "UPDATE_PLAN",
+      status: "OUTCOME_UNKNOWN",
+      subscriptionId: sub.id,
+      requestSentAt: at(-HOUR),
+      request: { plan: "PRO", cycle: "MONTHLY", scheduleChangeAt: "CYCLE_END" },
+    });
+
+    await applyObservation(
+      sub.id,
+      { state: state({ providerSubscriptionId: psub, providerPlanId: "plan_plus_m", hasScheduledChanges: true }), observationAt: NOW },
+      context,
+    );
+
+    expect(await prisma.billingOperation.findUniqueOrThrow({ where: { id: update.id } })).toMatchObject({ status: "SUCCEEDED" });
+    expect(await reload(sub.id)).toMatchObject({ plan: "PRO_PLUS", scheduledPlan: "PRO", scheduledCycle: "MONTHLY", scheduledByOperationId: update.id });
+    expect(await historyOf(sub.id)).toContainEqual(
+      expect.objectContaining({ change: "SCHEDULED_CHANGE", toValue: "PRO/MONTHLY", cause: "KIZUNIA_COMMAND", operationId: update.id }),
+    );
+    // Access is unchanged until the new plan itself is observed.
+    expect((await resolveEffectiveAccess(userId, { expectedMode: "TEST", now: NOW })).plan).toBe("PRO_PLUS");
+  });
+});

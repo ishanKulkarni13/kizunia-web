@@ -19,8 +19,11 @@
  *      phase; the contradiction is an anomaly.
  *   4. the write: phase (through the one mapping), plan and cycle (through the
  *      catalog), periods, the scheduled change, `cancelAtPeriodEnd` (cleared
- *      only by an observed cancellation, never by an absent field),
- *      `firstContributedAt`, the advisory payment method.
+ *      only by an observed cancellation or by I-4 below, never by an absent
+ *      field), `firstContributedAt`, the advisory payment method.
+ *      While `cancelAtPeriodEnd` is set, the observation is checked against
+ *      the request (I-4, policy/cancellation-effectiveness.ts): a
+ *      contradiction clears the flag and raises `CANCELLATION_NOT_EFFECTIVE`.
  *   5. history for every access-relevant change, with its cause and trigger;
  *      operations this observation settles; anomalies it proves stale.
  *   6. bookkeeping: the watermark, and the next due time. If an event-driven
@@ -58,10 +61,11 @@ import {
   logBillingEvent,
   type BillingAlertSeverity,
 } from "../../observability/log";
+import { detectCancellationNotEffective, type CancellationContradiction } from "../../policy/cancellation-effectiveness";
 import { nextDue, type NextDueSettings } from "../../policy/next-due";
 import { validateObservation, type ObservationProblem } from "../../policy/observation-validation";
-import { settleOperations } from "../../policy/operation-settlement";
-import { applyScheduledChange } from "../../policy/scheduled-change";
+import { CancelAtCycleEndRequestSchema, settleOperations } from "../../policy/operation-settlement";
+import { applyScheduledChange, type ScheduledChangeState } from "../../policy/scheduled-change";
 import { isContributingPhase, isTerminalPhase, mapPhase } from "../../policy/state-mapping";
 import type { ProviderSubscriptionState } from "../../provider/types";
 import { AnomalySubject, BillingAnomalyRepository, type AnomalyInput } from "../anomalies/anomaly.repository";
@@ -253,7 +257,9 @@ async function applyLocked(
     observedCycle: verdict.cycle,
   });
 
-  const cancelFlagCleared = row.cancelAtPeriodEnd && phase === "CANCELLED";
+  const notEffective =
+    row.cancelAtPeriodEnd && phase !== "CANCELLED" ? await checkCancellation(tx, row, phase, observationAt, schedule) : null;
+  const cancelFlagCleared = row.cancelAtPeriodEnd && (phase === "CANCELLED" || notEffective !== null);
   const recoveredFromHalt = row.phase === "HALTED" && phase === "ACTIVE";
 
   // 5a. Operations this observation settles.
@@ -271,11 +277,25 @@ async function applyLocked(
     scheduledCycle: scheduled.next.scheduledCycle,
   });
   let settledOperationId: string | null = null;
+  let scheduledNext: ScheduledChangeState = scheduled.next;
+  let scheduledAdopted = false;
 
   for (const decision of decisions) {
     if (decision.status === "UNPARSEABLE_REQUEST") {
       effects.events.push({ event: "sync.operation_unparseable", fields: { ...log, operationId: decision.operationId } });
       continue;
+    }
+
+    if (decision.status === "SUCCEEDED" && decision.adoptTarget && scheduledNext.scheduledPlan === null) {
+      // An unknown `cycle_end` update proven by the provider flag alone: its target is Kizunia's.
+      scheduledNext = {
+        scheduledPlan: decision.adoptTarget.plan,
+        scheduledCycle: decision.adoptTarget.cycle,
+        scheduledProviderPlanId: catalog.currentProviderPlanId(decision.adoptTarget.plan, decision.adoptTarget.cycle) ?? null,
+        scheduledChangeAt: scheduledNext.scheduledChangeAt ?? state.currentEnd,
+        scheduledByOperationId: decision.operationId,
+      };
+      scheduledAdopted = true;
     }
 
     await tx.billingOperation.update({
@@ -315,7 +335,15 @@ async function applyLocked(
   if (verdict.plan !== row.plan || verdict.cycle !== row.cycle) {
     history.push(entry("PLAN", planLabel(row.plan, row.cycle), planLabel(verdict.plan, verdict.cycle)));
   }
-  if (scheduled.transition !== "UNCHANGED") {
+  if (scheduledAdopted) {
+    history.push(
+      entry(
+        "SCHEDULED_CHANGE",
+        row.scheduledPlan && row.scheduledCycle ? planLabel(row.scheduledPlan, row.scheduledCycle) : null,
+        planLabel(scheduledNext.scheduledPlan!, scheduledNext.scheduledCycle!),
+      ),
+    );
+  } else if (scheduled.transition !== "UNCHANGED") {
     history.push(
       entry(
         "SCHEDULED_CHANGE",
@@ -353,7 +381,7 @@ async function applyLocked(
             startAt: state.startAt,
             chargeAt: state.chargeAt,
             currentPeriodEnd: state.currentEnd,
-            scheduledChangeAt: scheduled.next.scheduledChangeAt,
+            scheduledChangeAt: scheduledNext.scheduledChangeAt,
           },
           schedule,
         );
@@ -374,7 +402,7 @@ async function applyLocked(
       expireBy: state.expireBy,
       endedAt: state.endedAt,
       offerId: state.offerId,
-      ...scheduled.next,
+      ...scheduledNext,
       ...(cancelFlagCleared && { cancelAtPeriodEnd: false }),
       ...(isContributingPhase(phase) && row.firstContributedAt === null && { firstContributedAt: now }),
       ...(recoveredFromHalt && { advisoryPaymentMethod: null, advisoryInternationalCard: null }),
@@ -388,6 +416,10 @@ async function applyLocked(
       ...(due && { syncReason: due.reason }),
     },
   });
+
+  if (notEffective !== null) {
+    await raiseCancellationNotEffective(tx, row, notEffective, { observedPhase: phase, observationAt }, now, effects, log);
+  }
 
   // 7. More than one open subscription for the user in this mode.
   if (phase !== row.phase && row.userId !== null) {
@@ -502,6 +534,78 @@ async function checkOpenSubscriptions(
     effects,
     { userId, mode },
   );
+}
+
+/**
+ * I-4's inputs for one observation of a row whose cycle-end cancel is
+ * requested: the period end the request was sent in (from its operation,
+ * IB-26 item 3) and the newest CHARGE money fact.
+ */
+async function checkCancellation(
+  tx: Prisma.TransactionClient,
+  row: Subscription,
+  observedPhase: SubscriptionPhase,
+  observationAt: Date,
+  schedule: NextDueSettings,
+): Promise<CancellationContradiction | null> {
+  const operation = row.cancelRequestedByOperationId
+    ? await tx.billingOperation.findUnique({ where: { id: row.cancelRequestedByOperationId }, select: { request: true } })
+    : null;
+  const request = operation ? CancelAtCycleEndRequestSchema.safeParse(operation.request) : null;
+  const latestCharge = await tx.billingMoneyFact.findFirst({
+    where: { subscriptionId: row.id, kind: "CHARGE" },
+    orderBy: { occurredAt: "desc" },
+    select: { occurredAt: true },
+  });
+
+  return detectCancellationNotEffective({
+    cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+    observedPhase,
+    observationAt,
+    requestedPeriodEnd: request?.success && request.data.periodEnd ? new Date(request.data.periodEnd) : null,
+    marginSeconds: schedule.checkpointMarginSeconds,
+    cancelRequestedAt: row.cancelRequestedAt,
+    latestChargeAt: latestCharge?.occurredAt ?? null,
+  });
+}
+
+/**
+ * `CANCELLATION_NOT_EFFECTIVE` (I-3/I-4): a requested cycle-end cancellation
+ * did not take, so the customer is still billed or can be again. The caller
+ * has cleared (or never set) `cancelAtPeriodEnd`; this records the anomaly for
+ * a human and alerts. Also raised by a cycle-end cancel whose own response
+ * shows it was sent outside `ACTIVE` (IB-26 item 3).
+ */
+export async function raiseCancellationNotEffective(
+  tx: Prisma.TransactionClient,
+  row: Pick<Subscription, "id" | "userId" | "providerMode" | "providerSubscriptionId" | "cancelRequestedAt">,
+  reason: CancellationContradiction | "SENT_OUTSIDE_ACTIVE",
+  detail: { readonly observedPhase: SubscriptionPhase; readonly observationAt: Date },
+  now: Date,
+  effects: Effects,
+  log: Record<string, unknown>,
+): Promise<void> {
+  await raiseAnomaly(
+    tx,
+    {
+      type: "CANCELLATION_NOT_EFFECTIVE",
+      providerMode: row.providerMode,
+      subjectKey: AnomalySubject.subscription(row.id),
+      userId: row.userId,
+      subscriptionIds: [row.id],
+      providerSubscriptionId: row.providerSubscriptionId,
+      details: {
+        reason,
+        observedPhase: detail.observedPhase,
+        observationAt: detail.observationAt.toISOString(),
+        ...(row.cancelRequestedAt && { cancelRequestedAt: row.cancelRequestedAt.toISOString() }),
+      },
+    },
+    now,
+    effects,
+    log,
+  );
+  effects.events.push({ event: "cancellation.not_effective", fields: { ...log, reason, observedPhase: detail.observedPhase } });
 }
 
 /** Raises an anomaly; alerts only when this call opened it. */

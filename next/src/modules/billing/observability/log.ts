@@ -64,6 +64,8 @@ export const BillingAlertCondition = {
   PROVIDER_MODE_MISMATCH: "PROVIDER_MODE_MISMATCH",
   PROVIDER_SUBSCRIPTION_MISSING: "PROVIDER_SUBSCRIPTION_MISSING",
   TERMINAL_STATE_CONTRADICTED: "TERMINAL_STATE_CONTRADICTED",
+  /** A requested cycle-end cancellation was contradicted (I-4): the customer is still billed, or can be again. */
+  CANCELLATION_NOT_EFFECTIVE: "CANCELLATION_NOT_EFFECTIVE",
   /** A command's outcome is still unknown past the alert threshold: a user may be charged without a record, or blocked. */
   OPERATION_OUTCOME_UNKNOWN: "OPERATION_OUTCOME_UNKNOWN",
   /** The provider refused a create Kizunia expected it to accept (for example a catalog misconfiguration). */

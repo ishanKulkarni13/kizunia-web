@@ -64,6 +64,12 @@ const KEY_SECRET = process.env.RAZORPAY_KEY_SECRET ?? "";
 const BASE_URL = process.env.RAZORPAY_CONTRACT_BASE_URL?.trim() || undefined;
 const TARGET = BASE_URL ?? "https://api.razorpay.com/v1";
 
+// Razorpay ids are a fixed prefix plus 14 characters. An id of any other length
+// is a routing miss at the gateway, not a lookup, so an id meant to be "well
+// formed but unknown" must have exactly this shape.
+const UNKNOWN_SUBSCRIPTION_ID = "sub_AAAAAAAAAAAAAA";
+const UNKNOWN_PAYMENT_ID = "pay_AAAAAAAAAAAAAA";
+
 const PLAN_NAME = "KZ-CONTRACT monthly INR 1";
 const REPORT_PATH =
   process.env.RAZORPAY_CONTRACT_REPORT ?? join(tmpdir(), "kizunia-razorpay-contract-report.json");
@@ -290,22 +296,41 @@ describe.skipIf(!ENABLED)("Razorpay provider contract (TEST mode)", () => {
       });
     });
 
-    it("reports an unknown subscription as NOT_FOUND", async () => {
-      const outcome = await provider.fetchSubscription("sub_ContractDoesNotExist");
-      const raw = await rawGet("/subscriptions/sub_ContractDoesNotExist");
+    // The design expected a 404 (NOT_FOUND) for an ID that does not exist. TEST
+    // showed otherwise (2026-09-25): a WELL-FORMED unknown ID is a 400
+    // BAD_REQUEST_ERROR, which classifies as REJECTED, indistinguishable by status
+    // and code from any other business refusal. The tests below pin what Razorpay
+    // actually does; see razorpay-facts.md and the Phase III open items.
+    it("reports a well-formed unknown subscription as REJECTED (a 400), not NOT_FOUND", async () => {
+      const outcome = await provider.fetchSubscription(UNKNOWN_SUBSCRIPTION_ID);
+      const raw = await rawGet(`/subscriptions/${UNKNOWN_SUBSCRIPTION_ID}`);
 
       observe("unknown-subscription", { class: classOf(outcome), httpStatus: raw.status, body: raw.body });
 
-      // The design expects a 404 to be the not-found signal (status and code only).
-      expect(classOf(outcome)).toBe("NOT_FOUND");
+      expect(raw.status).toBe(400);
+      expect(classOf(outcome)).toBe("REJECTED");
+      expect(outcome).toMatchObject({ providerErrorCode: "BAD_REQUEST_ERROR" });
     });
 
-    it("reports an unknown payment as NOT_FOUND", async () => {
-      const outcome = await provider.fetchAuthorizationPaymentMethod("pay_ContractDoesNotExist");
-      const raw = await rawGet("/payments/pay_ContractDoesNotExist");
+    it("reports a well-formed unknown payment as REJECTED (a 400), not NOT_FOUND", async () => {
+      const outcome = await provider.fetchAuthorizationPaymentMethod(UNKNOWN_PAYMENT_ID);
+      const raw = await rawGet(`/payments/${UNKNOWN_PAYMENT_ID}`);
 
       observe("unknown-payment", { class: classOf(outcome), httpStatus: raw.status, body: raw.body });
 
+      expect(raw.status).toBe(400);
+      expect(classOf(outcome)).toBe("REJECTED");
+    });
+
+    it("reports a MALFORMED id as NOT_FOUND: a gateway routing 404 with no error envelope", async () => {
+      // A wrong-length id never reaches a handler, or authentication, so this is
+      // the only case in which a 404 (NOT_FOUND) is seen.
+      const outcome = await provider.fetchSubscription("sub_ContractMalformedId");
+      const raw = await rawGet("/subscriptions/sub_ContractMalformedId");
+
+      observe("malformed-subscription-id", { class: classOf(outcome), httpStatus: raw.status, body: raw.body });
+
+      expect(raw.status).toBe(404);
       expect(classOf(outcome)).toBe("NOT_FOUND");
     });
   });
@@ -460,8 +485,10 @@ describe.skipIf(!ENABLED)("Razorpay provider contract (TEST mode)", () => {
         catalog: createPlanCatalog([]),
       });
 
-      const outcome = await bad.fetchSubscription("sub_ContractDoesNotExist");
-      const raw = await badClient.request("GET", "/subscriptions/sub_ContractDoesNotExist");
+      // A well-formed id, so the request reaches authentication. (A malformed one
+      // is answered by the gateway with a routing 404 BEFORE authentication.)
+      const outcome = await bad.fetchSubscription(UNKNOWN_SUBSCRIPTION_ID);
+      const raw = await badClient.request("GET", `/subscriptions/${UNKNOWN_SUBSCRIPTION_ID}`);
 
       observe("bad-secret", {
         class: classOf(outcome),
@@ -481,7 +508,7 @@ describe.skipIf(!ENABLED)("Razorpay provider contract (TEST mode)", () => {
         catalog: createPlanCatalog([]),
       });
 
-      const outcome = await impatient.fetchSubscription("sub_ContractDoesNotExist");
+      const outcome = await impatient.fetchSubscription(UNKNOWN_SUBSCRIPTION_ID);
 
       expect(outcome).toMatchObject({ kind: "FAILURE", failureClass: "TIMEOUT" });
       expect(outcome.kind === "FAILURE" && outcome.requestSentAt).toBeInstanceOf(Date);

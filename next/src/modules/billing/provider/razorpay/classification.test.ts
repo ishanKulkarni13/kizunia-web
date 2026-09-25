@@ -123,3 +123,61 @@ describe("classifyHttpFailure — description text is never matched, except CONC
     expect(classifyHttpFailure(503, errorBody("SERVER_ERROR", text)).failureClass).toBe("UNAVAILABLE");
   });
 });
+
+// Bodies observed from the real Razorpay TEST API by the contract suite
+// (2026-09-25). They pin what actually happens, which in two places differs from
+// what the design first assumed.
+describe("classifyHttpFailure — real responses observed against Razorpay TEST", () => {
+  it("classifies an unknown subscription id as REJECTED: a 400, not the 404 the design expected", () => {
+    const body = { error: { code: "BAD_REQUEST_ERROR", description: "The ID provided is invalid or could not be found." } };
+
+    expect(classifyHttpFailure(400, body)).toMatchObject({
+      failureClass: "REJECTED",
+      providerErrorCode: "BAD_REQUEST_ERROR",
+    });
+  });
+
+  it("classifies an unknown payment id as REJECTED", () => {
+    const body = {
+      error: {
+        code: "BAD_REQUEST_ERROR",
+        description: "The id provided does not exist",
+        source: "internal",
+        step: "payment_initiation",
+        reason: "input_validation_failed",
+        metadata: {},
+      },
+    };
+
+    expect(classifyHttpFailure(400, body).failureClass).toBe("REJECTED");
+  });
+
+  it("classifies a bad key as AUTH_FAILURE although its body also says BAD_REQUEST_ERROR: status decides first", () => {
+    const body = { error: { code: "BAD_REQUEST_ERROR", description: "Authentication failed" } };
+
+    expect(classifyHttpFailure(401, body).failureClass).toBe("AUTH_FAILURE");
+  });
+
+  it("classifies a gateway routing miss (a malformed id) as NOT_FOUND, though it has no error envelope", () => {
+    // The only case in which a 404 is seen: a wrong-length id never reaches a handler.
+    const failure = classifyHttpFailure(404, { message: "no Route matched with those values" });
+
+    expect(failure.failureClass).toBe("NOT_FOUND");
+    expect(failure).not.toHaveProperty("providerErrorCode");
+  });
+
+  it("keeps every business refusal observed on a created subscription as REJECTED", () => {
+    for (const description of [
+      "Subscription cannot be cancelled since no billing cycle is going on",
+      "Subscription is not cancellable in cancelled status.",
+      "Can't update subscription when subscription is not in Authenticated or Active state",
+      "No Pending update for this subscription",
+      "Link expire by cannot be lesser than the current time.",
+      "Exceeds the maximum total_count (1200) allowed for the given period and interval",
+    ]) {
+      expect(classifyHttpFailure(400, errorBody("BAD_REQUEST_ERROR", description)).failureClass, description).toBe(
+        "REJECTED",
+      );
+    }
+  });
+});

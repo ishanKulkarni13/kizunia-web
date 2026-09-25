@@ -49,6 +49,7 @@ export interface ClaimedSubscription {
   readonly phase: SubscriptionPhase;
   readonly syncReason: SyncReason | null;
   readonly syncDueAt: Date | null;
+  readonly syncAttempts: number;
 }
 
 const TERMINAL = Prisma.raw(
@@ -58,7 +59,7 @@ const TERMINAL = Prisma.raw(
 
 const RETURNING = Prisma.sql`
   RETURNING s."id", s."providerSubscriptionId", s."providerMode"::text AS "providerMode",
-            s."phase"::text AS "phase", s."syncReason"::text AS "syncReason", s."syncDueAt"`;
+            s."phase"::text AS "phase", s."syncReason"::text AS "syncReason", s."syncDueAt", s."syncAttempts"`;
 
 export interface MarkDueOptions {
   /** Webhook, confirmation or admin: records `syncRequestedAt` so an in-flight fetch cannot swallow it. */

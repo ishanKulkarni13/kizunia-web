@@ -220,3 +220,80 @@ export const SYNC_SCHEDULE_CONFIG = {
     haltedAfterMonthSeconds: envInt("BILLING_HEARTBEAT_HALTED_AFTER_MONTH_SECONDS", 30 * DAY_SECONDS),
   },
 } as const;
+
+// ---------------------------------------------------------------------------
+// Sync batches, leases and the tick budget (C4, IB-10)
+// ---------------------------------------------------------------------------
+
+export const SYNC_CONFIG = {
+  /**
+   * Rows claimed per batch by the `billing:sync` drain. Fetches in a batch run
+   * one after another, so a small batch keeps the lease short and lets the
+   * drain stop close to its deadline.
+   */
+  batchSize: envInt("BILLING_SYNC_BATCH_SIZE", 5),
+
+  /**
+   * How long a claim holds a row. It must outlast the rest of the batch: at
+   * most the drain's deadline plus one provider timeout (10 s + 10 s). A lease
+   * that lapses (a crashed worker) makes the row claimable again.
+   */
+  leaseSeconds: envInt("BILLING_SYNC_LEASE_SECONDS", 60),
+
+  /**
+   * IB-10: the `billing:sync` task's soft wall-clock budget inside the tick,
+   * which has `maxDuration` 60 s and runs its tasks one after another. The
+   * drain starts no new fetch after it, so the worst case is this plus one
+   * provider timeout. The notification drain's default was lowered to 30 s so
+   * the two, the three-day tasks and teardown fit.
+   */
+  wallClockMs: envInt("BILLING_SYNC_WALL_CLOCK_MS", 10_000),
+
+  /**
+   * How many subscriptions one webhook's `after()` syncs at most. An event
+   * names one subscription; the cap bounds a pathological payload, and the
+   * tick drains anything left.
+   */
+  afterSyncCap: envInt("BILLING_WEBHOOK_AFTER_SYNC_CAP", 3),
+
+  /** Unmatched webhook events resolved per `billing:sync` run (IB-24 item 4). */
+  unmatchedBatchSize: envInt("BILLING_UNMATCHED_BATCH_SIZE", 10),
+
+  /**
+   * An unmatched event younger than this is left to the `after()` of the
+   * request that recorded it, so the tick does not race it.
+   */
+  unmatchedGraceSeconds: envInt("BILLING_UNMATCHED_GRACE_SECONDS", 120),
+} as const;
+
+// ---------------------------------------------------------------------------
+// Alert thresholds (IB-11: log-only until Phase IX chooses the channel)
+// ---------------------------------------------------------------------------
+
+export const ALERT_CONFIG = {
+  /**
+   * Consecutive failed syncs of one subscription that raise `SYNC_OVERDUE`
+   * (and again at every multiple). With the default backoff that is a little
+   * over two hours of failures.
+   */
+  syncOverdueAttempts: envInt("BILLING_SYNC_OVERDUE_ATTEMPTS", 6),
+
+  /**
+   * The oldest due subscription waiting longer than this raises `SYNC_OVERDUE`
+   * from the tick. Two days tolerates the daily Hobby cron in TEST (IB-19).
+   */
+  syncOverdueSeconds: envInt("BILLING_SYNC_OVERDUE_SECONDS", 2 * DAY_SECONDS),
+
+  /**
+   * No webhook in this mode for this long, while synced open subscriptions
+   * exist, raises `WEBHOOK_SILENCE`. Monthly renewals make days of silence
+   * normal for a small base; tune once LIVE volume is known (Phase IX).
+   */
+  webhookSilenceSeconds: envInt("BILLING_WEBHOOK_SILENCE_SECONDS", 7 * DAY_SECONDS),
+
+  /** A webhook response slower than this raises `WEBHOOK_LATENCY`: Razorpay's limit is 5 s. */
+  webhookLatencyAlertMs: envInt("BILLING_WEBHOOK_LATENCY_ALERT_MS", 3_000),
+
+  /** Rejected webhook signatures per mode per hour above which `WEBHOOK_SIGNATURE_FAILURES` is raised. */
+  signatureFailuresPerHour: envInt("BILLING_WEBHOOK_SIGNATURE_FAILURES_PER_HOUR", 20),
+} as const;

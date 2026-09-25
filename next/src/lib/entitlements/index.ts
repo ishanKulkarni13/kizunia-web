@@ -8,9 +8,13 @@
  *
  * - `catalog.ts` — the one authoritative plan → capability/quota table (pure)
  * - `validity.ts` — when a grant contributes, derived at read time (pure)
- * - `grant-predicate.ts` — the same rule as a Prisma filter, plus the
- *   set-based `entitledUsersWhere` for batch consumers
- * - `resolver.ts` — async, per-user effective access
+ * - `subscription-contribution.ts` — when a subscription contributes: a
+ *   contributing phase, in the deployment's expected provider mode (pure)
+ * - `billing-mode.ts` — the expected provider mode, independent of credentials
+ * - `grant-predicate.ts` / `subscription-predicate.ts` — the same two rules as
+ *   Prisma filters, plus the set-based `entitledUsersWhere` for batch consumers
+ * - `resolver.ts` — async, per-user effective access: the highest plan across
+ *   grants and subscriptions
  * - `explain.ts` — which sources contributed, and why not
  *
  * This barrel reaches the database. Client components import
@@ -22,6 +26,15 @@
 
 export * from "./catalog";
 export * from "./validity";
+export { expectedBillingMode } from "./billing-mode";
+export {
+  CONTRIBUTING_PHASES,
+  isSubscriptionContributing,
+  subscriptionContribution,
+  type SubscriptionContribution,
+  type SubscriptionFacts,
+} from "./subscription-contribution";
+export { contributingSubscriptionWhere } from "./subscription-predicate";
 export { validGrantWhere, entitledUsersWhere } from "./grant-predicate";
 export {
   resolveEffectiveAccess,
@@ -36,6 +49,7 @@ export {
   type AccessExplanation,
   type ExplainedSource,
   type ExplainedGrantSource,
+  type ExplainedSubscriptionSource,
   type ExplainedDefaultSource,
 } from "./explain";
 

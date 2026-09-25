@@ -1,16 +1,23 @@
 /**
  * Shared entitlement fixtures for integration tests.
  *
- * Phase II gates are exercised by grants — the only access source until
- * Phase III — so every gated feature's tests need the same three moves: give a
- * user a plan, take it away, and clean up. Grants are written directly: these
- * helpers set up the read side, and the grant write path has its own tests
- * (`modules/billing/backend/grants`).
+ * Phase II gates are exercised by grants, the access source that needs no
+ * payment provider, so every gated feature's tests need the same three moves:
+ * give a user a plan, take it away, and clean up. Grants are written directly:
+ * these helpers set up the read side, and the grant write path has its own
+ * tests (`modules/billing/backend/grants`).
  *
- * `EntitlementGrant.user` is `onDelete: Restrict`, so a test must remove its
- * grants before it removes its users — `deleteGrantsForUsers` does that.
+ * Phase III makes subscriptions a second source. `insertSubscription` writes
+ * one directly, in whatever phase and provider mode a test needs, again to set
+ * up the read side (the sync apply path that will write them arrives in
+ * Phase IV).
+ *
+ * `EntitlementGrant.user` and `Subscription.user` are `onDelete: Restrict`, so
+ * a test must remove its grants and subscriptions before it removes its users:
+ * `deleteGrantsForUsers` does both.
  */
-import type { MembershipPlan } from "@/generated/prisma";
+import type { MembershipPlan, ProviderMode, SubscriptionPhase } from "@/generated/prisma";
+import { expectedBillingMode } from "@/lib/entitlements/billing-mode";
 import prisma from "@/lib/prisma";
 
 export interface GrantFixture {
@@ -44,6 +51,31 @@ export async function insertGrant(userId: string, granterId: string, data: Grant
   });
 }
 
+export interface SubscriptionFixture {
+  readonly plan: MembershipPlan;
+  readonly phase: SubscriptionPhase;
+  /** Defaults to the deployment's expected mode, so the row contributes when its phase does. */
+  readonly providerMode?: ProviderMode;
+}
+
+/**
+ * Inserts a subscription row in the given phase, with no provider identifier:
+ * the read side never looks at one. A contributing phase in the expected mode
+ * grants the plan; anything else does not (that is what the tests assert).
+ */
+export async function insertSubscription(userId: string, data: SubscriptionFixture) {
+  return prisma.subscription.create({
+    data: {
+      userId,
+      kind: "STANDARD",
+      providerMode: data.providerMode ?? expectedBillingMode(),
+      plan: data.plan,
+      cycle: "MONTHLY",
+      phase: data.phase,
+    },
+  });
+}
+
 /**
  * Revokes every active grant a user holds, as a downgrade would: the rows stay
  * (revocation is recorded, never a delete), and access falls back to FREE.
@@ -60,12 +92,18 @@ export async function revokeGrants(userId: string, revokerId: string): Promise<v
   });
 }
 
-/** Removes grants and grant audit rows for the given users, so they can be deleted. */
+/**
+ * Removes grants, grant audit rows and subscriptions for the given users, so
+ * they can be deleted. (Named for grants, which came first; it is the one
+ * cleanup hook every gated feature's suite already calls, so it covers the
+ * subscriptions a suite may add without touching each call site.)
+ */
 export async function deleteGrantsForUsers(userIds: readonly string[]): Promise<void> {
   if (userIds.length === 0) return;
 
   await prisma.grantAuditEntry.deleteMany({ where: { targetUserId: { in: [...userIds] } } });
   await prisma.entitlementGrant.deleteMany({ where: { userId: { in: [...userIds] } } });
+  await prisma.subscription.deleteMany({ where: { userId: { in: [...userIds] } } });
 }
 
 /** `deleteGrantsForUsers` for every user whose email starts with `prefix`. */
@@ -78,21 +116,30 @@ export async function deleteGrantsForEmailPrefix(prefix: string): Promise<void> 
   await deleteGrantsForUsers(users.map((user) => user.id));
 }
 
-/**
- * The shared agreement fixtures: users whose grants cover every way a grant
- * can or cannot contribute at `now`. Both the Phase I resolver test and the
- * notification scheduler test assert that the set-based predicate and the
- * per-user resolver agree on exactly these, so the two forms cannot drift.
- */
-export function agreementFixtures(now: Date): ReadonlyArray<{
+export interface AgreementFixture {
   readonly name: string;
   readonly grants: readonly GrantFixture[];
-}> {
+  readonly subscriptions: readonly SubscriptionFixture[];
+}
+
+/**
+ * The shared agreement fixtures: users whose grants and subscriptions cover
+ * every way a source can or cannot contribute at `now`. Both the resolver test
+ * and the notification scheduler test assert that the set-based predicate and
+ * the per-user resolver agree on exactly these, so the two forms cannot drift.
+ *
+ * Subscriptions are in the deployment's expected mode unless a fixture says
+ * otherwise, and they contribute by phase, not by time.
+ */
+export function agreementFixtures(now: Date): readonly AgreementFixture[] {
   const DAY = 24 * 60 * 60 * 1000;
   const ago = (days: number) => new Date(now.getTime() - days * DAY);
   const ahead = (days: number) => new Date(now.getTime() + days * DAY);
 
-  return [
+  const expected = expectedBillingMode();
+  const otherMode: ProviderMode = expected === "LIVE" ? "TEST" : "LIVE";
+
+  const grantFixtures: ReadonlyArray<{ readonly name: string; readonly grants: readonly GrantFixture[] }> = [
     { name: "free", grants: [] },
     { name: "pro", grants: [{ plan: "PRO", validFrom: ago(1) }] },
     { name: "plus", grants: [{ plan: "PRO_PLUS", validFrom: ago(1), validUntil: ahead(5) }] },
@@ -114,6 +161,79 @@ export function agreementFixtures(now: Date): ReadonlyArray<{
       ],
     },
   ];
+
+  const subscriptionFixtures: readonly AgreementFixture[] = [
+    // The three contributing phases...
+    { name: "sub-active-pro", grants: [], subscriptions: [{ plan: "PRO", phase: "ACTIVE" }] },
+    { name: "sub-trialing-plus", grants: [], subscriptions: [{ plan: "PRO_PLUS", phase: "TRIALING" }] },
+    // ...PAST_DUE still contributes: a payment retry must not cost access...
+    { name: "sub-past-due-plus", grants: [], subscriptions: [{ plan: "PRO_PLUS", phase: "PAST_DUE" }] },
+    // ...every other phase grants nothing, whatever plan it names...
+    {
+      name: "sub-non-contributing-phases",
+      grants: [],
+      subscriptions: (
+        [
+          "PROVISIONING",
+          "PENDING_AUTHENTICATION",
+          "HALTED",
+          "PAUSED",
+          "CANCELLED",
+          "EXPIRED",
+          "COMPLETED",
+          "ABANDONED",
+        ] as const
+      ).map((phase) => ({ plan: "PRO_PLUS" as const, phase })),
+    },
+    // ...and a subscription from the other provider mode is not this
+    // deployment's, even in a contributing phase.
+    {
+      name: "sub-wrong-mode",
+      grants: [],
+      subscriptions: [{ plan: "PRO_PLUS", phase: "ACTIVE", providerMode: otherMode }],
+    },
+    // The highest source wins, whichever kind it is (SB-EA-06).
+    {
+      name: "sub-pro-and-grant-plus",
+      grants: [{ plan: "PRO_PLUS", validFrom: ago(1) }],
+      subscriptions: [{ plan: "PRO", phase: "ACTIVE" }],
+    },
+    {
+      name: "grant-pro-and-sub-plus",
+      grants: [{ plan: "PRO", validFrom: ago(1) }],
+      subscriptions: [{ plan: "PRO_PLUS", phase: "ACTIVE" }],
+    },
+    // A higher plan that has ended does not outrank a lower one that has not.
+    {
+      name: "sub-cancelled-plus-and-active-pro",
+      grants: [],
+      subscriptions: [
+        { plan: "PRO_PLUS", phase: "CANCELLED" },
+        { plan: "PRO", phase: "ACTIVE" },
+      ],
+    },
+    // Several open subscriptions: the highest counts.
+    {
+      name: "sub-two-active",
+      grants: [],
+      subscriptions: [
+        { plan: "PRO", phase: "ACTIVE" },
+        { plan: "PRO_PLUS", phase: "PAST_DUE" },
+      ],
+    },
+  ];
+
+  return [...grantFixtures.map((fixture) => ({ ...fixture, subscriptions: [] })), ...subscriptionFixtures];
+}
+
+/** Inserts everything a fixture describes for a user. */
+export async function insertFixtureEntitlements(
+  userId: string,
+  granterId: string,
+  fixture: AgreementFixture,
+): Promise<void> {
+  for (const grant of fixture.grants) await insertGrant(userId, granterId, grant);
+  for (const subscription of fixture.subscriptions) await insertSubscription(userId, subscription);
 }
 
 /**

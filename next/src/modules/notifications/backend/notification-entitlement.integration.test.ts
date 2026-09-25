@@ -30,7 +30,7 @@ import prisma from "@/lib/prisma";
 import {
   agreementFixtures,
   grantPlanWithFixtureGranter,
-  insertGrant,
+  insertFixtureEntitlements,
   revokeGrants,
 } from "@/testing/entitlement-fixtures";
 import { cleanupNotificationTestData } from "@/testing/notification-cleanup";
@@ -156,7 +156,7 @@ describe("scheduler — set-based entitlement filter", () => {
       const user = await createUser(fixture.name);
       users.push({ name: fixture.name, id: user.id });
       await enableBoth(user.id);
-      for (const grant of fixture.grants) await insertGrant(user.id, GRANTER_ID(), grant);
+      await insertFixtureEntitlements(user.id, GRANTER_ID(), fixture);
     }
 
     await schedule();

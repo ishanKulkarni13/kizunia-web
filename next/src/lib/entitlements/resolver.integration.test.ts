@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import prisma from "@/lib/prisma";
-import { agreementFixtures, insertGrant } from "@/testing/entitlement-fixtures";
+import { agreementFixtures, insertFixtureEntitlements, insertGrant } from "@/testing/entitlement-fixtures";
 
 import { Capability, EffectivePlan } from "./catalog";
 import { explainEffectiveAccess } from "./explain";
@@ -24,6 +24,7 @@ async function createUser(suffix: string): Promise<string> {
 
 async function cleanup() {
   await prisma.grantAuditEntry.deleteMany({ where: { targetUserId: { startsWith: PREFIX } } });
+  await prisma.subscription.deleteMany({ where: { userId: { startsWith: PREFIX } } });
   await prisma.entitlementGrant.deleteMany({ where: { userId: { startsWith: PREFIX } } });
   await prisma.user.deleteMany({ where: { id: { startsWith: PREFIX } } });
 }
@@ -168,7 +169,7 @@ describe("entitledUsersWhere (set-based predicate)", () => {
     for (const fixture of fixtures) {
       const userId = await createUser(fixture.name);
       users.push(userId);
-      for (const grant of fixture.grants) await insertGrant(userId, granter, grant);
+      await insertFixtureEntitlements(userId, granter, fixture);
     }
 
     for (const capability of Object.values(Capability)) {

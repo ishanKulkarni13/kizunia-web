@@ -21,7 +21,10 @@ import { RateLimitPolicyId } from "@/lib/rate-limit/policies";
 import { rateLimitService } from "@/lib/rate-limit/service";
 
 import { CreateGrantSchema, ExtendGrantSchema, RevokeGrantSchema } from "../schemas/grant";
+import { AdminCancelSchema } from "../schemas/lifecycle";
 import { AdminSyncService } from "./admin-sync.service";
+import { AdminCancelService } from "./commands/admin-cancel";
+import { parseIdempotencyKey } from "./commands/command-runner";
 import { GrantService } from "./grants/grant.service";
 
 export class BillingAdminController {
@@ -121,6 +124,30 @@ export class BillingAdminController {
       });
 
       return ApiResponse.ok(await service.syncNow(actor, subscriptionId));
+    });
+  }
+
+  /**
+   * `POST /api/v1/admin/billing/subscriptions/{id}/cancel` — an immediate
+   * cancel with a reason (MANAGE_BILLING, checked in the service). Requires an
+   * `Idempotency-Key`; takes the customer's operation slot (409 while one of
+   * theirs is in flight).
+   */
+  static async cancelSubscription(request: NextRequest, subscriptionId: string, service = new AdminCancelService()) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({
+        policyId: RateLimitPolicyId.BILLING_ADMIN_WRITE,
+        request,
+        actor,
+      });
+
+      const idempotencyKey = parseIdempotencyKey(request.headers.get("idempotency-key"));
+      const input = AdminCancelSchema.parse(await request.json().catch(() => ({})));
+      const result = await service.cancel(actor, subscriptionId, input, idempotencyKey);
+
+      return result.status === "CANCELLED" ? ApiResponse.ok(result) : ApiResponse.accepted(result);
     });
   }
 }

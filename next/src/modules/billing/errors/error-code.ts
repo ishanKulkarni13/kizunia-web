@@ -21,6 +21,14 @@ export const BillingErrorCode = {
 
   /** An extension that does not lengthen the grant, or ends in the past. */
   GRANT_EXTENSION_INVALID: "ENTITLEMENT_GRANT_EXTENSION_INVALID",
+
+  /**
+   * Paid billing is unavailable because no payment provider is configured
+   * (provider mode `disabled`, SB-PB-03). Free, grants and every entitlement
+   * gate keep working; only starting or changing a paid subscription is
+   * refused. Returned as HTTP 503.
+   */
+  BILLING_UNAVAILABLE: "BILLING_UNAVAILABLE",
 } as const;
 
 export type BillingErrorCode =

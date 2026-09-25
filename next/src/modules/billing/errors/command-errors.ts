@@ -7,6 +7,8 @@
  */
 import { ConflictError, ExternalServiceError, HttpStatus, ValidationError } from "@/lib/errors";
 
+import type { PlanChangeAdvisory } from "../policy/command-preconditions";
+
 import { BillingErrorCode } from "./error-code";
 
 export class IdempotencyKeyRequiredError extends ValidationError {
@@ -52,12 +54,6 @@ export class CheckoutInProgressError extends ConflictError {
     });
   }
 }
-
-/**
- * Advisory only (SB-LC-07): whether Razorpay is expected to allow a native
- * plan change for the live subscription. It is never enforced by Kizunia.
- */
-export type PlanChangeAdvisory = "NATIVE_UPDATE_POSSIBLE" | "V1_LIMITATION" | "UNKNOWN";
 
 export class SubscriptionExistsError extends ConflictError {
   constructor(planChange: PlanChangeAdvisory) {

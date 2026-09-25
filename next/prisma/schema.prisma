@@ -2315,6 +2315,8 @@ enum HistoryTrigger {
 }
 
 /// `MALFORMED` is alert-only, not an anomaly (IB-17(d)).
+/// `TERMINAL_STATE_CONTRADICTED` (Phase IV): Razorpay reported a subscription
+/// held in a terminal phase in another state; never applied.
 /// `TRIAL_CONVERSION_OVERDUE` is added in Phase VII by its own ALTER TYPE migration.
 enum BillingAnomalyType {
   MULTIPLE_OPEN_SUBSCRIPTIONS
@@ -2324,4 +2326,5 @@ enum BillingAnomalyType {
   PROVIDER_MODE_MISMATCH
   PROVIDER_SUBSCRIPTION_MISSING
   CANCELLATION_NOT_EFFECTIVE
+  TERMINAL_STATE_CONTRADICTED
 }

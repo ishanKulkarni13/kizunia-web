@@ -22,6 +22,14 @@ export class BillingAuthorizer {
     );
   }
 
+  /**
+   * Mutate a customer's billing at the provider (Phase VI: an immediate
+   * cancel). SUPER_ADMIN only (IB-15).
+   */
+  static manageBilling(context: PlatformContext): void {
+    Authorization.assert(PlatformPolicy.can(context, PlatformAction.MANAGE_BILLING));
+  }
+
   /** Read billing state (grants, in Phase I). */
   static viewBilling(context: PlatformContext): void {
     Authorization.assert(PlatformPolicy.can(context, PlatformAction.VIEW_BILLING));

@@ -75,7 +75,8 @@ Kizunia's own phase mapping is in [`../lifecycle/state-mapping.md`](../lifecycle
 `expired` once its `expire_by` passes — the documentation ties `expired` only to `start_at`. The
 transition is **not instantaneous**: with `expire_by` = now + 45 s, the first fetch that no longer
 read `created` came 188 s after `expire_by`, so a subscription past its `expire_by` can still read
-`created` for a few minutes. `expired` is terminal and cannot be cancelled ("Subscription is not
+`created` for a few minutes. **A second run (Phase III contract suite, 2026-09-25) saw 322 s** with a 30 s
+horizon, so the lag varies; the range seen is roughly 3 to 5.5 minutes. `expired` is terminal and cannot be cancelled ("Subscription is not
 cancellable in expired status." — matches the documented error). `expire_by` values as short as 30 s
 in the future were accepted; a past value is rejected with `BAD_REQUEST_ERROR` ("Link expire by cannot
 be lesser than the current time."). Whether a payment made inside the lag window would succeed was
@@ -705,15 +706,16 @@ account-specific rests only on "contact Support to raise it"; it is not stated.
 **OPEN.** Kizunia's actual account limits (ask Razorpay Support before LIVE). Razorpay Support is the
 only source: nothing public gives the numbers, and TEST mode produced no 429 to observe.
 
-**OPEN — NOT VERIFIED (Phase III; how an unknown ID is reported).** Kizunia's provider classifies by HTTP
-status and error code only, with a 404 as `NOT_FOUND` and a `400 BAD_REQUEST_ERROR` as `REJECTED`. The
-documentation lists neither the status nor the code Razorpay returns for a subscription or payment ID that
-does not exist, and none was observed: the opt-in contract suite (`pnpm test:contract`) asserts the design's
-404 and records the status and body it sees, but it has not yet run against Razorpay TEST because the
-available credentials were rejected. **Consequence if it is a 400:** an unknown ID classifies as `REJECTED`,
-not `NOT_FOUND`, and the design's `PROVIDER_SUBSCRIPTION_MISSING` detection needs a separate rule (the
-description text is deliberately never matched, D8/D10). Recorded here so the first real run settles it; see
-the [Phase III open items](../implementation-plan/phase-III/README.md#open-items).
+**TEST-OBSERVED (Phase III contract suite, 2026-09-25; how an unknown ID is reported).** The documentation
+gives neither the status nor the code for an ID that does not exist, and the design assumed a 404
+(`NOT_FOUND`). It is not a 404. A **well-formed** unknown subscription ID is `400 BAD_REQUEST_ERROR`
+("The ID provided is invalid or could not be found."), and a well-formed unknown payment ID is `400
+BAD_REQUEST_ERROR` ("The id provided does not exist", `source: "internal"`, `reason:
+"input_validation_failed"`). Both classify as `REJECTED`, indistinguishable by status and code from any other
+business refusal. A 404 appears only for a **malformed** ID (see [the run below](#phase-iii-contract-suite-2026-09-25)).
+**Consequence:** the design's `NOT_FOUND` class is not produced by a real missing subscription, so
+`PROVIDER_SUBSCRIPTION_MISSING` and `PROVIDER_MODE_MISMATCH` detection needs a rule other than the class. That
+is a Phase IV decision (D12 below); nothing in Phase III depends on it.
 
 ---
 
@@ -840,12 +842,43 @@ either side.** "Safe to rely on" states the conservative reading the current des
 | D3 | The subscription entity has no `payment_method` field | `payment_method`, `halted_at`, `card_mandate_id`, `customer_email`, `customer_contact` are returned | Do not depend on them; read defensively |
 | D4 | Pausing nulls `current_start`, `current_end` and `charge_at` | Only `charge_at` became `null`; `current_start`/`current_end` were retained | Do not derive "paused" from null period fields |
 | D5 | A failed simulated charge moves the subscription to `pending` | The "Failure" click often ended in a *captured* payment and a forward billing cycle; outcomes resolve asynchronously | Read state from the API after every simulated charge |
-| D6 | `expired` is tied to `start_at` only | A `created` subscription without `start_at` expires after `expire_by`, up to ~3 minutes late | Treat `created` past `expire_by` as *probably abandoned*, not yet `expired` |
+| D6 | `expired` is tied to `start_at` only | A `created` subscription without `start_at` expires after `expire_by`, but late: 188 s in one run and 322 s in another (2026-09-24 and 2026-09-25) | Treat `created` past `expire_by` as *probably abandoned*, not yet `expired`, and size the abandon and orphan windows for a lag of at least ~6 minutes |
 | D7 | `paused → cancelled` in the state diagram; Cancel page silent on other states | Consistent for immediate cancel; see D2 for cycle-end | as D1/D2 |
 | D8 | Update refusal for domestic card documented as "you can update only the offer" | Confirmed; descriptions differ by request (see the A4 table) and are all `BAD_REQUEST_ERROR` | Classify by code only, as the current fallback already does |
 | D9 | — | **Unexplained anomaly.** Once, on one subscription, `resume` returned `200`/`active` and an immediate `cancel` returned `400` (body not captured), after which the entity read `paused`. Four attempts to reproduce the sequence — including the same call order — all behaved normally. Separately, one halted subscription was later observed `pending` with a higher `paid_count` while Dashboard actions were being taken | A command's response body is never authoritative; only a subsequent `GET`. This is already the design ([SB-WH-03](../../../project/feature-specification/subscription/decisions/webhooks-and-reliability.md#sb-wh-03--state-changing-events-trigger-an-authoritative-refetch)) |
 | D10 | The Update API page lists refusals for UPI and e-mandate (and state, empty params, `remaining_count`, offer-downgrade) but **not** the domestic-card refusals | Domestic-card updates are refused with "Can't update subscription immediately when card mandate is applicable" / "Only offers can be updated for subscriptions when payment mode is domestic card." (`400 BAD_REQUEST_ERROR`); the four documented refusals that could be reproduced matched in substance, differing only in case, a trailing period, and a `field` value | Classify by HTTP status + code only; never match on the description text (research pass 2, 2026-09-24) |
 | D11 | The Update API page: "Subscriptions with active offers can only be downgraded at the end of the billing cycle." The Subscriptions FAQ: "you cannot downgrade a Subscription when an offer is linked to it… remove the offer… downgrade… then reapply" | Not tested (needs a Dashboard-created Offer and a native downgrade) | Rely on neither reading; treat a downgrade with an offer as *possibly refused* (research pass 2, 2026-09-24). Kizunia never removes and re-links an offer to work around it |
+| D12 | **Nothing.** The documentation gives no status or code for an ID that does not exist. The *design* assumed a `404` (`NOT_FOUND`) | A well-formed unknown subscription or payment ID is `400 BAD_REQUEST_ERROR`, so it classifies as `REJECTED`. A `404` appears only for a malformed ID, as a gateway routing miss with no error envelope (Phase III contract suite, 2026-09-25; see [the run](#phase-iii-contract-suite-2026-09-25)) | Do not rely on `NOT_FOUND` to mean "the subscription is gone". A `fetchSubscription` of an ID Kizunia stored can be refused for no reason other than the ID being unknown (a GET has no other business refusal), so **operation context** can carry the rule without matching the description text. Phase IV rules on it before `PROVIDER_SUBSCRIPTION_MISSING` is built |
+
+## Phase III contract suite (2026-09-25)
+
+**What this section is.** The record of the first run of the opt-in contract suite (`pnpm test:contract`, `next/src/modules/billing/provider/razorpay/razorpay-provider.contract.test.ts`) against Razorpay **TEST** mode with a `rzp_test_` key. It ran through Kizunia's own provider implementation (`RazorpayBillingProvider`), not through ad-hoc requests, so each result also checks that the provider classifies and maps what really comes back. It changed no architecture decision. Results are from the suite's JSON report, and every one **passed as asserted** unless noted.
+
+**Result.** 16 tests passed and 11 were skipped by design: ten check states a customer must authenticate to reach (authenticated, active, pending, halted, paused), which an API-only suite cannot produce and which run only against subscriptions supplied by ID, and one is the slow `expire_by` check, which ran separately (`RAZORPAY_CONTRACT_SLOW=1`, about six minutes) and also passed (last row). The suite created 7 TEST subscriptions and cancelled all of them (one cancel was `REJECTED` because that subscription was already cancelled by the test). It created one TEST plan, `KZ-CONTRACT monthly INR 1` (`plan_TgA8pmzKcTZ24v`), which the suite reuses on later runs; Razorpay has no API to delete plans, so it remains in the TEST account alongside the earlier `KZ-VERIFY …` plans.
+
+| Probe | Observed | Provider class | Notes |
+| --- | --- | --- | --- |
+| Create a subscription (`plan_id`, `total_count` 12, `expire_by` +1 h, `notes`) | `200`; status `created`; `short_url` present; `notes` echoed back as an object; `expire_by` echoed to the second; `paid_count` 0; `has_scheduled_changes` false | `SUCCESS` | The entity carried `auth_attempts`, `change_scheduled_at`, `charge_at`, `created_at`, `current_end`, `current_start`, `customer_contact`, `customer_email`, `customer_id`, `customer_notify`, `end_at`, `ended_at`, `entity`, `expire_by`, `halted_at`, `has_scheduled_changes`, `id`, `notes`, `offer_id`, `paid_count`, `payment_method`, `plan_id`, `quantity`, `remaining_count`, `short_url`, `source`, `start_at`, `status`, `total_count`. `payment_method` and `halted_at` were `null` on an unauthenticated subscription (D3 again: present, undocumented) |
+| `change_scheduled_at` with nothing scheduled | `null` | — | Its type **when a change is scheduled** is still unobserved (the two pages disagree: `now`/`cycle_end` versus a timestamp). Kizunia reads it only when it is a timestamp |
+| Fetch what was created | `200`; identical fields; `current_start` and `charge_at` `null` before authentication | `SUCCESS` | |
+| Unknown **well-formed** subscription ID (`sub_` + 14 characters) | `400 BAD_REQUEST_ERROR`, "The ID provided is invalid or could not be found." | `REJECTED` | **D12.** Not a 404 |
+| Unknown **well-formed** payment ID | `400 BAD_REQUEST_ERROR`, "The id provided does not exist" (`source: internal`, `step: payment_initiation`, `reason: input_validation_failed`) | `REJECTED` | The advisory payment-method read treats any failure as "leave it null", so this changes nothing there |
+| **Malformed** (wrong-length) subscription ID | `404`, body `{"message":"no Route matched with those values"}` (no `error` envelope) | `NOT_FOUND` | A gateway routing miss. It is answered **before authentication**: the same ID with a wrong secret is also a 404. IDs are a fixed prefix plus 14 characters; Kizunia only ever stores IDs Razorpay issued, so it never sends a malformed one |
+| Wrong key secret, on a well-formed route | `401 BAD_REQUEST_ERROR`, "Authentication failed" | `AUTH_FAILURE` | The body's code is also `BAD_REQUEST_ERROR`, so status must decide before code, and it does |
+| Immediate cancel of a `created` subscription | `200`, `cancelled`, confirmed by a re-fetch | `SUCCESS` | D1 confirmed |
+| Cancel the same subscription again | `400`, "Subscription is not cancellable in cancelled status." | `REJECTED` | Terminal |
+| Cycle-end cancel of a `created` subscription | `400`, "Subscription cannot be cancelled since no billing cycle is going on" | `REJECTED` | D2: the exact text |
+| Plan update on a `created` subscription (`now` and `cycle_end`) | `400`, "Can't update subscription when subscription is not in Authenticated or Active state" | `REJECTED` | Same text for both schedules |
+| Cancel a scheduled change when none is pending | `400`, "No Pending update for this subscription" | `REJECTED` | |
+| Create with a past `expire_by` | `400`, "Link expire by cannot be lesser than the current time." | `REJECTED` | |
+| Create with `total_count` 5000 on a monthly plan | `400`, "Exceeds the maximum total_count (1200) allowed for the given period and interval" | `REJECTED` | A13 confirmed for monthly ×1 |
+| List by creation time: `from = to = created_at` | Includes the subscription | — | Both bounds **inclusive**, re-confirmed |
+| List with `from = created_at + 1 s`, and with `to = created_at − 1 s` | Excludes it | — | |
+| List, then read Kizunia's `notes` on the item | `kz_sub`, `kz_op`, `kz_env` present | — | This is how a create whose response was lost is found again |
+| Client timeout of 1 ms | `TIMEOUT` with the request send time | `TIMEOUT` | |
+| `expire_by` lag (`expire_by` 30 s ahead; opt-in slow check, polled every 15 s) | Still `created` until **322 s** after `expire_by`, then `expired`; the cancel that followed was `REJECTED` (terminal) | — | A **second data point**: the 2026-09-24 pass saw 188 s. The lag therefore varies by at least that range (roughly 3 to 5.5 minutes), and the bound seen is under the check's 8-minute limit. Design consequence: a `created` subscription past `expire_by` is *probably abandoned*, never *expired* until the provider says so, and the abandon and orphan windows (C5) must not assume a sub-3-minute lag (D6) |
+
+**Not exercised** (all remain as recorded above): every state that needs a customer to authenticate (`authenticated`, `active`, `pending`, `halted`, `paused`), cycle-end cancellation on an `active` subscription, a native plan change and its `change_scheduled_at`, Offers, UPI (unavailable on TEST, [IB-18](../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)) and every webhook behavior (Phase IV).
 
 ## Research pass 2 (2026-09-24)
 

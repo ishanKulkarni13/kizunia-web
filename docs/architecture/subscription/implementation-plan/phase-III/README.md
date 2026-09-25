@@ -1,6 +1,6 @@
 # Phase III — Billing Persistence, Mode and Provider Boundary
 
-> **Status:** Implemented 2026-09-25, with **one acceptance criterion open**: the contract suite exists and its mechanics are verified, but it has not yet run against Razorpay TEST because the local TEST credentials are rejected (HTTP 401). See [Implementation record](#implementation-record) and [Open items](#open-items).
+> **Status:** Implemented 2026-09-25. Every acceptance criterion is met. The contract suite passed against Razorpay TEST and found that an unknown ID is not a `404` as the design assumed; that is routed to Phase IV as a decision (see [Open items](#open-items)).
 >
 > **Depends on:** Phase I · **Razorpay needed:** TEST keys, for an opt-in contract check only · **Old slices:** S4, S5
 
@@ -132,7 +132,7 @@ Phase I tables are not altered, apart from Prisma back-relations.
 - [x] Every Razorpay call goes through `BudgetedProvider`. The fake can produce every failure class. The ESLint rule rejects Razorpay imports outside the provider directory.
 - [x] The schema matches database design, including the partial indexes and CHECKs, and the migrations follow repository conventions (`ALTER TYPE` in its own migration; this phase adds no enum value to an existing type, so needs none).
 - [x] The resolver counts only contributing subscriptions in the expected mode.
-- [ ] The contract suite passed at least once against TEST, and its results are recorded. **Open:** the suite is written and its mechanics are verified against a local stand-in, but the TEST credentials available were rejected by Razorpay (HTTP 401), so it has not yet run against the real API. Nothing is recorded in [Razorpay facts](../../provider-boundary/razorpay-facts.md) from it.
+- [x] The contract suite passed at least once against TEST, and its results are recorded. It ran on 2026-09-25 against a `rzp_test_` key: 16 tests passed, 11 were skipped by design, and every subscription it created was cancelled. The results are in [Razorpay facts](../../provider-boundary/razorpay-facts.md#phase-iii-contract-suite-2026-09-25).
 
 ## Explicit non-goals
 
@@ -156,7 +156,7 @@ The billing schema and migrations; `instrumentation.ts` mode validation; configu
 
 ## Implementation record
 
-Implemented 2026-09-25 on `feat/suscription`, in 14 commits (listed at the end). Every [acceptance criterion](#acceptance-criteria) is met and covered by a test except the contract-suite run, which is [open](#open-items). Paths are relative to `next/src/`.
+Implemented 2026-09-25 on `feat/suscription`, in 16 commits (listed at the end). Every [acceptance criterion](#acceptance-criteria) is met and covered by a test, and the contract suite has run against Razorpay TEST. Paths are relative to `next/src/`.
 
 **What was built**
 
@@ -219,11 +219,15 @@ Implemented 2026-09-25 on `feat/suscription`, in 14 commits (listed at the end).
 - `parseWebhookEvent` is **not yet on the `BillingProvider` interface.** It needs the webhook event catalog, which belongs to Phase IV; [Phase IV](../phase-IV/README.md) adds it with webhook ingestion. Signature verification, which Phase III lists, is present.
 - The per-priority ceilings, backoff and cooldown values are the [configuration](../../implementation/configuration.md#tuning-values-chosen-in-phase-iii) defaults, chosen conservatively because Razorpay publishes no limits (A12).
 - Two files not in the list above exist because the design needed them: `razorpay/classification.ts` and `provider/disabled-provider.ts`.
+- **A design assumption was wrong, found by the contract suite.** The design classified an unknown ID as `404` `NOT_FOUND`. Razorpay answers a well-formed unknown subscription or payment ID with `400 BAD_REQUEST_ERROR` (`REJECTED`), and a `404` only for a malformed ID (D12 in [Razorpay facts](../../provider-boundary/razorpay-facts.md#documentation-vs-observed-behavior)). The classification code needed no change, since it follows the designed rule, status and code only; what the finding changes is what Phase IV can key missing-subscription detection on.
 
 ### Open items
 
-- **The contract suite has not run against Razorpay TEST.** The credentials available locally are rejected: `GET /plans` and `GET /subscriptions` both return `401 Authentication failed`, reproduced with plain `fetch` so it is not the client. The pair is well formed (a 23-character `rzp_test_` ID and a 24-character secret), so it is probably regenerated or mismatched. To close the criterion, put a current TEST key pair in `next/.env`, run `pnpm test:contract`, and record the observations from its JSON report (the path is printed by the suite; `RAZORPAY_CONTRACT_REPORT` overrides it) in [Razorpay facts](../../provider-boundary/razorpay-facts.md). States that need a customer to authenticate are exercised only against subscriptions supplied by id, and UPI is unavailable on TEST ([IB-18](../../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)).
-- **PROVIDER-DEPENDENT: how Razorpay reports an unknown ID.** The design classifies by status and code only, with 404 as `NOT_FOUND`. The contract suite asserts that. If Razorpay in fact answers `400 BAD_REQUEST_ERROR` ("The id provided does not exist"), an unknown ID classifies as `REJECTED`, and Phase IV must decide how `PROVIDER_SUBSCRIPTION_MISSING` is detected. The suite records the status and body it sees, so the first real run settles it.
+- **A decision for Phase IV: how a missing provider subscription is detected.** Because a real unknown ID is a `REJECTED` `400`, `PROVIDER_SUBSCRIPTION_MISSING` and `PROVIDER_MODE_MISMATCH` cannot be keyed on the `NOT_FOUND` class. The two options are **operation context** (a `fetchSubscription` of an ID Kizunia stored can be refused only because the ID is unknown, since a GET has no other business refusal, so no description text is matched) and a second documented description-match exception, like `CONCURRENT_OPERATION`. Phase IV must rule and record it before the apply path depends on either. Nothing in Phase III does.
+- **Not exercised by the suite, and still open in [Razorpay facts](../../provider-boundary/razorpay-facts.md#phase-iii-contract-suite-2026-09-25):**
+  - every state a customer must authenticate to reach (`authenticated`, `active`, `pending`, `halted`, `paused`). The suite covers them only against subscriptions supplied by ID (`RAZORPAY_CONTRACT_<STATE>_SUBSCRIPTION_ID`), and none were supplied;
+  - cycle-end cancellation on an `active` subscription, a native plan change, and the type of `change_scheduled_at` once a change is scheduled;
+  - UPI, which is unavailable on TEST ([IB-18](../../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)), and every webhook behavior (Phase IV).
 - **The plan and Offer catalogs are empty.** Phase V needs TEST plan IDs to start a checkout, and LIVE plans wait for pricing (B6, a LIVE blocker).
 - **The local `.env` has only `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`.** That is a partial credential set, so `pnpm dev` now stops at boot with a message naming `RAZORPAY_WEBHOOK_SECRET`, as designed. Add that and `RAZORPAY_ACCOUNT_ID`, or clear both, to run the app.
 
@@ -238,12 +242,14 @@ Implemented 2026-09-25 on `feat/suscription`, in 14 commits (listed at the end).
   - `subscription-contribution` (unit) and `subscription-resolver` (integration);
   - `eslint-boundaries`.
 - Extended tests: the resolver and notification-scheduler agreement tests (now on subscription fixtures), `feature-boundaries`, and the store tests.
-- Unit tests: 771 before, 1,105 after. Integration tests: 464 before, 553 after, with the same single failure as before.
+- Unit tests: 771 before, 1,110 after. Integration tests: 464 before, 553 after, with the same single failure as before.
 - Mutation checks, each of which made the intended tests fail and was then reverted:
   - the atomic ceiling and the compare-and-set guard;
   - the send-time stamp and the never-match-description rule;
   - the resolver's mode filter and the set form's subscription branch;
   - the ESLint zones (four separate rules switched off).
+- **The contract suite against Razorpay TEST:** 16 passed and 11 were skipped by design (the ten supplied-state tests and the slow `expire_by` check, recorded separately). Its first run failed two tests, which is how it found the unknown-ID behavior above and showed that two of its own tests used a wrong-length ID (a gateway routing miss, so they did not reach a lookup). Both were corrected to a well-formed ID and to assert the observed behavior, and the observed bodies are pinned as classification unit-test fixtures so the knowledge needs no network.
+- The suite's own mechanics (sequencing, assertions, cleanup, report, and reporting a divergence) were also checked against a throwaway local stand-in, before valid keys were available. That proved the suite works, not anything about Razorpay: a stand-in run is labelled `isRealRazorpay: false` in the report and is never recorded as an observation.
 - `tsc` is clean, and `next build` succeeds. `eslint` over `src` reports the same 32 errors in the same three unrelated files as before this phase, and none from it.
 - A real dev-server start with the incomplete local credentials stops with the configuration error, and with no billing variables it boots, logs `mode.resolved`, and serves.
 
@@ -252,8 +258,8 @@ Implemented 2026-09-25 on `feat/suscription`, in 14 commits (listed at the end).
 - `delivery.integration.test.ts` › "skips a push that is no longer worth sending" still fails on a clean checkout (the Phase I and II records note it).
 - `eslint` still reports the errors in `app/api/auth/[...all]/route.test.ts`, `authorization/platform/context.ts` and `components/ui/vortex.tsx`, which this phase does not touch.
 
-**For Phase IV.** The provider boundary, schema, budget and resolver are ready. Add `parseWebhookEvent` and the event catalog to the boundary, the state mapping and `nextDue` as pure policy, and the sync apply path. Decide how a missing provider subscription is detected once the contract suite has recorded what Razorpay returns for an unknown ID.
+**For Phase IV.** The provider boundary, schema, budget and resolver are ready. Add `parseWebhookEvent` and the event catalog to the boundary, the state mapping and `nextDue` as pure policy, and the sync apply path. First rule on how a missing provider subscription is detected (see [Open items](#open-items)), since the contract suite showed it cannot be the `NOT_FOUND` class.
 
 **Commits**
 
-`a6daff9` schema · `1e4d47e` `incrementIfBelow` · `63f4445` mode and configuration · `38c8028` catalogs · `b87bfc3` provider contract and fake · `b613ece` Razorpay client and provider · `c9a3157` policy · `343f120` `BudgetedProvider` · `ba4be2d` budget wiring and factory · `94d933f` resolver · `7775a75` ESLint boundary · `071803a` dead interface · `15abb71` contract suite · and the documentation commit that adds this record.
+`a6daff9` schema · `1e4d47e` `incrementIfBelow` · `63f4445` mode and configuration · `38c8028` catalogs · `b87bfc3` provider contract and fake · `b613ece` Razorpay client and provider · `c9a3157` policy · `343f120` `BudgetedProvider` · `ba4be2d` budget wiring and factory · `94d933f` resolver · `7775a75` ESLint boundary · `071803a` dead interface · `15abb71` contract suite · `d02eb00` the first record of this phase · `b533bb6` the contract tests pinned to observed behavior · and the commit that records the contract results.

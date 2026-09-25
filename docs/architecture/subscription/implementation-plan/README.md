@@ -1,6 +1,6 @@
 # Subscription & Billing — Phase-wise Implementation Plan
 
-> **Status:** Engineering roadmap — Phases I, II and III implemented (Phase III has one acceptance item open: the contract suite has not yet run against Razorpay TEST); Phase IV is next
+> **Status:** Engineering roadmap — Phases I, II and III implemented; Phase IV is next (it opens with a decision on detecting a missing provider subscription, from a Phase III contract-suite finding)
 >
 > **Created:** 2026-09-24, after the implementation decision close-out
 >

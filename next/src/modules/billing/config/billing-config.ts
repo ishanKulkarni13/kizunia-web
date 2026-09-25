@@ -18,9 +18,10 @@
  * the safe reading under any scope.
  *
  * Phase IV adds C3 (heartbeats and checkpoint margins), C4 (batch sizes), C7
- * (the trial-conversion grace) and the alert thresholds. Values for later
- * phases (`expire_by`, operation lease, trial length, `total_count`) are added
- * by the phase that uses them.
+ * (the trial-conversion grace) and the alert thresholds. Phase V adds C5 (the
+ * checkout `expire_by` horizon and the operation lease), `total_count`, the
+ * outcome-unknown window and orphan discovery. Trial length arrives with
+ * Phase VII.
  *
  * Provider *credentials* are not tuning and are not read here: they are read
  * once, at boot, by `provider/provider-mode.ts`.
@@ -267,6 +268,95 @@ export const SYNC_CONFIG = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Commands (C5, Phase V)
+// ---------------------------------------------------------------------------
+
+export const COMMAND_CONFIG = {
+  /**
+   * C5: how long an `IN_FLIGHT` operation holds the user's slot before it is
+   * presumed dead and becomes `OUTCOME_UNKNOWN`. It must outlast the whole
+   * command — the budget check, one provider timeout (10 s) and the settle
+   * transaction — with a wide margin, because a lease that lapses under a live
+   * command turns a clean result into an unknown one. It is also the send-time
+   * upper bound orphan discovery uses after a crash (IB-25 item 2).
+   */
+  operationLeaseSeconds: envInt("BILLING_OPERATION_LEASE_SECONDS", 60),
+
+  /**
+   * While an `OUTCOME_UNKNOWN` operation younger than this exists, the user's
+   * new commands are refused with "still being confirmed". Long enough for a
+   * webhook, the next sync or an orphan scan to resolve it; after it a stale
+   * unknown no longer blocks the user (an unknown create still does, through
+   * its `PROVISIONING` row, until it is bound or closed).
+   */
+  outcomeUnknownResolutionSeconds: envInt("BILLING_OUTCOME_UNKNOWN_WINDOW_SECONDS", 30 * 60),
+} as const;
+
+// ---------------------------------------------------------------------------
+// Checkout (C5, A13, Phase V)
+// ---------------------------------------------------------------------------
+
+export const CHECKOUT_CONFIG = {
+  /**
+   * C5: how long the customer has to authenticate (`expire_by`). Thirty
+   * minutes covers a card's 3-D Secure or a mandate registration with room to
+   * spare, and keeps an abandoned checkout from lingering. Razorpay moves a
+   * `created` subscription to `expired` minutes late (D6: 188 s and 322 s),
+   * which the reuse margin and the orphan overlap absorb.
+   */
+  expireBySeconds: envInt("BILLING_CHECKOUT_EXPIRE_BY_SECONDS", 30 * 60),
+
+  /**
+   * A pending checkout for the same plan and cycle is handed back only if at
+   * least this long remains before its `expire_by`; otherwise it is treated as
+   * expired (abandoned, then recreated), so a user is never given a checkout
+   * that expires mid-payment (IB-25 item 5).
+   */
+  reuseMinRemainingSeconds: envInt("BILLING_CHECKOUT_REUSE_MIN_REMAINING_SECONDS", 5 * 60),
+
+  /**
+   * `total_count` per cycle: the TEST-observed ceilings (A13: monthly ×1 →
+   * 1200, yearly ×1 → 100), roughly a hundred years of billing, so a
+   * subscription effectively never reaches `completed`. Razorpay requires one.
+   */
+  totalCount: {
+    MONTHLY: envInt("BILLING_TOTAL_COUNT_MONTHLY", 1200),
+    YEARLY: envInt("BILLING_TOTAL_COUNT_YEARLY", 100),
+  },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Orphan discovery (Phase V)
+// ---------------------------------------------------------------------------
+
+export const ORPHAN_CONFIG = {
+  /**
+   * How far each window reaches back before the watermark. The list filter is
+   * inclusive on `created_at` (A5), so the overlap only covers clock skew and a
+   * slow create; it is also the margin after which an unmatched unknown create
+   * is declared `ABANDONED`. Fifteen minutes is well past the ~6 minutes of
+   * provider lag D6 observed: closing too early is how a duplicate could be
+   * created, closing late only delays a retry.
+   */
+  overlapSeconds: envInt("BILLING_ORPHAN_OVERLAP_SECONDS", 15 * 60),
+
+  /** The newest minutes are not scanned, so an in-progress create is not misreported. */
+  settleDelaySeconds: envInt("BILLING_ORPHAN_SETTLE_DELAY_SECONDS", 5 * 60),
+
+  /** Items per list request: Razorpay's maximum. */
+  pageSize: envInt("BILLING_ORPHAN_PAGE_SIZE", 100),
+
+  /** Pages per run; a backlog drains over several runs without skipping anything. */
+  maxPagesPerRun: envInt("BILLING_ORPHAN_MAX_PAGES_PER_RUN", 3),
+
+  /** The task's soft wall-clock budget: no new page starts after it. */
+  wallClockMs: envInt("BILLING_ORPHAN_WALL_CLOCK_MS", 5_000),
+
+  /** The tick runs it at most this often (reconciliation.md: ~900 s). */
+  minIntervalSeconds: envInt("BILLING_ORPHAN_MIN_INTERVAL_SECONDS", 15 * 60),
+} as const;
+
+// ---------------------------------------------------------------------------
 // Alert thresholds (IB-11: log-only until Phase IX chooses the channel)
 // ---------------------------------------------------------------------------
 
@@ -296,4 +386,12 @@ export const ALERT_CONFIG = {
 
   /** Rejected webhook signatures per mode per hour above which `WEBHOOK_SIGNATURE_FAILURES` is raised. */
   signatureFailuresPerHour: envInt("BILLING_WEBHOOK_SIGNATURE_FAILURES_PER_HOUR", 20),
+
+  /**
+   * An operation still `OUTCOME_UNKNOWN` (or a lapsed `IN_FLIGHT`) after this
+   * long raises `OPERATION_OUTCOME_UNKNOWN`: a user may have been charged
+   * without a record, or is blocked. Two days, like `syncOverdueSeconds`,
+   * tolerates the daily Hobby cron in TEST (IB-19); tune for LIVE in Phase IX.
+   */
+  operationOutcomeUnknownSeconds: envInt("BILLING_OPERATION_OUTCOME_UNKNOWN_ALERT_SECONDS", 2 * DAY_SECONDS),
 } as const;

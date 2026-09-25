@@ -64,6 +64,10 @@ export const BillingAlertCondition = {
   PROVIDER_MODE_MISMATCH: "PROVIDER_MODE_MISMATCH",
   PROVIDER_SUBSCRIPTION_MISSING: "PROVIDER_SUBSCRIPTION_MISSING",
   TERMINAL_STATE_CONTRADICTED: "TERMINAL_STATE_CONTRADICTED",
+  /** A command's outcome is still unknown past the alert threshold: a user may be charged without a record, or blocked. */
+  OPERATION_OUTCOME_UNKNOWN: "OPERATION_OUTCOME_UNKNOWN",
+  /** The provider refused a create Kizunia expected it to accept (for example a catalog misconfiguration). */
+  CHECKOUT_REJECTED: "CHECKOUT_REJECTED",
 } as const;
 
 export type BillingAlertCondition = (typeof BillingAlertCondition)[keyof typeof BillingAlertCondition];

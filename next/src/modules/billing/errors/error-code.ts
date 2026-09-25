@@ -38,6 +38,45 @@ export const BillingErrorCode = {
 
   /** The subscription has no provider subscription to fetch yet (still being created). */
   SUBSCRIPTION_NOT_SYNCABLE: "BILLING_SUBSCRIPTION_NOT_SYNCABLE",
+
+  // -- Commands and checkout (Phase V) --------------------------------------
+
+  /** A mutating billing request arrived without a valid `Idempotency-Key` header. */
+  IDEMPOTENCY_KEY_REQUIRED: "BILLING_IDEMPOTENCY_KEY_REQUIRED",
+
+  /** Another billing change for this user is in flight (the per-user slot, IB-6). */
+  OPERATION_IN_PROGRESS: "BILLING_OPERATION_IN_PROGRESS",
+
+  /** The user's last billing change is still being confirmed (a young `OUTCOME_UNKNOWN` operation). */
+  CONFIRMING: "BILLING_CONFIRMING",
+
+  /** A checkout for another plan or cycle is being set up. */
+  CHECKOUT_IN_PROGRESS: "BILLING_CHECKOUT_IN_PROGRESS",
+
+  /**
+   * A paid subscription is live (`TRIALING`, `ACTIVE`, `PAST_DUE`): a second
+   * purchase is refused (SB-UQ-03). `details.planChange` says, advisorily,
+   * whether a native plan change may be offered (SB-LC-07).
+   */
+  SUBSCRIPTION_EXISTS: "BILLING_SUBSCRIPTION_EXISTS",
+
+  /** The subscription is `HALTED` or `PAUSED`: only supersession (Phase VI) can replace it. */
+  SUPERSESSION_REQUIRED: "BILLING_SUPERSESSION_REQUIRED",
+
+  /** An open multiple-subscriptions anomaly: self-serve billing is paused for this user. */
+  CONTACT_SUPPORT: "BILLING_CONTACT_SUPPORT",
+
+  /** The provider request budget or cooldown refused the call; nothing was sent. */
+  BUSY: "BILLING_BUSY",
+
+  /** The provider refused to create the subscription. */
+  CHECKOUT_FAILED: "BILLING_CHECKOUT_FAILED",
+
+  /** Checkout confirmation, but the caller has no checkout awaiting authentication. */
+  NO_PENDING_CHECKOUT: "BILLING_NO_PENDING_CHECKOUT",
+
+  /** A retry of a request that was refused; the recorded refusal is returned, never re-executed. */
+  REQUEST_REFUSED: "BILLING_REQUEST_REFUSED",
 } as const;
 
 export type BillingErrorCode =

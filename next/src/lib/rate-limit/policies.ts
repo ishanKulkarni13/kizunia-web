@@ -120,6 +120,8 @@ export const RateLimitPolicyId = {
   BILLING_ADMIN_READ: "billing-admin:read",
   /** Billing admin writes (creating, extending and revoking entitlement grants). */
   BILLING_ADMIN_WRITE: "billing-admin:write",
+  /** Inbound Razorpay webhook deliveries, by source IP. */
+  BILLING_WEBHOOK: "billing:webhook",
 } as const;
 
 export type RateLimitPolicyId =
@@ -482,5 +484,14 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "closed",
     description:
       "Creating, extending or revoking entitlement grants. A grant is money-equivalent, so the write is rare, deliberate and audited; fails closed.",
+  },
+  [RateLimitPolicyId.BILLING_WEBHOOK]: {
+    id: RateLimitPolicyId.BILLING_WEBHOOK,
+    limit: 600,
+    windowSeconds: 60,
+    subjectStrategies: ["ip"],
+    failureMode: "open",
+    description:
+      "Razorpay webhook deliveries (docs/architecture/subscription/webhooks/security.md). Generous: bursts after an outage or a Dashboard bulk action are legitimate. It only bounds the cost of garbage traffic before signature verification rejects it, and it fails open because a refused genuine delivery is retried by Razorpay but a stuck limiter must never drop billing events.",
   },
 } as const;

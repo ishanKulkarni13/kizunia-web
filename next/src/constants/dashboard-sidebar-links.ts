@@ -1,6 +1,7 @@
 import {
   BellIcon,
   BellRingIcon,
+  CreditCardIcon,
   FileCodeIcon,
   FileUser,
   SlidersHorizontalIcon,
@@ -161,5 +162,11 @@ export const SideBarNavSecondary: SidebarNavSection[] = [
     title: "Competition Preferences",
     url: "/user/competition-preferences",
     icon: SlidersHorizontalIcon,
+  },
+  {
+    id: "billing",
+    title: "Plan & Billing",
+    url: "/user/billing",
+    icon: CreditCardIcon,
   },
 ];

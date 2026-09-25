@@ -63,6 +63,7 @@ Every ruling records who made it. The two kinds are kept apart on purpose:
 | [IB-23](#ib-23--detecting-a-missing-provider-subscription) | Detecting a missing provider subscription | ARCHITECTURE | DECIDED (operation context) | Architecture (autonomous) | IV |
 | [IB-24](#ib-24--phase-iv-implementation-rulings) | Phase IV implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | IV |
 | [IB-25](#ib-25--phase-v-implementation-rulings) | Phase V implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | V |
+| [IB-26](#ib-26--phase-vi-implementation-rulings) | Phase VI implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | VI |
 | IB-8 | Launch enforcement for existing users | — | [Withdrawn](#withdrawn-findings) | — | — |
 
 Phase numbers refer to the [phase-wise implementation plan](../implementation-plan/README.md).
@@ -530,6 +531,8 @@ The UPI behaviors to verify once it is enabled are listed as product open item [
   - consequently, which option(s) the UI offers to a UPI subscriber, and in what order.
 - The UX is settled after the UPI verification in Phase VI. Until then no document records it as permanent.
 
+**Update (2026-09-26, Phase VI).** Both routes are built: the recovery entry point (Razorpay's payment-method change, then "check now") and supersession. The UI offers recovery first, then supersession, for every payment method ([IB-26](#ib-26--phase-vi-implementation-rulings) item 10). No UPI subscription has been authenticated in TEST yet, so the A16 (c)–(f) observations are not made, the status is unchanged (**PROVIDER-DEPENDENT**), and a UPI launch stays blocked. The scenarios to run are U1–U4 in the [Phase VI runbook](../implementation-plan/phase-VI/manual-test.md#upi-a16-cf-ib-18-ib-22).
+
 ### IB-23 — Detecting a missing provider subscription
 
 | | |
@@ -600,6 +603,40 @@ Places where the Phase V design left a detail open, or where the documents and t
 8. **Checkout confirmation takes no `Idempotency-Key`.** It is a read-only trigger with no `BillingOperation` (the command catalog's "none"), like admin sync-now (IB-24 item 11). The signature is verified against the server-held ID only (SB-CM-06); a subscription ID the browser sends is compared for a security log and otherwise ignored.
 9. **Sizing uses the observed `expire_by` lag.** D6 recorded 188 s and 322 s; the orphan overlap (15 min) and the reuse margin are sized for at least ~6 minutes, not the "~3 minutes" some documents still stated (corrected with this phase).
 10. **`billing:command`** is defined with the checkout policies for the runner's other user commands; Phase V has no route that uses it (Phase VI does).
+
+### IB-26 — Phase VI implementation rulings
+
+| | |
+| --- | --- |
+| **Status** | **DECIDED** — 2026-09-26 |
+| **Decided by** | Architecture/technical decision (autonomous); item 6's use of prices follows the owner's choice while planning Phase VI |
+| **Kind** | ARCHITECTURE |
+| **Affects** | Phase VI |
+
+Places where the Phase VI design left a detail open, ruled before the code relied on them. None changes a settled decision; each can be overridden by a new ruling.
+
+1. **A customer cancel is rooted at the cancel itself.** No parent kind fits a cancel that first clears a scheduled change (`SUPERSEDE` and `CHANGE_PLAN` are other commands). As with IB-25 item 4, the root is the command's own kind (`CANCEL_AT_CYCLE_END` or `CANCEL_IMMEDIATELY`), and `CANCEL_SCHEDULED_CHANGE` is a child confirmed by sync. Only a cycle-end cancel (`ACTIVE`) clears a pending change first (SB-LC-08): an immediate cancel ends the subscription, and Razorpay offers Cancel-an-Update only for pending updates on subscriptions it can update. If the cleared change is not observed yet, the root is `REJECTED` with a null `failureClass` (nothing of its own was sent) and the response is `CONFIRMING`.
+2. **A cancel request carries the timing the customer acknowledged** (`CYCLE_END` or `IMMEDIATE`). The server derives the required timing from local state in tx A. If they differ (the phase moved after the page rendered), the request is refused with `409 BILLING_CANCELLATION_TIMING_CHANGED` and the current timing, and nothing is sent. The customer's consent is never silently widened from "ends on `<date>`" to "ends now". The acknowledged timing also selects the root kind, so the runner can take the slot before tx A.
+3. **I-4 inputs.**
+   - The period end in force when a cycle-end cancel was sent is stored on its operation's `request` (`{ atCycleEnd: true, periodEnd }`); I-4 (i) reads it through `cancelRequestedByOperationId`. It does not use the row's `currentPeriodEnd`, which a renewal moves.
+   - The margin for (i) is the checkpoint margin (C3), so the `current_end` checkpoint sync is the observation that decides.
+   - (ii) compares `CHARGE` money facts' `occurredAt` with `cancelRequestedAt` (the cancel's `requestSentAt`).
+   - (iii) is a state check, "`HALTED` while the flag is set", so a flag that meets an already-`HALTED` row is still caught.
+   - A cycle-end cancel whose own response shows a phase other than `ACTIVE` (the phase moved between tx A and the call) never sets the flag: the request was a no-op by I-2, so `CANCELLATION_NOT_EFFECTIVE` is raised at once and the customer is told to try again.
+4. **Composed roots end on their children.** A `SUPERSEDE` or `CHANGE_PLAN` root sends nothing itself, so it has no `requestSentAt`. It ends `SUCCEEDED` when every child it ran succeeded, even when the confirmation is still pending (`CONFIRMING`). Otherwise it ends `REJECTED`, with the failing child's `failureClass` (null when the child's outcome is unknown or it was not confirmed). A replay reads the children, never re-executes.
+5. **Supersession shape.**
+   - A checkout request with `supersedesSubscriptionId` (a Kizunia ID, which `/me/billing` now returns) and `confirmSupersession: true` opens a `SUPERSEDE` root whose `subscriptionId` is the old subscription.
+   - Before the cancel, one targeted priority-1 sync re-checks that the old subscription is still `HALTED` or `PAUSED`: a subscription that recovered on its own is never cancelled.
+   - The create is a `CREATE_SUBSCRIPTION` child whose `notes.kz_op` is the child, so webhook and orphan binding settle it as any create.
+   - Continuation: when the named subscription is observed `CANCELLED`, is not superseded yet, and the user has no open subscription, the next request creates and links in one step.
+   - Any other combination is refused with `409 BILLING_SUPERSESSION_NOT_APPLICABLE`, and the UI refreshes the summary.
+6. **Plan-change direction by price.** SB-LC-02/03 define an upgrade and a downgrade by price ("a cycle change that raises the price"). Each plan-catalog entry therefore carries an optional `amountMinor` (TEST: the IB-24 item 13 values; LIVE: empty until B6). Direction compares the target's current price with the subscribed plan's price. A missing price makes the change `UNAVAILABLE` (`PRICE_UNKNOWN`) rather than guessed; an equal price is refused. The price is configuration for this comparison only, never a billing amount.
+7. **Correcting the advisory from a refusal.** An `UPDATE_PLAN` refused with class `REJECTED` sets `advisoryInternationalCard = false`, and the advisory treats `false` as the V1 limitation whatever the method. A method refusal and a proration-floor or state refusal cannot be told apart by code (D10), and descriptions are never matched (IB-23 item 4). So the correction is conservative: the UI stops offering the change until the advisory is next refreshed (recovery from `HALTED`, or a new authorization).
+8. **Recovery entry points.**
+   - `POST /api/v1/me/billing/recovery` returns `keyId` and the provider subscription ID for the caller's own `HALTED` or `PAUSED` subscription, so `checkout.js` can open Razorpay's card change (`subscription_card_change`). It is the second, and only other, response that carries a provider identifier, to the subscription's owner (IB-25 item 7).
+   - "Check now" is `POST /api/v1/me/billing/sync`: a read-only, priority-2 targeted sync of the caller's own bound open subscription. It has no operation, no `Idempotency-Key`, and the `billing:checkout-confirm` limit, like confirm (IB-25 item 8).
+9. **The admin cancel takes an `Idempotency-Key`** (IB-6 item 4), unique per the *target* user, as every operation is. It is not a customer command, so an open multiple-subscriptions anomaly does not block it (SB-UQ-05). It refuses `PROVISIONING` (nothing to cancel yet) and terminal subscriptions.
+10. **The UPI recovery UX (IB-22) is still PROVIDER-DEPENDENT.** The UI offers recovery first, then supersession (multiple-subscriptions step 1), for every payment method. This is not recorded as the settled UPI answer, and it blocks a UPI launch until the A16 observations are made.
 
 ## Withdrawn findings
 

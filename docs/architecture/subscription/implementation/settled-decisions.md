@@ -93,6 +93,13 @@ The close-out ruled every open IB finding before implementation. The full findin
 | [IB-23](open-decisions.md#ib-23--detecting-a-missing-provider-subscription) | A sync `fetchSubscription` of a stored ID failing `REJECTED` or `NOT_FOUND` raises `PROVIDER_SUBSCRIPTION_MISSING` (operation context); classification unchanged; mode mismatch detected locally only | A GET of a stored ID has no business refusal (D12); no description matching |
 | [IB-24](open-decisions.md#ib-24--phase-iv-implementation-rulings) | `TERMINAL_STATE_CONTRADICTED` anomaly; `parseWebhookEvent` on the interface; `ON CONFLICT` dedupe; unmatched backstop in `billing:sync`; terminal events linked not marked; two self-resolving anomaly types; tick budgets 10 s / 30 s; admin sync-now shape; ngrok for IB-20; TEST plans with temporary TEST-only prices | Details the Phase IV design left open |
 
+### Architecture/technical decisions (autonomous) — 2026-09-25/26 (Phases V and VI)
+
+| Item | Ruling (short form) | Rationale |
+| --- | --- | --- |
+| [IB-25](open-decisions.md#ib-25--phase-v-implementation-rulings) | Tx B composes the apply path; orphan window closes on a send-time bound; local refusals recorded with a null `failureClass`; abandon-then-create rooted at the create; reuse needs time left; orphan discovery last in the tick; provider IDs only in the checkout response; no key for confirm; `billing:command` defined | Details the Phase V design left open |
+| [IB-26](open-decisions.md#ib-26--phase-vi-implementation-rulings) | Cancel rooted at the cancel (scheduled-change child for cycle-end only); acknowledged cancel timing; requested period end on the request, I-4 (iii) as a state check; composed-root status; supersession shape with a pre-cancel re-check; plan-change direction by catalog price; advisory correction on refusal; recovery and "check now" endpoints; admin cancel takes a key; IB-22 still provider-dependent | Details the Phase VI design left open |
+
 ### Still open for the owner (not blocking before the named phase)
 
 - Trial length: before [Phase VII](../implementation-plan/phase-VII/README.md).

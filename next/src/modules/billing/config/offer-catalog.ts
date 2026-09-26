@@ -39,7 +39,12 @@
  * The invariants are checked when this module loads, so a bad entry fails the
  * first test run.
  */
-import type { BillingCycle, CodeEligibility, MembershipPlan, ProviderMode } from "@/generated/prisma";
+import type {
+  BillingCycle,
+  CodeEligibility,
+  MembershipPlan,
+  ProviderMode,
+} from "@/generated/prisma";
 
 import { normalizeCode } from "../policy/code-eligibility";
 
@@ -48,7 +53,10 @@ export interface OfferCatalogEntry {
   readonly marketingCode: string;
   /** The Razorpay Offer ID, e.g. `offer_Abc123`. */
   readonly providerOfferId: string;
-  readonly appliesTo: readonly { readonly plan: MembershipPlan; readonly cycle: BillingCycle }[];
+  readonly appliesTo: readonly {
+    readonly plan: MembershipPlan;
+    readonly cycle: BillingCycle;
+  }[];
   readonly eligibility: CodeEligibility;
   readonly validFrom?: Date;
   readonly validUntil?: Date;
@@ -69,20 +77,37 @@ export interface OfferCatalog {
  *  - an entry applies to at least one plan and cycle;
  *  - a window ends after it starts.
  */
-export function createOfferCatalog(entries: readonly OfferCatalogEntry[]): OfferCatalog {
+export function createOfferCatalog(
+  entries: readonly OfferCatalogEntry[],
+): OfferCatalog {
   const byCode = new Map<string, OfferCatalogEntry>();
   const offerIds = new Set<string>();
 
   for (const entry of entries) {
     const code = normalizeCode(entry.marketingCode);
 
-    if (code.length === 0) throw new Error("An offer catalog entry has an empty marketing code.");
-    if (byCode.has(code)) throw new Error(`Offer catalog: the marketing code ${code} appears twice.`);
-    if (entry.providerOfferId.trim().length === 0) throw new Error(`Offer catalog: ${code} has no Razorpay Offer ID.`);
-    if (offerIds.has(entry.providerOfferId)) throw new Error(`Offer catalog: the Offer ID ${entry.providerOfferId} appears twice.`);
-    if (entry.appliesTo.length === 0) throw new Error(`Offer catalog: ${code} applies to no plan.`);
-    if (entry.validFrom && entry.validUntil && entry.validUntil.getTime() <= entry.validFrom.getTime()) {
-      throw new Error(`Offer catalog: the window of ${code} ends before it starts.`);
+    if (code.length === 0)
+      throw new Error("An offer catalog entry has an empty marketing code.");
+    if (byCode.has(code))
+      throw new Error(
+        `Offer catalog: the marketing code ${code} appears twice.`,
+      );
+    if (entry.providerOfferId.trim().length === 0)
+      throw new Error(`Offer catalog: ${code} has no Razorpay Offer ID.`);
+    if (offerIds.has(entry.providerOfferId))
+      throw new Error(
+        `Offer catalog: the Offer ID ${entry.providerOfferId} appears twice.`,
+      );
+    if (entry.appliesTo.length === 0)
+      throw new Error(`Offer catalog: ${code} applies to no plan.`);
+    if (
+      entry.validFrom &&
+      entry.validUntil &&
+      entry.validUntil.getTime() <= entry.validFrom.getTime()
+    ) {
+      throw new Error(
+        `Offer catalog: the window of ${code} ends before it starts.`,
+      );
     }
 
     offerIds.add(entry.providerOfferId);
@@ -96,7 +121,15 @@ export function createOfferCatalog(entries: readonly OfferCatalogEntry[]): Offer
 }
 
 const CATALOGS: Readonly<Record<ProviderMode, OfferCatalog>> = {
-  TEST: createOfferCatalog([]),
+  TEST: createOfferCatalog([
+    {
+      marketingCode: "WELCOME50",
+      providerOfferId: "offer_TgYJ4Sg8hJpJgN",
+      appliesTo: [{ plan: "PRO", cycle: "MONTHLY" }],
+      eligibility: "ONCE_PER_USER",
+      description: "50% off your first month",
+    },
+  ]),
   LIVE: createOfferCatalog([]),
 };
 
@@ -106,5 +139,7 @@ export function getOfferCatalog(mode: ProviderMode): OfferCatalog {
 
 /** Whether a code exists in any mode's catalog: promotion codes must stay disjoint from Offer codes (SB-CP-01). */
 export function offerCodeExistsInAnyMode(code: string): boolean {
-  return Object.values(CATALOGS).some((catalog) => catalog.findByCode(code) !== undefined);
+  return Object.values(CATALOGS).some(
+    (catalog) => catalog.findByCode(code) !== undefined,
+  );
 }

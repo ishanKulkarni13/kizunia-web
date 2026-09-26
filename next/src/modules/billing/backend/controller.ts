@@ -21,6 +21,7 @@ import { rateLimitService } from "@/lib/rate-limit/service";
 
 import { ConfirmCheckoutSchema, StartCheckoutSchema } from "../schemas/checkout";
 import { CancelSubscriptionSchema, ChangePlanSchema } from "../schemas/lifecycle";
+import { RedeemPromotionSchema } from "../schemas/promotion";
 import { BillingSummaryService } from "./billing-summary.service";
 import { CancelSubscriptionCommand } from "./commands/cancel";
 import { ChangePlanCommand } from "./commands/change-plan";
@@ -29,6 +30,7 @@ import { ConfirmCheckoutService } from "./commands/confirm-checkout";
 import { StartCheckoutCommand, type StartCheckoutDeps } from "./commands/start-checkout";
 import { SupersedeCommand } from "./commands/supersede";
 import { EntitlementsService } from "./entitlements.service";
+import { PromotionService } from "./grants/promotion.service";
 import { RecoveryService } from "./recovery.service";
 
 /** Pending outcomes answer 202; definitive ones 200. */
@@ -97,6 +99,25 @@ export class BillingController {
           : await runner.run(new StartCheckoutCommand(input, checkout), invocation);
 
       return PENDING.has(result.status) ? ApiResponse.accepted(result) : ApiResponse.ok(result);
+    });
+  }
+
+  /**
+   * `POST /api/v1/me/billing/promotions/redeem` — redeem a promotion code for
+   * the session user: free access to its plan for its duration, once per user,
+   * never beyond its limit. No provider is involved, so it needs no
+   * Idempotency-Key and works in every provider mode: a repeat is a
+   * `409 PROMOTION_ALREADY_REDEEMED` (IB-27 item 14).
+   */
+  static async redeemPromotion(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({ policyId: RateLimitPolicyId.PROMOTIONS_REDEEM, request, actor });
+
+      const input = RedeemPromotionSchema.parse(await request.json().catch(() => ({})));
+
+      return ApiResponse.created(await PromotionService.redeem(actor, input));
     });
   }
 

@@ -26,10 +26,12 @@ vi.mock("@/lib/auth/session", () => ({
 import prisma from "@/lib/prisma";
 import { cleanupBillingUsers, createBillingUser } from "@/testing/billing-sync-fixtures";
 
+import { createOfferCatalog } from "../config/offer-catalog";
 import { createPlanCatalog } from "../config/plan-catalog";
 import { FakeBillingProvider } from "../provider/fake-provider";
 import { CommandRunner } from "./commands/command-runner";
 import { BillingController } from "./controller";
+import { createStaticOfferCodeSource } from "./offers/offer-code-source";
 
 const PREFIX = "__vitest_billing_checkout_http__";
 const catalog = createPlanCatalog([{ providerPlanId: "plan_fake_PRO_MONTHLY", plan: "PRO", cycle: "MONTHLY" }]);
@@ -92,14 +94,81 @@ describe("POST /api/v1/me/billing/checkout", () => {
     expect(fake.calls).toHaveLength(0);
   });
 
-  it("refuses fields it cannot honor yet (a trial, a code, another user)", async () => {
-    for (const extra of [{ kind: "TRIAL" }, { code: "WELCOME" }, { userId: "someone-else" }]) {
+  it("refuses every field that would let a client decide a commercial term, and another user", async () => {
+    const tampered = [{ kind: "TRIAL" }, { userId: "someone-else" }, { price: 1 }, { discount: 100 }, { offerId: "offer_abc" }, { startAt: "2027-01-01T00:00:00Z" }, { trialEligible: true }];
+
+    for (const extra of tampered) {
       const response = await BillingController.startCheckout(checkoutRequest({ plan: "PRO", cycle: "MONTHLY", ...extra }), fakeRunner());
 
-      expect(response.status).toBe(422);
+      expect(response.status, JSON.stringify(extra)).toBe(422);
     }
 
     expect(fake.calls).toHaveLength(0);
+  });
+
+  describe("trials and codes (Phase VII)", () => {
+    const offers = createStaticOfferCodeSource(() =>
+      createOfferCatalog([
+        { marketingCode: "WELCOME", providerOfferId: "offer_opaque_http", appliesTo: [{ plan: "PRO", cycle: "MONTHLY" }], eligibility: "ANY_USER", description: "Half off" },
+      ]),
+    );
+    const deps = { keyId: () => "rzp_test_serverkey", offers };
+
+    it("starts a trial: 200 with checkout parameters, a TRIAL subscription, and the start sent from the server's own record", async () => {
+      const { status, body } = await json(await BillingController.startCheckout(checkoutRequest({ plan: "PRO", cycle: "MONTHLY", trial: true }), fakeRunner(), deps));
+
+      expect(status).toBe(200);
+      expect(body.data).toMatchObject({ status: "CHECKOUT_READY" });
+      expect(await prisma.subscription.findFirstOrThrow({ where: { userId: session.actorId } })).toMatchObject({ kind: "TRIAL" });
+      expect((fake.calls.find((call) => call.method === "createSubscription")!.args[0] as { startAt: Date }).startAt).toBeInstanceOf(Date);
+    });
+
+    it("applies a code: the provider's Offer is sent to Razorpay and never returned to the browser", async () => {
+      const { status, body } = await json(await BillingController.startCheckout(checkoutRequest({ plan: "PRO", cycle: "MONTHLY", code: "welcome" }), fakeRunner(), deps));
+
+      expect(status).toBe(200);
+      expect(fake.calls.find((call) => call.method === "createSubscription")!.args[0]).toMatchObject({ offerId: "offer_opaque_http" });
+      expect(JSON.stringify(body)).not.toMatch(/offer_opaque_http|offerId|offer_id/);
+    });
+
+    it("answers 422 BILLING_CODE_INVALID for an unknown code, before any provider call", async () => {
+      const { status, body } = await json(await BillingController.startCheckout(checkoutRequest({ plan: "PRO", cycle: "MONTHLY", code: "NOPE" }), fakeRunner(), deps));
+
+      expect(status).toBe(422);
+      expect(body.error?.code).toBe("BILLING_CODE_INVALID");
+      expect(fake.calls).toHaveLength(0);
+    });
+
+    it("answers 422 BILLING_CODE_NOT_ALLOWED_ON_TRIAL for a code with a trial, before any provider call", async () => {
+      const { status, body } = await json(await BillingController.startCheckout(checkoutRequest({ plan: "PRO", cycle: "MONTHLY", trial: true, code: "WELCOME" }), fakeRunner(), deps));
+
+      expect(status).toBe(422);
+      expect(body.error?.code).toBe("BILLING_CODE_NOT_ALLOWED_ON_TRIAL");
+      expect(fake.calls).toHaveLength(0);
+    });
+
+    it("answers 409 BILLING_TRIAL_NOT_ELIGIBLE once a trial was used, before any provider call", async () => {
+      await prisma.subscription.create({
+        data: { userId: session.actorId, kind: "TRIAL", providerMode: "TEST", plan: "PRO", cycle: "MONTHLY", phase: "CANCELLED", firstContributedAt: new Date() },
+      });
+
+      const { status, body } = await json(await BillingController.startCheckout(checkoutRequest({ plan: "PRO", cycle: "MONTHLY", trial: true }), fakeRunner(), deps));
+
+      expect(status).toBe(409);
+      expect(body.error?.code).toBe("BILLING_TRIAL_NOT_ELIGIBLE");
+      expect(fake.calls).toHaveLength(0);
+    });
+
+    it("is rate-limited per user like every checkout", async () => {
+      const statuses: number[] = [];
+
+      for (let i = 0; i < 11; i += 1) {
+        statuses.push((await BillingController.startCheckout(checkoutRequest({ plan: "PRO", cycle: "MONTHLY", code: `NOPE${i}` }), fakeRunner(), deps)).status);
+      }
+
+      expect(statuses.slice(0, 10).every((status) => status === 422)).toBe(true);
+      expect(statuses[10]).toBe(429);
+    });
   });
 
   it("returns checkout parameters with the server's key id, and the same answer for the same key", async () => {

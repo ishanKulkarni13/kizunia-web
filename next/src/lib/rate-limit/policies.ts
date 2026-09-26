@@ -128,6 +128,8 @@ export const RateLimitPolicyId = {
   BILLING_CHECKOUT_CONFIRM: "billing:checkout-confirm",
   /** Every other self-serve billing command (cancel, change plan; Phase VI). */
   BILLING_COMMAND: "billing:command",
+  /** Redeeming a promotion code (`POST /me/billing/promotions/redeem`; Phase VII). */
+  PROMOTIONS_REDEEM: "promotions:redeem",
 } as const;
 
 export type RateLimitPolicyId =
@@ -526,5 +528,14 @@ export const RATE_LIMIT_POLICIES: Readonly<
     failureMode: "closed",
     description:
       "Other self-serve billing commands (cancel, plan change; Phase VI). Each may cost a provider mutation at priority 1; one user issuing many billing changes in minutes is never legitimate.",
+  },
+  [RateLimitPolicyId.PROMOTIONS_REDEEM]: {
+    id: RateLimitPolicyId.PROMOTIONS_REDEEM,
+    limit: 10,
+    windowSeconds: 10 * 60,
+    subjectStrategies: ["user"],
+    failureMode: "closed",
+    description:
+      "Redeeming a promotion code. A promotion is free paid access, so the code is the secret and this is what bounds guessing: a real user redeems one or two codes and mistypes a few times, so ten per ten minutes is ample. It fails closed, because a stuck limiter must not open a code-guessing window.",
   },
 } as const;

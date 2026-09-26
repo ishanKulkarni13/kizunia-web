@@ -22,12 +22,39 @@ import { rateLimitService } from "@/lib/rate-limit/service";
 
 import { CreateGrantSchema, ExtendGrantSchema, RevokeGrantSchema } from "../schemas/grant";
 import { AdminCancelSchema } from "../schemas/lifecycle";
+import { CreatePromotionSchema } from "../schemas/promotion";
 import { AdminSyncService } from "./admin-sync.service";
 import { AdminCancelService } from "./commands/admin-cancel";
 import { parseIdempotencyKey } from "./commands/command-runner";
 import { GrantService } from "./grants/grant.service";
+import { PromotionService } from "./grants/promotion.service";
 
 export class BillingAdminController {
+  /** `GET /api/v1/admin/billing/promotions` */
+  static async listPromotions(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      // Throttling only: authorization (`MANAGE_ENTITLEMENT_GRANTS`) is in the service.
+      await rateLimitService.enforce({ policyId: RateLimitPolicyId.BILLING_ADMIN_READ, request, actor });
+
+      return ApiResponse.ok(await PromotionService.list(actor, Object.fromEntries(request.nextUrl.searchParams.entries())));
+    });
+  }
+
+  /** `POST /api/v1/admin/billing/promotions` */
+  static async createPromotion(request: NextRequest) {
+    return Route.execute(async () => {
+      const actor = await SessionService.getStrictActor(request);
+
+      await rateLimitService.enforce({ policyId: RateLimitPolicyId.BILLING_ADMIN_WRITE, request, actor });
+
+      const input = CreatePromotionSchema.parse(await request.json().catch(() => ({})));
+
+      return ApiResponse.created(await PromotionService.create(actor, input));
+    });
+  }
+
   /** `GET /api/v1/admin/billing/grants` */
   static async listGrants(request: NextRequest) {
     return Route.execute(async () => {

@@ -156,6 +156,9 @@ export const BillingErrorCode = {
 
   /** Admin: the code already names a promotion or an Offer code (the two are disjoint, SB-CP-01). */
   PROMOTION_CODE_TAKEN: "PROMOTION_CODE_TAKEN",
+
+  /** Admin: the redemption window would end before it starts (or already ended). */
+  PROMOTION_WINDOW_INVALID: "PROMOTION_WINDOW_INVALID",
 } as const;
 
 export type BillingErrorCode =

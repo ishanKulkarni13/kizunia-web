@@ -49,6 +49,16 @@ export class PromotionSoldOutError extends ConflictError {
   }
 }
 
+export class PromotionWindowInvalidError extends ValidationError {
+  constructor() {
+    super({
+      code: BillingErrorCode.PROMOTION_WINDOW_INVALID,
+      status: HttpStatus.UNPROCESSABLE_ENTITY,
+      message: "The redemption window must end in the future, after it starts.",
+    });
+  }
+}
+
 export class PromotionCodeTakenError extends ConflictError {
   constructor() {
     super({

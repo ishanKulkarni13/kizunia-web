@@ -282,6 +282,38 @@ export const BULK_RESYNC_CONFIG = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Payload retention and pruning (Phase VIII, IB-28 item 2)
+// ---------------------------------------------------------------------------
+
+export const RETENTION_CONFIG = {
+  /**
+   * How long a webhook's raw payload is kept, in days. After it,
+   * `billing:payload-prune` nulls the payload (never the row: the event's
+   * metadata, its money facts and history stay). 180 is the B3 default; B3
+   * itself (the retention policy for account removal) stays DEFERRED, so this
+   * is a default, not a decision. Payloads may carry customer contact details,
+   * so they are not kept longer than diagnosis needs them.
+   */
+  payloadRetentionDays: envInt("BILLING_PAYLOAD_RETENTION_DAYS", 180),
+
+  /** Rows nulled per statement: each statement is its own short transaction. */
+  pruneBatchSize: envInt("BILLING_PAYLOAD_PRUNE_BATCH_SIZE", 500),
+
+  /** Statements per run, so one run has a known ceiling (10 000 rows by default); a backlog drains over several runs. */
+  pruneMaxBatchesPerRun: envInt("BILLING_PAYLOAD_PRUNE_MAX_BATCHES", 20),
+
+  /**
+   * The run's soft wall-clock budget inside the tick, which shares its
+   * `maxDuration` with the sync and notification drains (IB-10): no new batch
+   * starts after it. The task runs at most daily and is database-only.
+   */
+  pruneWallClockMs: envInt("BILLING_PAYLOAD_PRUNE_WALL_CLOCK_MS", 3_000),
+
+  /** The tick's minimum gap between runs: daily. */
+  pruneMinIntervalSeconds: envInt("BILLING_PAYLOAD_PRUNE_MIN_INTERVAL_SECONDS", 24 * 60 * 60),
+} as const;
+
+// ---------------------------------------------------------------------------
 // Commands (C5, Phase V)
 // ---------------------------------------------------------------------------
 

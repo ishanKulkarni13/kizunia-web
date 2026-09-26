@@ -18,7 +18,8 @@ import { PostgresRateLimitStore } from "@/lib/rate-limit/postgres.store";
 import { assetReconciliationService } from "@/modules/assets/backend/reconciliation.service";
 import { BillingSyncTask } from "@/modules/billing/backend/reconciliation/billing-sync.task";
 import { OrphanDiscoveryTask } from "@/modules/billing/backend/reconciliation/orphan-discovery.task";
-import { ORPHAN_CONFIG, SYNC_CONFIG } from "@/modules/billing/config/billing-config";
+import { PayloadPruneTask } from "@/modules/billing/backend/reconciliation/payload-prune";
+import { ORPHAN_CONFIG, RETENTION_CONFIG, SYNC_CONFIG } from "@/modules/billing/config/billing-config";
 import { JOB_CONFIG, SCHEDULE_CONFIG } from "@/modules/notifications/config/notification-config";
 import { NotificationTickService } from "@/modules/notifications/backend/notification-tick.service";
 
@@ -76,6 +77,18 @@ export const TICK_TASKS: readonly InternalTask[] = [
     id: "assets:reconcile",
     minIntervalSeconds: THREE_DAYS_SECONDS,
     run: async () => ({ ...(await assetReconciliationService.runAll()) }),
+  },
+
+  /*
+   * Daily, database-only, bounded (Phase VIII): nulls webhook payloads older
+   * than the retention horizon, never deleting a row. It sits before the
+   * orphan scan, which keeps the last slot, and its own budget is small
+   * (3 s, at most once a day) so the tick's worst case above still holds.
+   */
+  {
+    id: "billing:payload-prune",
+    minIntervalSeconds: RETENTION_CONFIG.pruneMinIntervalSeconds,
+    run: () => new PayloadPruneTask().run({ budgetMs: RETENTION_CONFIG.pruneWallClockMs }),
   },
 
   /*

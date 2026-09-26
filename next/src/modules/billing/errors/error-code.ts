@@ -159,6 +159,24 @@ export const BillingErrorCode = {
 
   /** Admin: the redemption window would end before it starts (or already ended). */
   PROMOTION_WINDOW_INVALID: "PROMOTION_WINDOW_INVALID",
+
+  // -- Admin billing tools (Phase VIII) --------------------------------------
+
+  /** Admin: no user matches the id or e-mail address looked up. */
+  BILLING_USER_NOT_FOUND: "BILLING_USER_NOT_FOUND",
+
+  /** Admin: no billing event with that id exists. */
+  BILLING_EVENT_NOT_FOUND: "BILLING_EVENT_NOT_FOUND",
+
+  /** Admin: no anomaly with that id exists. */
+  ANOMALY_NOT_FOUND: "BILLING_ANOMALY_NOT_FOUND",
+
+  /**
+   * Admin: the anomaly is already resolved (by someone else, or by a later
+   * observation). Resolution is recorded once; a re-detection opens a new
+   * anomaly, which is resolved on its own.
+   */
+  ANOMALY_ALREADY_RESOLVED: "BILLING_ANOMALY_ALREADY_RESOLVED",
 } as const;
 
 export type BillingErrorCode =

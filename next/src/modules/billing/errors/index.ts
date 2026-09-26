@@ -5,3 +5,4 @@ export * from "./billing-unavailable-error";
 export * from "./billing-configuration-error";
 export * from "./sync-errors";
 export * from "./command-errors";
+export * from "./admin-errors";

@@ -207,6 +207,36 @@ describe("FakeBillingProvider — the happy path", () => {
     expect(outcome.kind === "SUCCESS" && outcome.value.shortUrl).toContain("fake.invalid");
   });
 
+  it("creates a trial (a future start_at) and an Offer subscription, echoing both, and never a start it was not given (Phase VII)", async () => {
+    const provider = fake();
+    const startAt = new Date("2026-10-09T10:00:00.000Z");
+
+    const trial = await provider.createSubscription({ ...createInput, startAt });
+    const offer = await provider.createSubscription({ ...createInput, offerId: "offer_opaque" });
+    const plain = await provider.createSubscription(createInput);
+
+    expect(trial).toMatchObject({ kind: "SUCCESS", value: { rawStatus: "created", startAt, offerId: null } });
+    expect(offer).toMatchObject({ kind: "SUCCESS", value: { startAt: null, offerId: "offer_opaque" } });
+    expect(plain).toMatchObject({ kind: "SUCCESS", value: { startAt: null, offerId: null } });
+
+    const fetched = trial.kind === "SUCCESS" ? await provider.fetchSubscription(trial.value.providerSubscriptionId) : null;
+
+    expect(fetched).toMatchObject({ kind: "SUCCESS", value: { startAt } });
+  });
+
+  it("refuses a create that carries an Offer as REJECTED when scripted, storing nothing (the misconfigured-Offer path)", async () => {
+    const provider = fake();
+    provider.failNext("createSubscription", "REJECTED", { providerErrorCode: "BAD_REQUEST_ERROR", providerErrorDescription: "Offer Not Found" });
+
+    const refused = await provider.createSubscription({ ...createInput, offerId: "offer_unknown" });
+
+    expect(refused).toMatchObject({ kind: "FAILURE", failureClass: "REJECTED", providerErrorCode: "BAD_REQUEST_ERROR" });
+    expect(await provider.listSubscriptions({ from: new Date(0), to: new Date("2100-01-01") }, { count: 10, skip: 0 })).toMatchObject({
+      kind: "SUCCESS",
+      value: { items: [] },
+    });
+  });
+
   it("fetches what it created, and answers an unknown ID as Razorpay does (REJECTED, D12)", async () => {
     const provider = fake();
     const created = await provider.createSubscription(createInput);

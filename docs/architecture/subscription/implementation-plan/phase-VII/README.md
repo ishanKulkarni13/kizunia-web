@@ -186,7 +186,7 @@ The trial flow and eligibility; the IB-9 grace in the mapping; the Offer catalog
 
 **Verification**
 
-- **Unit tests:** 1,372 after Phase VI, 1,445 now, all passing. New: code and trial eligibility, the acquisition rules of the precondition policy, the trial funnel, the offer catalog invariants, and the checkout and promotion schemas (including every tamper case).
+- **Unit tests:** 1,372 after Phase VI, 1,447 now, all passing. New: code and trial eligibility, the acquisition rules of the precondition policy, the trial funnel, the offer catalog invariants, and the checkout and promotion schemas (including every tamper case), and the fake provider's trial and Offer creation.
 - **Integration tests:** 821 after Phase VI, 954 now. The new suites are:
   - `checkout-acquisition.integration` (53: trial and code checkouts, concurrency, replay, provider refusal and unknown outcome, reuse and abandonment);
   - `trial-lifecycle.integration` (14: TRIALING, the conversion grace at its exact edges, the anomaly, conversion, first-charge failure, cancelling and changing plan during a trial, and stale and racing observations);

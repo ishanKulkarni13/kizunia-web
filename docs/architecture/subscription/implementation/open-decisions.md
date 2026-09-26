@@ -64,6 +64,7 @@ Every ruling records who made it. The two kinds are kept apart on purpose:
 | [IB-24](#ib-24--phase-iv-implementation-rulings) | Phase IV implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | IV |
 | [IB-25](#ib-25--phase-v-implementation-rulings) | Phase V implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | V |
 | [IB-26](#ib-26--phase-vi-implementation-rulings) | Phase VI implementation rulings | ARCHITECTURE | DECIDED | Architecture (autonomous) | VI |
+| [IB-27](#ib-27--phase-vii-decisions-and-implementation-rulings) | Phase VII decisions and implementation rulings (trial length 14 days; static Offer catalog behind a seam) | PRODUCT + ARCHITECTURE | DECIDED | Product decision (owner) + Architecture (autonomous) | VII |
 | IB-8 | Launch enforcement for existing users | — | [Withdrawn](#withdrawn-findings) | — | — |
 
 Phase numbers refer to the [phase-wise implementation plan](../implementation-plan/README.md).
@@ -637,6 +638,42 @@ Places where the Phase VI design left a detail open, ruled before the code relie
    - "Check now" is `POST /api/v1/me/billing/sync`: a read-only, priority-2 targeted sync of the caller's own bound open subscription. It has no operation, no `Idempotency-Key`, and the `billing:checkout-confirm` limit, like confirm (IB-25 item 8).
 9. **The admin cancel takes an `Idempotency-Key`** (IB-6 item 4), unique per the *target* user, as every operation is. It is not a customer command, so an open multiple-subscriptions anomaly does not block it (SB-UQ-05). It refuses `PROVISIONING` (nothing to cancel yet) and terminal subscriptions.
 10. **The UPI recovery UX (IB-22) is still PROVIDER-DEPENDENT.** The UI offers recovery first, then supersession (multiple-subscriptions step 1), for every payment method. This is not recorded as the settled UPI answer, and it blocks a UPI launch until the A16 observations are made.
+
+### IB-27 — Phase VII decisions and implementation rulings
+
+| | |
+| --- | --- |
+| **Status** | **DECIDED** — 2026-09-26 |
+| **Decided by** | Items 1–6: **Product decision (owner)**. Items 7–19: Architecture/technical decision (autonomous) |
+| **Kind** | PRODUCT + ARCHITECTURE |
+| **Affects** | Phase VII |
+
+*Product decisions (owner).* These close the "trial length" owner decision the Phase VII plan required, and the questions the documents left open:
+
+1. **Trial length is 14 days** (`BILLING_TRIAL_LENGTH_DAYS`, default 14). The product specification's 30 days was only an example.
+2. **A trial may be started on any paid plan and any cycle**, and converts to the plan and cycle it was started on.
+3. **A marketing code is refused on a trial checkout**, before any provider call. Whether an Offer and a trial can combine is not documented, and the interaction with the ₹5 authentication charge is unverified. A later ruling can relax it.
+4. **UPI trial fallback.** Trials are offered for every payment method. If UPI AutoPay cannot authorize a future-`start_at` subscription, the provider's refusal surfaces and the customer can use a card. Nothing method-specific is coded. [A16](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support) (b) stays **PROVIDER-DEPENDENT** and the decision is revisited after a UPI TEST run ([IB-18](#ib-18--upi-disabled-on-the-razorpay-test-account)).
+5. **An Offer code is consumed only by a subscription that carried it and reached a contributing phase** (`firstContributedAt` set). An abandoned or expired checkout that carried the code consumes nothing, mirroring the trial rule (SB-LC-11).
+6. **The Offer catalog is static configuration in V1** (Razorpay Dashboard → `offer_id` → `config/offer-catalog.ts` → deploy). This is an **intentional V1 limitation**: adding an Offer needs a code change and a deployment. The catalog is read through one narrow asynchronous seam (`OfferCodeSource`), so a later admin-managed, database-backed catalog replaces only the backing source, not the eligibility, checkout, redemption or entitlement code. No admin Offer UI and no database catalog are built in Phase VII (Phase VIII or later).
+
+*Architecture/technical decisions (autonomous).*
+
+7. **Eligibility is read from the user's Subscription rows in the current provider mode only**, so TEST history never affects a LIVE deployment.
+8. **A trial is consumed** when a `kind = TRIAL` subscription has `firstContributedAt` set (it reached `TRIALING`, `ACTIVE` or `PAST_DUE`).
+9. **`FIRST_PAID_SUBSCRIPTION_ONLY`** means the user has no prior qualifying **Subscription** (one that ever reached `TRIALING`, `ACTIVE` or `PAST_DUE`, the literal SB-CP-04 wording; a trial therefore counts). It is computed from Subscription rows only. Admin grants, promotion grants and effective access are never consulted, so a user whose paid access came only from a grant or promotion is still first-paid eligible.
+10. **A checkout's "same intent" is `(plan, cycle, kind, normalized code)`.** A pending checkout is reused only for the same intent; otherwise it is abandoned and recreated. A `PROVISIONING` row of a different intent is `CHECKOUT_IN_PROGRESS`.
+11. **A recorded local refusal is explained from the operation's stored `request`** (which gains `kind` and `code`), never from the replaying body.
+12. **Refusals for codes** are `CODE_INVALID` (unknown, outside its window or absent in this mode; not told apart to the client), `CODE_NOT_APPLICABLE` (plan or cycle), `CODE_NOT_ELIGIBLE` (the user's history), `CODE_NOT_ALLOWED_ON_TRIAL`, `TRIAL_NOT_ELIGIBLE`. Enumeration is bounded by the closed per-user rate limit.
+13. **A create refused by the provider while an Offer was sent** is `CODE_REFUSED_BY_PROVIDER` and raises a `billing.alert` (a catalog misconfiguration). No description is parsed.
+14. **Promotion redemption takes no `Idempotency-Key`.** It makes no provider call and creates no operation; its natural key is `(promotionId, userId)`. A repeat is `409 PROMOTION_ALREADY_REDEEMED`.
+15. **Promotion redemption is one transaction:** the grant, the redemption, the conditional decrement and the audit entry commit together or not at all. A duplicate (`P2002` on `(promotionId, userId)`), a sold-out promotion (the decrement matched no row), an ineligible user or any error rolls back all of it. Logs are emitted after the commit.
+16. **One authorization chain for promotions.** `MANAGE_ENTITLEMENT_GRANTS` (`SUPER_ADMIN`, IB-15) is the single authoritative permission for creating and listing promotions, enforced in the service through `BillingAuthorizer.manageGrants`. The admin rate-limit policies throttle and authorize nothing. Redeeming needs an authenticated session only, and the subject is always the session user.
+17. **Promotion and Offer codes are disjoint** (SB-CP-01). Creating a promotion whose normalized code exists in the Offer catalog (any mode) is refused, and a test keeps catalog codes unique.
+18. **`TRIAL_CONVERSION_OVERDUE`** is raised by the apply path beside the existing alert. It is never auto-resolved (IB-24 item 6): it is for an operator.
+19. **A promotion's `eligibility`** reuses the same three rules (SB-CP-04). For a promotion `ONCE_PER_USER` and `ANY_USER` coincide, because the unique redemption record already enforces once per user.
+
+**Documents amended.** [`../lifecycle/trials.md`](../lifecycle/trials.md), [`../entitlements/coupons-and-offers.md`](../entitlements/coupons-and-offers.md), [configuration](configuration.md), [settled decisions](settled-decisions.md).
 
 ## Withdrawn findings
 

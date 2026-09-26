@@ -100,9 +100,24 @@ The close-out ruled every open IB finding before implementation. The full findin
 | [IB-25](open-decisions.md#ib-25--phase-v-implementation-rulings) | Tx B composes the apply path; orphan window closes on a send-time bound; local refusals recorded with a null `failureClass`; abandon-then-create rooted at the create; reuse needs time left; orphan discovery last in the tick; provider IDs only in the checkout response; no key for confirm; `billing:command` defined | Details the Phase V design left open |
 | [IB-26](open-decisions.md#ib-26--phase-vi-implementation-rulings) | Cancel rooted at the cancel (scheduled-change child for cycle-end only); acknowledged cancel timing; requested period end on the request, I-4 (iii) as a state check; composed-root status; supersession shape with a pre-cancel re-check; plan-change direction by catalog price; advisory correction on refusal; recovery and "check now" endpoints; admin cancel takes a key; IB-22 still provider-dependent | Details the Phase VI design left open |
 
+### Product decisions (owner) — 2026-09-26 (Phase VII)
+
+| # | Item | Ruling | Amended |
+| --- | --- | --- | --- |
+| U-5 | [IB-27](open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings) items 1–2: trial length and scope | **14 days**, configurable; any paid plan and any cycle; converts to the plan and cycle it started on | [trials](../lifecycle/trials.md) |
+| U-6 | IB-27 item 3: codes on trials | A marketing code is refused on a trial checkout | [coupons and offers](../entitlements/coupons-and-offers.md) |
+| U-7 | IB-27 item 4: UPI trials | Offered to every method; a provider refusal surfaces. A16 (b) stays PROVIDER-DEPENDENT | [trials](../lifecycle/trials.md) |
+| U-8 | IB-27 item 5: when a code is consumed | Only by a subscription that carried it and reached a contributing phase | [coupons and offers](../entitlements/coupons-and-offers.md) |
+| U-9 | IB-27 item 6: Offer provisioning | Static catalog in V1 behind one narrow seam; a DB-backed admin-managed catalog is future work, an intentional limitation | [coupons and offers](../entitlements/coupons-and-offers.md), [configuration](configuration.md) |
+
+### Architecture/technical decisions (autonomous) — 2026-09-26 (Phase VII)
+
+| Item | Ruling (short form) | Rationale |
+| --- | --- | --- |
+| [IB-27](open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings) items 7–19 | Eligibility from Subscription rows in the current mode; `FIRST_PAID_SUBSCRIPTION_ONLY` from Subscription rows only (never grants); same-intent reuse; code refusals; provider-refused Offer alert; promotion redemption is one transaction with no idempotency key; `MANAGE_ENTITLEMENT_GRANTS` is the one promotion permission; disjoint codes; overdue anomaly never auto-resolved | Details the Phase VII design left open |
+
 ### Still open for the owner (not blocking before the named phase)
 
-- Trial length: before [Phase VII](../implementation-plan/phase-VII/README.md).
 - Whether LIVE launch waits for trials, Offers and Promotions: before [Phase IX](../implementation-plan/phase-IX/README.md).
 - Pricing (B6), the alert channel (IB-11) and the tick trigger (IB-19): LIVE blockers, resolved in Phase IX.
 - Enabling UPI with Razorpay Support (IB-18): an external action, needed for UPI verification.

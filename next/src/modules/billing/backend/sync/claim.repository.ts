@@ -67,6 +67,21 @@ export interface MarkDueOptions {
   readonly now: Date;
 }
 
+export interface BulkMarkDueOptions {
+  readonly mode: ProviderMode;
+  /** Only rows last synced before this (or never). */
+  readonly lastSyncedBefore?: Date;
+  readonly now: Date;
+  readonly batchSize: number;
+  readonly dryRun?: boolean;
+  readonly db?: Db;
+}
+
+export interface BulkMarkDueResult {
+  readonly matched: number;
+  readonly marked: number;
+}
+
 export class SyncClaimRepository {
   /** Marks a subscription due at `at` (or keeps an earlier due time). Returns whether a row was marked. */
   static async markDue(
@@ -89,6 +104,80 @@ export class SyncClaimRepository {
         AND "phase" NOT IN ${TERMINAL}`);
 
     return count > 0;
+  }
+
+  /**
+   * Bulk re-sync (Phase VIII, IB-28 item 3): marks every bound, non-terminal
+   * subscription of `mode` due now, optionally only those last synced before
+   * `lastSyncedBefore` (a never-synced row counts as older than any time).
+   * The same rules as `markDue`, in bounded keyset batches of one short
+   * statement each, so no long transaction and no long lock.
+   *
+   *  - `syncDueAt` keeps an earlier due time (`LEAST`).
+   *  - `syncReason` becomes `ADMIN` unless the row is already due: a pending
+   *    `WEBHOOK` or `CHECKOUT_CONFIRM` (drained at priority 2) is never demoted
+   *    to priority 3. `syncRequestedAt` is untouched (not event-driven).
+   *  - Nothing is fetched. The rows drain through `billing:sync`, which spends
+   *    the priority-3 budget.
+   *
+   * `dryRun` counts the matches and writes nothing. `matched` is what the
+   * filter selected; `marked` what was written (a row that turned terminal
+   * between the select and the update is not marked).
+   */
+  static async markDueBulk(options: BulkMarkDueOptions): Promise<BulkMarkDueResult> {
+    const { mode, lastSyncedBefore, now, batchSize } = options;
+    const db = options.db ?? prisma;
+
+    const matching = Prisma.sql`
+      "providerMode" = ${enumLiteral(mode, ProviderModeEnum, "ProviderMode")}
+      AND "providerSubscriptionId" IS NOT NULL
+      AND "phase" NOT IN ${TERMINAL}
+      ${
+        lastSyncedBefore
+          ? Prisma.sql`AND ("lastSyncedAt" IS NULL OR "lastSyncedAt" < ${utc(lastSyncedBefore)})`
+          : Prisma.empty
+      }`;
+
+    if (options.dryRun) {
+      const [row] = await db.$queryRaw<{ count: bigint }[]>(
+        Prisma.sql`SELECT COUNT(*) AS "count" FROM "public"."subscription" WHERE ${matching}`,
+      );
+
+      return { matched: Number(row.count), marked: 0 };
+    }
+
+    let matched = 0;
+    let marked = 0;
+    let cursor = "";
+
+    for (;;) {
+      const batch = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT "id" FROM "public"."subscription"
+        WHERE ${matching} AND "id" > ${cursor}
+        ORDER BY "id" ASC
+        LIMIT ${batchSize}`);
+
+      if (batch.length === 0) break;
+
+      const ids = batch.map((row) => row.id);
+      cursor = ids[ids.length - 1];
+      matched += ids.length;
+
+      // The predicate is repeated so a row that changed since the select is re-checked.
+      marked += await db.$executeRaw(Prisma.sql`
+        UPDATE "public"."subscription"
+        SET "syncReason" = CASE
+              WHEN "syncDueAt" IS NOT NULL AND "syncDueAt" <= ${utc(now)} THEN "syncReason"
+              ELSE ${enumLiteral("ADMIN", SyncReasonEnum, "SyncReason")}
+            END,
+            "syncDueAt" = LEAST(COALESCE("syncDueAt", 'infinity'::timestamp), ${utc(now)}),
+            "updatedAt" = ${utc(now)}
+        WHERE "id" = ANY(${ids}::text[]) AND ${matching}`);
+
+      if (batch.length < batchSize) break;
+    }
+
+    return { matched, marked };
   }
 
   /** Claims up to `limit` due rows of `mode`, oldest due first. */

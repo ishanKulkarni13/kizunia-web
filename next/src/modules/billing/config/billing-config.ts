@@ -268,6 +268,20 @@ export const SYNC_CONFIG = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Admin bulk re-sync (Phase VIII)
+// ---------------------------------------------------------------------------
+
+export const BULK_RESYNC_CONFIG = {
+  /**
+   * Subscriptions marked due per statement. Bulk re-sync only marks rows; the
+   * provider work happens in `billing:sync` at priority 3 within its budget. A
+   * bounded batch keeps each statement, and the row locks it takes, short, so
+   * a large re-sync never holds a long transaction.
+   */
+  batchSize: envInt("BILLING_BULK_RESYNC_BATCH_SIZE", 500),
+} as const;
+
+// ---------------------------------------------------------------------------
 // Commands (C5, Phase V)
 // ---------------------------------------------------------------------------
 

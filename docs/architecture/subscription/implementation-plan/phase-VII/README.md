@@ -259,4 +259,5 @@ In order:
 5. the trial CTA, code entry, redemption card and admin promotions page
 6. the TEST contract cases and the verification script
 7. the runbook, this record and the status updates
+8. the fake provider's trial and Offer creation cases, with the final counts in this record
 

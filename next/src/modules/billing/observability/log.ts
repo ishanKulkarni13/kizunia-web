@@ -70,6 +70,8 @@ export const BillingAlertCondition = {
   OPERATION_OUTCOME_UNKNOWN: "OPERATION_OUTCOME_UNKNOWN",
   /** The provider refused a create Kizunia expected it to accept (for example a catalog misconfiguration). */
   CHECKOUT_REJECTED: "CHECKOUT_REJECTED",
+  /** The provider refused a create that carried an Offer from the catalog (Phase VII): a misconfigured or expired Offer. */
+  OFFER_REJECTED: "OFFER_REJECTED",
 } as const;
 
 export type BillingAlertCondition = (typeof BillingAlertCondition)[keyof typeof BillingAlertCondition];

@@ -4,9 +4,13 @@
  * A Free user's first step to a paid plan
  * (docs/architecture/subscription/implementation/checkout-flow.md). Exactly one
  * Razorpay subscription per intent, whatever the clicks, tabs, timeouts or
- * crashes:
+ * crashes. The intent is a plan and cycle, and (Phase VII) optionally a trial
+ * or an Offer code (`acquisition.ts`); the same table and the same runner serve
+ * all of them, there is no separate trial or code flow:
  *
- *   tx A        the reuse and uniqueness table (policy/command-preconditions.ts):
+ *   tx A        the reuse and uniqueness table (policy/command-preconditions.ts),
+ *               then the trial and code rules, read from the user's own records
+ *               under the same slot:
  *                 CREATE              -> PROVISIONING row, linked to the root
  *                 RETURN_PROVISIONING -> "still being set up" (nothing persisted)
  *                 REUSE_PENDING       -> the stored checkout, no provider call
@@ -29,11 +33,15 @@ import {
   BillingBusyError,
   BillingContactSupportError,
   BillingRequestRefusedError,
-  CheckoutFailedError,
   CheckoutInProgressError,
+  CodeInvalidError,
+  CodeNotAllowedOnTrialError,
+  CodeNotApplicableError,
+  CodeNotEligibleError,
   SubscriptionExistsError,
   SupersessionNotApplicableError,
   SupersessionRequiredError,
+  TrialNotEligibleError,
 } from "../../errors";
 import {
   evaluateCheckoutPreconditions,
@@ -42,6 +50,7 @@ import {
 } from "../../policy/command-preconditions";
 import { CreateSubscriptionRequestSchema, type StartCheckoutInput } from "../../schemas/checkout";
 import { abandonCheckout } from "./abandon-checkout";
+import { Acquisition, type AcquisitionDeps, type AcquisitionRequest } from "./acquisition";
 import { errorForRejection, type BillingCommand, type CommandScope, type Preparation } from "./command-runner";
 import { CheckoutCreate, type CheckoutCreateDeps, type StartCheckoutResult } from "./create-subscription-step";
 import { BillingOperationRepository } from "./operation.repository";
@@ -53,7 +62,7 @@ type StartPlan =
   | { readonly kind: "CREATE"; readonly subscriptionId: string }
   | { readonly kind: "ABANDON_THEN_CREATE"; readonly old: Subscription };
 
-export interface StartCheckoutDeps extends CheckoutCreateDeps {
+export interface StartCheckoutDeps extends CheckoutCreateDeps, AcquisitionDeps {
   readonly reuseMinRemainingSeconds?: number;
 }
 
@@ -63,12 +72,14 @@ export class StartCheckoutCommand implements BillingCommand<StartCheckoutResult,
   readonly request: Prisma.InputJsonValue;
 
   private readonly intent: CheckoutIntent;
+  private readonly acquisition: Acquisition;
   private readonly creator: CheckoutCreate;
   private readonly reuseMinRemainingSeconds: number;
 
-  constructor(input: Pick<StartCheckoutInput, "plan" | "cycle">, deps: StartCheckoutDeps = {}) {
+  constructor(input: Pick<StartCheckoutInput, "plan" | "cycle"> & AcquisitionRequest, private readonly deps: StartCheckoutDeps = {}) {
     this.intent = { plan: input.plan, cycle: input.cycle };
-    this.request = CreateSubscriptionRequestSchema.parse({ plan: input.plan, cycle: input.cycle, kind: "STANDARD" });
+    this.acquisition = new Acquisition(input, deps);
+    this.request = CreateSubscriptionRequestSchema.parse({ ...this.intent, ...this.acquisition.requestFields });
     this.creator = new CheckoutCreate(this.intent, deps);
     this.reuseMinRemainingSeconds = deps.reuseMinRemainingSeconds ?? CHECKOUT_CONFIG.reuseMinRemainingSeconds;
   }
@@ -81,7 +92,7 @@ export class StartCheckoutCommand implements BillingCommand<StartCheckoutResult,
     root: BillingOperation,
   ): Promise<Preparation<StartCheckoutResult, StartPlan>> {
     const open = await loadOpenSubscriptions(tx, scope.actor.userId, scope.mode);
-    const decision = this.decide(open, scope.now());
+    const decision = await this.decide(tx, scope, open, scope.now());
 
     switch (decision.kind) {
       case "CREATE": {
@@ -92,6 +103,7 @@ export class StartCheckoutCommand implements BillingCommand<StartCheckoutResult,
           cycle: this.intent.cycle,
           operationId: root.id,
           now: scope.now(),
+          acquisition: this.acquisition.provisioningFor(decision, scope.now()),
         });
 
         return { kind: "PROCEED", plan: { kind: "CREATE", subscriptionId: subscription.id } };
@@ -139,7 +151,7 @@ export class StartCheckoutCommand implements BillingCommand<StartCheckoutResult,
 
       if (!(await BillingOperationRepository.renewLease(tx, root.id, scope.runner.leaseUntil(now), now))) return null;
 
-      const decision = this.decide(await loadOpenSubscriptions(tx, scope.actor.userId, scope.mode), now);
+      const decision = await this.decide(tx, scope, await loadOpenSubscriptions(tx, scope.actor.userId, scope.mode), now);
 
       if (decision.kind !== "CREATE") return null;
 
@@ -150,6 +162,7 @@ export class StartCheckoutCommand implements BillingCommand<StartCheckoutResult,
         cycle: this.intent.cycle,
         operationId: root.id,
         now,
+        acquisition: this.acquisition.provisioningFor(decision, now),
       });
 
       return subscription.id;
@@ -184,21 +197,29 @@ export class StartCheckoutCommand implements BillingCommand<StartCheckoutResult,
     if (root.status === "NOT_APPLIED" || root.status === "SUCCEEDED") return { status: "CLOSED", operationId: root.id };
 
     // REJECTED.
-    if (root.failureClass !== null) throw errorForRejection(root.failureClass) ?? new CheckoutFailedError();
+    if (root.failureClass !== null) throw await this.creator.rejectionError(root.subscriptionId, root.failureClass);
 
     const children = await BillingOperationRepository.children(root.id);
 
     if (children.length > 0) return { status: "CONFIRMING", operationId: root.id };
 
-    // A local refusal: explained from current state, never re-executed (IB-25 item 3).
-    const decision = this.decide(await loadOpenSubscriptions(prisma, scope.actor.userId, scope.mode), scope.now());
+    // A local refusal: explained from current state, never re-executed (IB-25 item 3), and
+    // from what the operation itself recorded, not from what this retry's body says (IB-27 item 11).
+    const stored = CreateSubscriptionRequestSchema.parse(root.request);
+    const recorded = new StartCheckoutCommand({ plan: stored.plan, cycle: stored.cycle, trial: stored.kind === "TRIAL", code: stored.code }, this.deps);
+    const decision = await recorded.decide(prisma, scope, await loadOpenSubscriptions(prisma, scope.actor.userId, scope.mode), scope.now());
 
     throw decision.kind === "REFUSE" ? checkoutRefusalError(decision) : new BillingRequestRefusedError();
   }
 
   // -- Internals ------------------------------------------------------------
 
-  private decide(open: readonly Subscription[], now: Date): CheckoutDecision {
+  private async decide(
+    db: Prisma.TransactionClient | typeof prisma,
+    scope: CommandScope,
+    open: readonly Subscription[],
+    now: Date,
+  ): Promise<CheckoutDecision> {
     return evaluateCheckoutPreconditions({
       open: open.map(openView),
       // The runner refused an open anomaly before tx A reached here.
@@ -206,6 +227,7 @@ export class StartCheckoutCommand implements BillingCommand<StartCheckoutResult,
       intent: this.intent,
       now,
       reuseMinRemainingSeconds: this.reuseMinRemainingSeconds,
+      acquisition: await this.acquisition.policyInput(db, scope.actor.userId, scope.mode),
     });
   }
 
@@ -258,6 +280,16 @@ export function checkoutRefusalError(decision: Extract<CheckoutDecision, { kind:
       return new SubscriptionExistsError(decision.planChange ?? "UNKNOWN");
     case "SUPERSESSION_NOT_APPLICABLE":
       return new SupersessionNotApplicableError();
+    case "TRIAL_NOT_ELIGIBLE":
+      return new TrialNotEligibleError();
+    case "CODE_NOT_ALLOWED_ON_TRIAL":
+      return new CodeNotAllowedOnTrialError();
+    case "CODE_INVALID":
+      return new CodeInvalidError();
+    case "CODE_NOT_APPLICABLE":
+      return new CodeNotApplicableError();
+    case "CODE_NOT_ELIGIBLE":
+      return new CodeNotEligibleError();
     default:
       return new SupersessionRequiredError();
   }

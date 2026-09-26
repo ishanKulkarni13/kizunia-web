@@ -87,9 +87,13 @@ export class BillingController {
 
       const invocation = { actor: { userId: actor.id, actorKind: "USER" as const, actorUserId: actor.id }, idempotencyKey };
       const { supersedesSubscriptionId } = input;
+      // The trial flag and the code are the only acquisition intents the client sends (IB-27).
       const result =
         supersedesSubscriptionId !== undefined
-          ? await runner.run(new SupersedeCommand({ plan: input.plan, cycle: input.cycle, supersedesSubscriptionId }, checkout), invocation)
+          ? await runner.run(
+              new SupersedeCommand({ plan: input.plan, cycle: input.cycle, trial: input.trial, code: input.code, supersedesSubscriptionId }, checkout),
+              invocation,
+            )
           : await runner.run(new StartCheckoutCommand(input, checkout), invocation);
 
       return PENDING.has(result.status) ? ApiResponse.accepted(result) : ApiResponse.ok(result);

@@ -29,6 +29,23 @@
  *     and not superseded yet                          CREATE + link it (the continuation)
  *   anything else                                     REFUSE  SUPERSESSION_NOT_APPLICABLE
  *
+ * **Trials and codes** (Phase VII, IB-27). After the table above (whose refusals
+ * always win), a decision that would start or hand back a checkout also has to
+ * satisfy the acquisition rules, in this order:
+ *
+ *   a code on a trial checkout                        REFUSE  CODE_NOT_ALLOWED_ON_TRIAL
+ *   a trial, and one was already consumed (SB-LC-11)  REFUSE  TRIAL_NOT_ELIGIBLE
+ *   a code unknown, outside its window, or not sold
+ *     in this mode                                    REFUSE  CODE_INVALID
+ *   a code for another plan or cycle                  REFUSE  CODE_NOT_APPLICABLE
+ *   a code the user's own history rules out           REFUSE  CODE_NOT_ELIGIBLE
+ *
+ * "The same plan" in the table means the same intent: plan, cycle, kind and
+ * code. A pending checkout of another kind or code is abandoned and recreated
+ * (IB-27 item 10). The rules for a code live in `code-eligibility.ts`, for a
+ * trial in `trial-eligibility.ts`; both read only the history the caller
+ * passes in, so this stays pure.
+ *
  * **Cancel** (lifecycle/cancellation.md; IB-1):
  *
  *   ACTIVE                  cycle end (a pending scheduled change is cancelled first, SB-LC-08);
@@ -49,8 +66,15 @@
  * Pure: the caller reads local state inside the transaction that holds the
  * user's operation slot and passes it in.
  */
-import type { BillingCycle, MembershipPlan, SubscriptionPhase } from "@/generated/prisma";
+import type { BillingCycle, MembershipPlan, SubscriptionKind, SubscriptionPhase } from "@/generated/prisma";
 
+import {
+  evaluateOfferCode,
+  NO_BILLING_HISTORY,
+  type BillingHistory,
+  type CodeRefusal,
+  type OfferCodeDefinition,
+} from "./code-eligibility";
 import {
   planChangeAdvisory,
   planChangeStrategy,
@@ -58,6 +82,7 @@ import {
   type PlanChangeUnavailableReason,
   type ScheduleChangeAt,
 } from "./plan-change-strategy";
+import { isTrialEligible } from "./trial-eligibility";
 
 export { planChangeAdvisory, type PlanChangeAdvisory };
 
@@ -67,6 +92,10 @@ export interface OpenSubscriptionView {
   readonly phase: SubscriptionPhase;
   readonly plan: MembershipPlan;
   readonly cycle: BillingCycle;
+  /** `STANDARD` or `TRIAL`, as recorded at creation (SB-LC-10). */
+  readonly kind: SubscriptionKind;
+  /** The normalized Offer code the subscription was created with, if any. */
+  readonly marketingCode: string | null;
   readonly expireBy: Date | null;
   /** UX only (SB-LC-07): feeds the advisory, never a rule of its own. */
   readonly advisoryPaymentMethod: string | null;
@@ -85,6 +114,28 @@ export interface CheckoutIntent {
   readonly cycle: BillingCycle;
 }
 
+/**
+ * What else the checkout asks for beyond a plan and cycle (Phase VII): a trial
+ * and/or an Offer code, with the facts the acquisition rules decide from. The
+ * caller loads `offer` and `history` in the transaction that holds the user's
+ * slot; the policy stays pure. Absent = a plain standard checkout.
+ */
+export interface CheckoutAcquisition {
+  readonly kind: SubscriptionKind;
+  /** The normalized code the customer entered, or `null`. */
+  readonly code: string | null;
+  /** The catalog's definition of `code` in the current mode; `null` when it is unknown. */
+  readonly offer: OfferCodeDefinition | null;
+  readonly history: BillingHistory;
+}
+
+export const STANDARD_ACQUISITION: CheckoutAcquisition = {
+  kind: "STANDARD",
+  code: null,
+  offer: null,
+  history: NO_BILLING_HISTORY,
+};
+
 // ---------------------------------------------------------------------------
 // Checkout (and supersession)
 // ---------------------------------------------------------------------------
@@ -94,11 +145,17 @@ export type CheckoutRefusal =
   | "CHECKOUT_IN_PROGRESS"
   | "SUBSCRIPTION_EXISTS"
   | "SUPERSESSION_REQUIRED"
-  | "SUPERSESSION_NOT_APPLICABLE";
+  | "SUPERSESSION_NOT_APPLICABLE"
+  | "TRIAL_NOT_ELIGIBLE"
+  | "CODE_NOT_ALLOWED_ON_TRIAL"
+  | CodeRefusal;
 
 export type CheckoutDecision =
-  /** `linkPredecessor`: a supersession's continuation; the new record supersedes that one. */
-  | { readonly kind: "CREATE"; readonly linkPredecessor?: string }
+  /**
+   * `linkPredecessor`: a supersession's continuation; the new record supersedes that one.
+   * `offer`: the code's definition, when the checkout carries a code that passed.
+   */
+  | { readonly kind: "CREATE"; readonly linkPredecessor?: string; readonly offer?: OfferCodeDefinition }
   | { readonly kind: "RETURN_PROVISIONING"; readonly subscription: OpenSubscriptionView }
   | { readonly kind: "REUSE_PENDING"; readonly subscription: OpenSubscriptionView }
   | { readonly kind: "ABANDON_THEN_CREATE"; readonly subscription: OpenSubscriptionView }
@@ -129,10 +186,48 @@ export interface CheckoutPreconditionInput {
   readonly reuseMinRemainingSeconds: number;
   /** Present only when the customer explicitly confirmed replacing an on-hold subscription. */
   readonly supersedes?: SupersessionInput | null;
+  /** A trial and/or an Offer code; absent for a plain standard checkout. */
+  readonly acquisition?: CheckoutAcquisition;
 }
 
 export function evaluateCheckoutPreconditions(input: CheckoutPreconditionInput): CheckoutDecision {
+  return applyAcquisition(evaluateOpenSubscriptions(input), input);
+}
+
+/** The trial and code rules, applied to any decision that would start or return a checkout. */
+function applyAcquisition(decision: CheckoutDecision, input: CheckoutPreconditionInput): CheckoutDecision {
+  switch (decision.kind) {
+    case "CREATE":
+    case "SUPERSEDE_THEN_CREATE":
+    case "ABANDON_THEN_CREATE":
+    case "REUSE_PENDING":
+      break;
+    default:
+      return decision;
+  }
+
+  const acquisition = input.acquisition ?? STANDARD_ACQUISITION;
+
+  if (acquisition.kind === "TRIAL") {
+    // Whether an Offer and a trial can combine is not documented (IB-27 item 3).
+    if (acquisition.code !== null) return { kind: "REFUSE", reason: "CODE_NOT_ALLOWED_ON_TRIAL" };
+    if (!isTrialEligible(acquisition.history)) return { kind: "REFUSE", reason: "TRIAL_NOT_ELIGIBLE" };
+
+    return decision;
+  }
+
+  if (acquisition.code === null) return decision;
+
+  const evaluation = evaluateOfferCode(acquisition.offer, input.intent, acquisition.history, input.now);
+
+  if (evaluation.kind === "REFUSE") return { kind: "REFUSE", reason: evaluation.reason };
+
+  return decision.kind === "CREATE" ? { ...decision, offer: evaluation.definition } : decision;
+}
+
+function evaluateOpenSubscriptions(input: CheckoutPreconditionInput): CheckoutDecision {
   const { open, hasOpenAnomaly, intent } = input;
+  const acquisition = input.acquisition ?? STANDARD_ACQUISITION;
 
   if (hasOpenAnomaly || open.length > 1) return { kind: "REFUSE", reason: "CONTACT_SUPPORT" };
 
@@ -142,16 +237,21 @@ export function evaluateCheckoutPreconditions(input: CheckoutPreconditionInput):
 
   if (!current) return { kind: "CREATE" };
 
-  const samePlan = current.plan === intent.plan && current.cycle === intent.cycle;
+  // The same intent: plan, cycle, kind and code (IB-27 item 10).
+  const sameIntent =
+    current.plan === intent.plan &&
+    current.cycle === intent.cycle &&
+    current.kind === acquisition.kind &&
+    current.marketingCode === acquisition.code;
 
   switch (current.phase) {
     case "PROVISIONING":
-      return samePlan
+      return sameIntent
         ? { kind: "RETURN_PROVISIONING", subscription: current }
         : { kind: "REFUSE", reason: "CHECKOUT_IN_PROGRESS" };
 
     case "PENDING_AUTHENTICATION":
-      return samePlan && isResumable(current, input.now, input.reuseMinRemainingSeconds)
+      return sameIntent && isResumable(current, input.now, input.reuseMinRemainingSeconds)
         ? { kind: "REUSE_PENDING", subscription: current }
         : { kind: "ABANDON_THEN_CREATE", subscription: current };
 
@@ -358,8 +458,17 @@ export interface PlanChangeOption extends CheckoutIntent {
 export interface AllowedBillingActions {
   /** Plans a checkout may be started for now. Empty when billing is unavailable or refused. */
   readonly startCheckout: readonly CheckoutIntent[];
-  /** A pending checkout the user can go back to (the same plan returns it, no new provider call). */
-  readonly resumeCheckout: CheckoutIntent | null;
+  /**
+   * A pending checkout the user can go back to: asking for the same intent
+   * (plan, cycle, kind and code) returns it, with no new provider call.
+   */
+  readonly resumeCheckout: (CheckoutIntent & { readonly kind: SubscriptionKind; readonly code: string | null }) | null;
+  /**
+   * A trial the user can start now (Phase VII): `null` when they may not (one
+   * was already consumed, a subscription is open, billing is unavailable) or
+   * no trial is on offer. The server's flag; the UI never decides eligibility.
+   */
+  readonly trial: { readonly lengthDays: number; readonly plans: readonly CheckoutIntent[] } | null;
   /** Why a checkout would be refused, when every plan is refused for the same reason. */
   readonly refusal: CheckoutRefusal | null;
   readonly planChange: PlanChangeAdvisory | null;
@@ -376,8 +485,12 @@ export interface AllowedBillingActions {
   readonly recover: boolean;
 }
 
-export interface AllowedActionsInput extends Omit<CheckoutPreconditionInput, "intent" | "supersedes"> {
+export interface AllowedActionsInput extends Omit<CheckoutPreconditionInput, "intent" | "supersedes" | "acquisition"> {
   readonly billingAvailable: boolean;
+  /** The user's own subscription history (trial eligibility); absent = none. */
+  readonly history?: BillingHistory;
+  /** The configured trial length; absent = no trial is on offer. */
+  readonly trialLengthDays?: number;
   /** What is for sale in the current mode (catalog entries that are not retired). */
   readonly purchasable: readonly CheckoutIntent[];
   /** An operation for the user is in flight or unresolved: nothing may start now. */
@@ -394,6 +507,7 @@ export const NO_BILLING_ACTIONS: AllowedBillingActions = {
   changePlan: null,
   supersede: null,
   recover: false,
+  trial: null,
 };
 
 export function allowedBillingActions(input: AllowedActionsInput): AllowedBillingActions {
@@ -401,7 +515,21 @@ export function allowedBillingActions(input: AllowedActionsInput): AllowedBillin
 
   const pending = input.operationPending;
   const decisions = input.purchasable.map((intent) => ({ intent, decision: evaluateCheckoutPreconditions({ ...input, intent }) }));
-  const resumable = decisions.find(({ decision }) => decision.kind === "REUSE_PENDING");
+  // A pending checkout is resumable as the intent it was created with (a trial or a code included).
+  const resumable =
+    input.open.length === 1 && !input.hasOpenAnomaly && isResumable(input.open[0], input.now, input.reuseMinRemainingSeconds) ? input.open[0] : undefined;
+  const trialPlans =
+    input.trialLengthDays === undefined
+      ? []
+      : input.purchasable.filter((intent) => {
+          const { kind } = evaluateCheckoutPreconditions({
+            ...input,
+            intent,
+            acquisition: { ...STANDARD_ACQUISITION, kind: "TRIAL", history: input.history ?? NO_BILLING_HISTORY },
+          });
+
+          return kind === "CREATE" || kind === "ABANDON_THEN_CREATE" || kind === "REUSE_PENDING";
+        });
   const refusals = decisions.flatMap(({ decision }) => (decision.kind === "REFUSE" ? [decision] : []));
   const allRefusedAlike =
     refusals.length > 0 &&
@@ -425,7 +553,8 @@ export function allowedBillingActions(input: AllowedActionsInput): AllowedBillin
       : decisions
           .filter(({ decision }) => decision.kind === "CREATE" || decision.kind === "ABANDON_THEN_CREATE" || decision.kind === "REUSE_PENDING")
           .map(({ intent }) => intent),
-    resumeCheckout: resumable?.intent ?? null,
+    resumeCheckout: resumable ? { plan: resumable.plan, cycle: resumable.cycle, kind: resumable.kind, code: resumable.marketingCode } : null,
+    trial: pending || trialPlans.length === 0 || input.trialLengthDays === undefined ? null : { lengthDays: input.trialLengthDays, plans: trialPlans },
     refusal: allRefusedAlike ? refusals[0].reason : null,
     planChange: refusals.find((refusal) => refusal.planChange)?.planChange ?? null,
     cancel,

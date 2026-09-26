@@ -15,14 +15,26 @@
  *                                  cancellationNotEffective  a requested cycle-end cancellation
  *                                               did not take (I-4): the customer is still subscribed
  *   allowedActions               from the same precondition policy the commands use (checkout,
- *                                cancel with its timing, plan changes, supersession, recovery)
+ *                                cancel with its timing, plan changes, supersession, recovery,
+ *                                and whether a trial may be started: a server flag)
+ *   subscription.kind/trialEndsAt/offer
+ *                                the trial and the applied Offer code as Kizunia records them; the
+ *                                offer is the catalog's description text, never an amount, and the
+ *                                provider's Offer identifier is never returned (SB-PB-04)
  *
  * Read-only and cheap: this is what the UI polls while "finishing up", never
  * Razorpay. It carries no provider identifier (SB-PB-04; the subscription's
  * `id` is Kizunia's own, which a supersession request names), and in disabled
  * mode it still answers, with `billingAvailable: false`.
  */
-import type { BillingCycle, MembershipPlan, ProviderMode, Subscription, SubscriptionPhase } from "@/generated/prisma";
+import type {
+  BillingCycle,
+  MembershipPlan,
+  ProviderMode,
+  Subscription,
+  SubscriptionKind,
+  SubscriptionPhase,
+} from "@/generated/prisma";
 import type { StrictAuthorizationActor } from "@/authorization";
 import prisma from "@/lib/prisma";
 
@@ -37,8 +49,10 @@ import {
 import { getProviderMode, type ResolvedProviderMode } from "../provider/provider-mode";
 import { AnomalySubject } from "./anomalies/anomaly.repository";
 import { BillingOperationRepository } from "./commands/operation.repository";
+import { loadBillingHistory } from "./commands/billing-history";
 import { hasScheduledChange, loadOpenSubscriptions, openView, planPricesFor } from "./commands/provisioning";
 import { EntitlementsService, type MyEntitlementsDTO } from "./entitlements.service";
+import { getOfferCodeSource, type OfferCodeSource } from "./offers/offer-code-source";
 
 export interface BillingSubscriptionDTO {
   /** Kizunia's ID (never the provider's): what a supersession request names. */
@@ -46,6 +60,12 @@ export interface BillingSubscriptionDTO {
   readonly phase: SubscriptionPhase;
   readonly plan: MembershipPlan;
   readonly cycle: BillingCycle;
+  /** `TRIAL` for a subscription started as a free trial (SB-LC-10). */
+  readonly kind: SubscriptionKind;
+  /** While `TRIALING`: when the trial ends and the first real charge is due. */
+  readonly trialEndsAt: string | null;
+  /** The Offer code the subscription was created with, and what the customer was told it does. */
+  readonly offer: { readonly code: string; readonly description: string | null } | null;
   readonly currentPeriodEnd: string | null;
   /** Kizunia's record that a cycle-end cancellation was *requested* (never an observation, I-1). */
   readonly cancelAtPeriodEnd: boolean;
@@ -78,6 +98,9 @@ export interface BillingSummaryDeps {
   readonly resolvedMode?: () => ResolvedProviderMode;
   readonly now?: () => Date;
   readonly catalog?: PlanCatalog;
+  readonly offers?: OfferCodeSource;
+  /** Overrides the configured trial length (tests). */
+  readonly trialLengthDays?: number;
 }
 
 const PLANS: readonly MembershipPlan[] = ["PRO", "PRO_PLUS"];
@@ -120,7 +143,7 @@ export class BillingSummaryService {
     const now = this.now();
     const unknownSince = new Date(now.getTime() - COMMAND_CONFIG.outcomeUnknownResolutionSeconds * 1000);
 
-    const [open, pendingOperations, hasOpenAnomaly] = await Promise.all([
+    const [open, pendingOperations, hasOpenAnomaly, history] = await Promise.all([
       loadOpenSubscriptions(prisma, userId, mode),
       prisma.billingOperation.count({
         where: {
@@ -131,9 +154,11 @@ export class BillingSummaryService {
         },
       }),
       BillingOperationRepository.hasOpenMultipleSubscriptionsAnomaly(prisma, userId, mode),
+      loadBillingHistory(prisma, userId, mode),
     ]);
 
     const current = pickCurrent(open);
+    const offer = current?.marketingCode ? await (this.deps.offers ?? getOfferCodeSource()).findByCode(mode, current.marketingCode) : null;
     const catalog = this.deps.catalog ?? getPlanCatalog(mode);
     const notEffective = current
       ? await prisma.billingAnomaly.count({
@@ -150,6 +175,8 @@ export class BillingSummaryService {
       purchasable: purchasableIntents(catalog),
       operationPending: pendingOperations > 0,
       prices: planPricesFor(catalog, open.length === 1 ? open[0] : undefined),
+      history,
+      trialLengthDays: this.deps.trialLengthDays ?? CHECKOUT_CONFIG.trialLengthDays,
     });
 
     return {
@@ -158,6 +185,10 @@ export class BillingSummaryService {
         phase: current.phase,
         plan: current.plan,
         cycle: current.cycle,
+        kind: current.kind,
+        trialEndsAt: current.kind === "TRIAL" && current.phase === "TRIALING" ? (current.startAt?.toISOString() ?? null) : null,
+        // The code is the customer's own; the description is the catalog's text, null once the catalog no longer carries it.
+        offer: current.marketingCode ? { code: current.marketingCode, description: offer?.description ?? null } : null,
         currentPeriodEnd: current.currentPeriodEnd?.toISOString() ?? null,
         cancelAtPeriodEnd: current.cancelAtPeriodEnd,
         cancelRequestedAt: current.cancelAtPeriodEnd ? (current.cancelRequestedAt?.toISOString() ?? null) : null,

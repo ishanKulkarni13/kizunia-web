@@ -40,6 +40,8 @@ function sub(phase: SubscriptionPhase, overrides: Partial<OpenSubscriptionView> 
     phase,
     plan: "PRO",
     cycle: "MONTHLY",
+    kind: "STANDARD",
+    marketingCode: null,
     expireBy: new Date(NOW.getTime() + 20 * MINUTE),
     advisoryPaymentMethod: null,
     advisoryInternationalCard: null,
@@ -350,7 +352,7 @@ describe("allowedBillingActions — the summary view of the same rules", () => {
   it("offers the pending checkout to resume, other plans through abandon-then-create, and its abandonment", () => {
     const actions = actionsFor([sub("PENDING_AUTHENTICATION")]);
 
-    expect(actions.resumeCheckout).toEqual(PRO_MONTHLY);
+    expect(actions.resumeCheckout).toEqual({ ...PRO_MONTHLY, kind: "STANDARD", code: null });
     expect(actions.startCheckout).toEqual(ALL);
     expect(actions.cancel).toEqual({ timing: "IMMEDIATE", abandon: true });
   });

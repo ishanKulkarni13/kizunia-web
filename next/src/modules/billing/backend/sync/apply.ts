@@ -67,6 +67,7 @@ import { validateObservation, type ObservationProblem } from "../../policy/obser
 import { CancelAtCycleEndRequestSchema, settleOperations } from "../../policy/operation-settlement";
 import { applyScheduledChange, type ScheduledChangeState } from "../../policy/scheduled-change";
 import { isContributingPhase, isTerminalPhase, mapPhase } from "../../policy/state-mapping";
+import { trialFunnelEvent } from "../../policy/trial-funnel";
 import type { ProviderSubscriptionState } from "../../provider/types";
 import { AnomalySubject, BillingAnomalyRepository, type AnomalyInput } from "../anomalies/anomaly.repository";
 import {
@@ -427,8 +428,31 @@ async function applyLocked(
   }
 
   if (mapped.trialConversionOverdue) {
-    // The anomaly row arrives with its enum value in Phase VII; the alert is emitted now (IB-24 item 8).
-    effects.alerts.push({ condition: BillingAlertCondition.TRIAL_CONVERSION_OVERDUE, severity: "MEDIUM", fields: log });
+    // IB-9: a trial still `authenticated` past start_at + C7 stops contributing, and an operator is
+    // asked to look. The anomaly is keyed on the subscription, so a repeat observation only bumps
+    // its count and the alert fires once (IB-27 item 18). Never auto-resolved: it is for a person.
+    await raiseAnomaly(
+      tx,
+      {
+        type: "TRIAL_CONVERSION_OVERDUE",
+        providerMode: row.providerMode,
+        subjectKey: AnomalySubject.subscription(row.id),
+        userId: row.userId,
+        subscriptionIds: [row.id],
+        providerSubscriptionId: row.providerSubscriptionId,
+        details: { startAt: state.startAt?.toISOString() ?? null, graceSeconds: schedule.trialConversionGraceSeconds },
+      },
+      now,
+      effects,
+      log,
+      "MEDIUM",
+    );
+  }
+
+  const funnel = trialFunnelEvent(row.kind, row.phase, phase);
+
+  if (funnel !== null) {
+    effects.events.push({ event: funnel, fields: { ...log, from: row.phase, to: phase, startAt: state.startAt?.toISOString() ?? null } });
   }
 
   const changed = history.length > 0;
@@ -608,13 +632,14 @@ export async function raiseCancellationNotEffective(
   effects.events.push({ event: "cancellation.not_effective", fields: { ...log, reason, observedPhase: detail.observedPhase } });
 }
 
-/** Raises an anomaly; alerts only when this call opened it. */
+/** Raises an anomaly; alerts only when this call opened it (HIGH unless the condition is a lesser one). */
 export async function raiseAnomaly(
   tx: Prisma.TransactionClient,
   input: AnomalyInput,
   now: Date,
   effects: Effects,
   log: Record<string, unknown>,
+  severity: BillingAlertSeverity = "HIGH",
 ): Promise<void> {
   const raised = await BillingAnomalyRepository.raise(tx, input, now);
 
@@ -626,7 +651,7 @@ export async function raiseAnomaly(
   if (raised.opened) {
     effects.alerts.push({
       condition: input.type,
-      severity: "HIGH",
+      severity,
       fields: { ...log, anomalyId: raised.id, subjectKey: input.subjectKey },
     });
   }

@@ -24,6 +24,11 @@
  *   tx A2       old.supersededById = new PROVISIONING record, history SUPERSESSION
  *   create      child CREATE_SUBSCRIPTION through the shared create step
  *
+ * The checkout may also ask for a trial or carry an Offer code (Phase VII): the
+ * same acquisition rules are evaluated in the same precondition step, before
+ * anything is cancelled, so a refused code or an ineligible trial can never
+ * strand a customer who had already agreed to replace their subscription.
+ *
  * Kizunia never creates before the old subscription is observed cancelled,
  * so the one-open-subscription invariant holds throughout. If the new
  * checkout is never completed, the old one stays cancelled: that is what the
@@ -36,7 +41,6 @@ import { CHECKOUT_CONFIG } from "../../config/billing-config";
 import {
   BillingBusyError,
   BillingRequestRefusedError,
-  CheckoutFailedError,
   SupersessionCancelRefusedError,
   SupersessionNotApplicableError,
 } from "../../errors";
@@ -51,6 +55,7 @@ import type { ProviderSubscriptionState } from "../../provider/types";
 import { CreateSubscriptionRequestSchema, type StartCheckoutInput } from "../../schemas/checkout";
 import type { CancelImmediatelyRequest } from "../../schemas/lifecycle";
 import { SubscriptionHistoryRepository } from "../history/history.repository";
+import { Acquisition, type AcquisitionRequest } from "./acquisition";
 import { errorForRejection, type BillingCommand, type CommandScope, type Preparation } from "./command-runner";
 import { CheckoutCreate, type StartCheckoutResult } from "./create-subscription-step";
 import { cancelImmediately, notSent } from "./immediate-cancel";
@@ -69,7 +74,7 @@ interface Provisioned {
   readonly child: BillingOperation;
 }
 
-type SupersedeInput = Pick<StartCheckoutInput, "plan" | "cycle"> & { readonly supersedesSubscriptionId: string };
+type SupersedeInput = Pick<StartCheckoutInput, "plan" | "cycle"> & AcquisitionRequest & { readonly supersedesSubscriptionId: string };
 
 export class SupersedeCommand implements BillingCommand<StartCheckoutResult, SupersedePlan> {
   readonly kind = "SUPERSEDE" as const;
@@ -77,15 +82,17 @@ export class SupersedeCommand implements BillingCommand<StartCheckoutResult, Sup
   readonly request: Prisma.InputJsonValue;
 
   private readonly intent: CheckoutIntent;
+  private readonly acquisition: Acquisition;
   private readonly supersedesSubscriptionId: string;
   private readonly creator: CheckoutCreate;
   private readonly createRequest: Prisma.InputJsonValue;
   private readonly reuseMinRemainingSeconds: number;
 
-  constructor(input: SupersedeInput, deps: StartCheckoutDeps = {}) {
+  constructor(input: SupersedeInput, private readonly deps: StartCheckoutDeps = {}) {
     this.intent = { plan: input.plan, cycle: input.cycle };
+    this.acquisition = new Acquisition(input, deps);
     this.supersedesSubscriptionId = input.supersedesSubscriptionId;
-    this.createRequest = CreateSubscriptionRequestSchema.parse({ plan: input.plan, cycle: input.cycle, kind: "STANDARD" });
+    this.createRequest = CreateSubscriptionRequestSchema.parse({ ...this.intent, ...this.acquisition.requestFields });
     this.request = { ...(this.createRequest as Record<string, string>), supersedesSubscriptionId: input.supersedesSubscriptionId, confirmed: true };
     this.creator = new CheckoutCreate(this.intent, deps);
     this.reuseMinRemainingSeconds = deps.reuseMinRemainingSeconds ?? CHECKOUT_CONFIG.reuseMinRemainingSeconds;
@@ -202,7 +209,7 @@ export class SupersedeCommand implements BillingCommand<StartCheckoutResult, Sup
         case "SUCCEEDED":
           return replayCreated(this.creator, scope, create.subscriptionId!, root.id);
         case "REJECTED":
-          throw errorForRejection(create.failureClass) ?? new CheckoutFailedError();
+          throw await this.creator.rejectionError(create.subscriptionId, create.failureClass);
         case "NOT_APPLIED":
           return { status: "CLOSED", operationId: root.id };
         default:
@@ -216,8 +223,14 @@ export class SupersedeCommand implements BillingCommand<StartCheckoutResult, Sup
 
     if (children.length > 0 || root.status === "SUCCEEDED") return { status: "CONFIRMING", operationId: root.id };
 
-    // A local refusal: explained from current state, never re-executed (IB-25 item 3).
-    const { decision } = await this.decide(prisma, scope);
+    // A local refusal: explained from current state, never re-executed (IB-25 item 3), and from
+    // what the operation itself recorded, not from what this retry's body says (IB-27 item 11).
+    const stored = CreateSubscriptionRequestSchema.parse(root.request);
+    const recorded = new SupersedeCommand(
+      { plan: stored.plan, cycle: stored.cycle, trial: stored.kind === "TRIAL", code: stored.code, supersedesSubscriptionId: this.supersedesSubscriptionId },
+      this.deps,
+    );
+    const { decision } = await recorded.decide(prisma, scope);
 
     throw decision.kind === "REFUSE" ? checkoutRefusalError(decision) : new BillingRequestRefusedError();
   }
@@ -238,6 +251,7 @@ export class SupersedeCommand implements BillingCommand<StartCheckoutResult, Sup
       now: scope.now(),
       reuseMinRemainingSeconds: this.reuseMinRemainingSeconds,
       supersedes: { subscriptionId: this.supersedesSubscriptionId, predecessor },
+      acquisition: await this.acquisition.policyInput(tx, scope.actor.userId, scope.mode),
     });
 
     return { decision, open, predecessorExists: predecessor !== null };
@@ -268,6 +282,7 @@ export class SupersedeCommand implements BillingCommand<StartCheckoutResult, Sup
       // The root names the old subscription; the create child names this one.
       operationId: null,
       now,
+      acquisition: this.acquisition.provisioningFor(decision, now),
     });
     const { count } = await tx.subscription.updateMany({
       where: { id: predecessorId, supersededById: null },

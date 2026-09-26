@@ -111,6 +111,8 @@ export async function deleteGrantsForUsers(userIds: readonly string[]): Promise<
   ).map((subscription) => subscription.id);
   const subscriptions = { in: subscriptionIds };
 
+  // A promotion redemption points at its grant (Restrict), so it goes first (Phase VII).
+  await prisma.promotionRedemption.deleteMany({ where: { userId: users } });
   await prisma.grantAuditEntry.deleteMany({ where: { targetUserId: users } });
   await prisma.entitlementGrant.deleteMany({ where: { userId: users } });
 

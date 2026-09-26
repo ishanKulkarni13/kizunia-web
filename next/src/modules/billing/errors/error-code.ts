@@ -117,6 +117,45 @@ export const BillingErrorCode = {
 
   /** Admin cancel: the subscription is still being set up, or has already ended. */
   SUBSCRIPTION_NOT_CANCELLABLE: "BILLING_SUBSCRIPTION_NOT_CANCELLABLE",
+
+  // -- Trials, Offer codes and promotions (Phase VII) ------------------------
+
+  /** One trial per account (SB-LC-11): the user already had one. Nothing was sent. */
+  TRIAL_NOT_ELIGIBLE: "BILLING_TRIAL_NOT_ELIGIBLE",
+
+  /**
+   * The code is unknown, outside its window, or not sold in this mode. These
+   * are not told apart, so a probe learns nothing about codes that are not
+   * usable now (IB-27 item 12). Nothing was sent.
+   */
+  CODE_INVALID: "BILLING_CODE_INVALID",
+
+  /** The code is real but does not apply to the chosen plan or billing cycle. */
+  CODE_NOT_APPLICABLE: "BILLING_CODE_NOT_APPLICABLE",
+
+  /** The code's eligibility rule (SB-CP-04) rules this user out, from their own history. */
+  CODE_NOT_ELIGIBLE: "BILLING_CODE_NOT_ELIGIBLE",
+
+  /** A code was sent with a trial checkout; the two do not combine in V1 (IB-27 item 3). */
+  CODE_NOT_ALLOWED_ON_TRIAL: "BILLING_CODE_NOT_ALLOWED_ON_TRIAL",
+
+  /** The provider refused a create that carried the code's Offer (a catalog misconfiguration; alerted). */
+  CODE_REFUSED_BY_PROVIDER: "BILLING_CODE_REFUSED_BY_PROVIDER",
+
+  /** A promotion code that is unknown, not yet valid, or expired (not told apart). */
+  PROMOTION_CODE_INVALID: "PROMOTION_CODE_INVALID",
+
+  /** The user's own history rules the promotion out (`FIRST_PAID_SUBSCRIPTION_ONLY`). */
+  PROMOTION_NOT_ELIGIBLE: "PROMOTION_NOT_ELIGIBLE",
+
+  /** This user already redeemed this promotion (once per user). */
+  PROMOTION_ALREADY_REDEEMED: "PROMOTION_ALREADY_REDEEMED",
+
+  /** The promotion's redemption limit is reached. */
+  PROMOTION_SOLD_OUT: "PROMOTION_SOLD_OUT",
+
+  /** Admin: the code already names a promotion or an Offer code (the two are disjoint, SB-CP-01). */
+  PROMOTION_CODE_TAKEN: "PROMOTION_CODE_TAKEN",
 } as const;
 
 export type BillingErrorCode =

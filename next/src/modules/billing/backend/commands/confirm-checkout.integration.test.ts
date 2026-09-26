@@ -216,7 +216,7 @@ describe("GET /me/billing — the summary", () => {
 
     expect(result.subscription).toMatchObject({ phase: "PENDING_AUTHENTICATION", plan: "PRO", cycle: "MONTHLY" });
     expect(result.subscription?.expireBy).not.toBeNull();
-    expect(result.allowedActions.resumeCheckout).toEqual({ plan: "PRO", cycle: "MONTHLY" });
+    expect(result.allowedActions.resumeCheckout).toEqual({ plan: "PRO", cycle: "MONTHLY", kind: "STANDARD", code: null });
     expect(result.facets.finishingUp).toBe(false);
     expect(JSON.stringify(result)).not.toContain(psub);
   });

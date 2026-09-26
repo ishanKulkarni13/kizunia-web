@@ -331,6 +331,14 @@ export const CHECKOUT_CONFIG = {
    * implying progress and the due sync takes over.
    */
   finishingUpSeconds: envInt("BILLING_CHECKOUT_FINISHING_UP_SECONDS", 10 * 60),
+
+  /**
+   * How long a trial lasts before the first real charge, in days (owner
+   * decision, 2026-09-26, IB-27 item 1: 14 days; the specification's 30 was an
+   * example). It is the `start_at` of a `TRIAL` subscription, fixed when the
+   * checkout is created. Changing it affects new trials only.
+   */
+  trialLengthDays: envInt("BILLING_TRIAL_LENGTH_DAYS", 14),
 } as const;
 
 // ---------------------------------------------------------------------------

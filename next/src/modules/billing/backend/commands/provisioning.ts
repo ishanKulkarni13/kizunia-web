@@ -14,6 +14,7 @@ import type {
   PrismaClient,
   ProviderMode,
   Subscription,
+  SubscriptionKind,
 } from "@/generated/prisma";
 
 import type { PlanCatalog } from "../../config/plan-catalog";
@@ -40,6 +41,8 @@ export function openView(row: Subscription): OpenSubscriptionView {
     phase: row.phase,
     plan: row.plan,
     cycle: row.cycle,
+    kind: row.kind,
+    marketingCode: row.marketingCode,
     expireBy: row.expireBy,
     advisoryPaymentMethod: row.advisoryPaymentMethod,
     advisoryInternationalCard: row.advisoryInternationalCard,
@@ -78,6 +81,25 @@ export function planPricesFor(
 }
 
 /**
+ * What a `PROVISIONING` record stores beyond a plan and cycle, decided once in
+ * the transaction that writes it and read back, unchanged, by the create step,
+ * so what is sent is exactly what was recorded (SB-CM-02):
+ *
+ *   kind          `STANDARD` or `TRIAL` (SB-LC-10)
+ *   startAt       a trial's first-charge time (now + the trial length); null otherwise (never for a STANDARD)
+ *   offerId       the provider's Offer, an opaque reference from the code source; null without a code
+ *   marketingCode the normalized code, kept for eligibility (`ONCE_PER_USER`) and display
+ */
+export interface ProvisioningAcquisition {
+  readonly kind: SubscriptionKind;
+  readonly startAt: Date | null;
+  readonly offerId: string | null;
+  readonly marketingCode: string | null;
+}
+
+const STANDARD_PROVISIONING: ProvisioningAcquisition = { kind: "STANDARD", startAt: null, offerId: null, marketingCode: null };
+
+/**
  * Writes the `PROVISIONING` record a create will carry in `notes.kz_sub`, and
  * links it to `operationId` when that is the create's own root (a
  * supersession's create is a child that names the record itself).
@@ -91,16 +113,22 @@ export async function createProvisioning(
     readonly cycle: BillingCycle;
     readonly operationId: string | null;
     readonly now: Date;
+    /** Phase VII: what the checkout asks for beyond a plan (`CheckoutAcquisition.provisioningFields`). */
+    readonly acquisition?: ProvisioningAcquisition;
   },
 ): Promise<Subscription> {
+  const acquisition = input.acquisition ?? STANDARD_PROVISIONING;
   const subscription = await tx.subscription.create({
     data: {
       userId: input.userId,
-      kind: "STANDARD",
+      kind: acquisition.kind,
       providerMode: input.mode,
       plan: input.plan,
       cycle: input.cycle,
       phase: "PROVISIONING",
+      startAt: acquisition.startAt,
+      offerId: acquisition.offerId,
+      marketingCode: acquisition.marketingCode,
       createdAt: input.now,
     },
   });

@@ -119,6 +119,69 @@ export class NoPendingCheckoutError extends ConflictError {
   }
 }
 
+// -- Trials and Offer codes (Phase VII) -------------------------------------
+
+export class TrialNotEligibleError extends ConflictError {
+  constructor() {
+    super({
+      code: BillingErrorCode.TRIAL_NOT_ELIGIBLE,
+      status: HttpStatus.CONFLICT,
+      message: "You've already used your free trial. You can subscribe to a plan instead.",
+    });
+  }
+}
+
+export class CodeInvalidError extends ValidationError {
+  constructor() {
+    super({
+      code: BillingErrorCode.CODE_INVALID,
+      status: HttpStatus.UNPROCESSABLE_ENTITY,
+      message: "That code isn't valid.",
+    });
+  }
+}
+
+export class CodeNotApplicableError extends ValidationError {
+  constructor() {
+    super({
+      code: BillingErrorCode.CODE_NOT_APPLICABLE,
+      status: HttpStatus.UNPROCESSABLE_ENTITY,
+      message: "That code doesn't apply to the plan you chose.",
+    });
+  }
+}
+
+export class CodeNotEligibleError extends ValidationError {
+  constructor() {
+    super({
+      code: BillingErrorCode.CODE_NOT_ELIGIBLE,
+      status: HttpStatus.UNPROCESSABLE_ENTITY,
+      message: "That code isn't available for your account.",
+    });
+  }
+}
+
+export class CodeNotAllowedOnTrialError extends ValidationError {
+  constructor() {
+    super({
+      code: BillingErrorCode.CODE_NOT_ALLOWED_ON_TRIAL,
+      status: HttpStatus.UNPROCESSABLE_ENTITY,
+      message: "A code can't be combined with a free trial. Choose one or the other.",
+    });
+  }
+}
+
+export class CodeRefusedByProviderError extends ExternalServiceError {
+  constructor() {
+    super({
+      code: BillingErrorCode.CODE_REFUSED_BY_PROVIDER,
+      status: HttpStatus.BAD_GATEWAY,
+      message: "We couldn't apply that code right now. Try again without it, or contact support.",
+      retryable: false,
+    });
+  }
+}
+
 // -- Lifecycle commands (Phase VI) ------------------------------------------
 
 export class NoSubscriptionError extends ConflictError {

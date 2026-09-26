@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { findOfferByMarketingCode } from "./offer-catalog";
+import { getOfferCatalog } from "./offer-catalog";
 import { createPlanCatalog, getPlanCatalog, type PlanCatalogEntry } from "./plan-catalog";
 import { TEST_PLAN_SPECS } from "./test-plan-spec";
 
@@ -130,9 +130,11 @@ describe("the shipped catalogs", () => {
   });
 });
 
-describe("findOfferByMarketingCode (stub)", () => {
-  it("finds nothing until Offers are configured", () => {
-    expect(findOfferByMarketingCode("TEST", "WELCOME")).toBeUndefined();
-    expect(findOfferByMarketingCode("LIVE", "  welcome ")).toBeUndefined();
+describe("the shipped offer catalogs", () => {
+  it("are empty until an Offer exists in the matching Razorpay account, so every code is refused as unknown", () => {
+    expect(getOfferCatalog("TEST").findByCode("WELCOME")).toBeUndefined();
+    expect(getOfferCatalog("LIVE").findByCode("  welcome ")).toBeUndefined();
+    expect(getOfferCatalog("TEST").codes()).toEqual([]);
+    expect(getOfferCatalog("LIVE").codes()).toEqual([]);
   });
 });

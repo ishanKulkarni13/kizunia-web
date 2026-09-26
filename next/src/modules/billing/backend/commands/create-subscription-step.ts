@@ -8,7 +8,9 @@
  * item 5). Either way `notes.kz_op` names the operation that carries the call,
  * so a webhook or the orphan scan binds it exactly as any other create:
  *
- *   notes {kz_sub, kz_op, kz_env}, expire_by = now + C5, total_count per cycle
+ *   notes {kz_sub, kz_op, kz_env}, expire_by = now + C5, total_count per cycle,
+ *   start_at (a TRIAL only) and offer_id (a code only), both read back from the
+ *   PROVISIONING record, so what is sent is exactly what was recorded
  *   tx B   SUCCESS  -> bind + apply (-> PENDING_AUTHENTICATION) + mark due
  *          REJECTED -> ABANDONED ("busy" or a typed failure)
  *          UNKNOWN  -> stays PROVISIONING; never re-sent (SB-CM-03)
@@ -21,7 +23,8 @@ import type { BillingCycle, BillingOperation, MembershipPlan, Prisma, Subscripti
 import prisma from "@/lib/prisma";
 
 import { CHECKOUT_CONFIG } from "../../config/billing-config";
-import { BillingUnavailableError, CheckoutFailedError } from "../../errors";
+import { BillingUnavailableError, CheckoutFailedError, CodeRefusedByProviderError } from "../../errors";
+import type { AppError } from "@/lib/errors";
 import { BillingAlertCondition } from "../../observability/log";
 import type { ClassifiedOutcome } from "../../policy/command-outcome";
 import type { CheckoutIntent } from "../../policy/command-preconditions";
@@ -85,6 +88,11 @@ export class CheckoutCreate {
   async send(scope: CommandScope, via: CreateVia, subscriptionId: string): Promise<ClassifiedOutcome<ProviderSubscriptionState>> {
     const { runner, mode } = scope;
     const expireBy = new Date(scope.now().getTime() + this.expireBySeconds * 1000);
+    // What the record says, not what the request said: the record was written under the user's slot (SB-CM-02).
+    const recorded = await prisma.subscription.findUniqueOrThrow({
+      where: { id: subscriptionId },
+      select: { kind: true, startAt: true, offerId: true },
+    });
     const spec: MutationSpec<ProviderSubscriptionState> = {
       call: (provider, operation) =>
         provider.createSubscription({
@@ -92,6 +100,9 @@ export class CheckoutCreate {
           cycle: this.intent.cycle,
           totalCount: this.totalCount[this.intent.cycle],
           expireBy,
+          // Kizunia never sends a future start for a STANDARD subscription (checkout-and-creation.md).
+          ...(recorded.kind === "TRIAL" && recorded.startAt !== null && { startAt: recorded.startAt }),
+          ...(recorded.offerId !== null && { offerId: recorded.offerId }),
           notes: { kz_sub: subscriptionId, kz_op: operation.id, kz_env: mode },
         }),
       settle: (tx, classified, context) => this.settle(tx, scope, subscriptionId, classified, context),
@@ -113,10 +124,27 @@ export class CheckoutCreate {
       case "OUTCOME_UNKNOWN":
         return { status: "CONFIRMING", operationId };
       case "REJECTED":
-        throw errorForRejection(outcome.failureClass) ?? new CheckoutFailedError();
+        throw await this.rejectionError(subscriptionId, outcome.failureClass);
       default:
         throw new BillingUnavailableError();
     }
+  }
+
+  /**
+   * What a refused create becomes. "Busy" is a budget or concurrency answer. A
+   * create that carried an Offer and was refused is the code's Offer being
+   * refused (a misconfigured or expired one, alerted in `settle`), which the
+   * customer can get past by choosing without the code. Never the provider's
+   * words, and never inferred from them (IB-27 item 13).
+   */
+  async rejectionError(subscriptionId: string | null, failureClass: string | null): Promise<AppError> {
+    const busy = errorForRejection(failureClass);
+
+    if (busy) return busy;
+
+    const recorded = subscriptionId === null ? null : await prisma.subscription.findUnique({ where: { id: subscriptionId }, select: { offerId: true } });
+
+    return recorded?.offerId ? new CodeRefusedByProviderError() : new CheckoutFailedError();
   }
 
   ready(subscription: Subscription, operationId: string | null): StartCheckoutResult {
@@ -149,12 +177,14 @@ export class CheckoutCreate {
     if (classified.kind === "OUTCOME_UNKNOWN") return; // stays PROVISIONING; never re-sent
 
     if (classified.kind !== "SUCCESS") {
+      const carriedOffer = classified.kind === "REJECTED" ? await tx.subscription.findUnique({ where: { id: subscriptionId }, select: { offerId: true } }) : null;
+
       await abandonProvisioning(tx, { subscriptionId, operationId: operation.id, trigger: "COMMAND_RESPONSE", now });
 
       if (classified.kind === "REJECTED" && !errorForRejection(classified.failureClass)) {
-        // Refused although Kizunia sent what the catalog says (a misconfiguration, an expired plan).
+        // Refused although Kizunia sent what the catalog says (a misconfiguration, an expired plan or Offer).
         effects.alerts.push({
-          condition: BillingAlertCondition.CHECKOUT_REJECTED,
+          condition: carriedOffer?.offerId ? BillingAlertCondition.OFFER_REJECTED : BillingAlertCondition.CHECKOUT_REJECTED,
           severity: "HIGH",
           fields: {
             operationId: operation.id,
@@ -217,9 +247,22 @@ export class CheckoutCreate {
     // SB-CM-05: a fresh fetch confirms what the response said.
     await SyncClaimRepository.markDue(tx, subscriptionId, "COMMAND_CONFIRM", now, { eventDriven: false, now });
 
-    effects.events.push({
-      event: "checkout.created",
-      fields: { operationId: operation.id, subscriptionId, userId: scope.actor.userId, plan: this.intent.plan, cycle: this.intent.cycle },
-    });
+    const created = await tx.subscription.findUniqueOrThrow({ where: { id: subscriptionId }, select: { kind: true, marketingCode: true, startAt: true } });
+    const fields = {
+      operationId: operation.id,
+      subscriptionId,
+      userId: scope.actor.userId,
+      plan: this.intent.plan,
+      cycle: this.intent.cycle,
+      kind: created.kind,
+      code: created.marketingCode,
+    };
+
+    effects.events.push({ event: "checkout.created", fields });
+
+    // The head of the trial funnel; the transitions after it are logged by the apply path.
+    if (created.kind === "TRIAL") {
+      effects.events.push({ event: "trial.checkout_started", fields: { ...fields, startAt: created.startAt?.toISOString() ?? null } });
+    }
   }
 }

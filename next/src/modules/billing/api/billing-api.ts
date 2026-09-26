@@ -7,9 +7,19 @@ import type { CancelResult } from "../backend/commands/cancel";
 import type { ChangePlanResult } from "../backend/commands/change-plan";
 import type { ConfirmCheckoutResult } from "../backend/commands/confirm-checkout";
 import type { StartCheckoutResult } from "../backend/commands/start-checkout";
+import type { RedeemedPromotionDTO } from "../backend/grants/promotion.dto";
 import type { CheckNowResult, RecoveryParams } from "../backend/recovery.service";
 
-export type { BillingSummaryDTO, CancelResult, ChangePlanResult, CheckNowResult, ConfirmCheckoutResult, RecoveryParams, StartCheckoutResult };
+export type {
+  BillingSummaryDTO,
+  CancelResult,
+  ChangePlanResult,
+  CheckNowResult,
+  ConfirmCheckoutResult,
+  RecoveryParams,
+  RedeemedPromotionDTO,
+  StartCheckoutResult,
+};
 
 export interface RazorpayCheckoutResponse {
   readonly razorpay_payment_id: string;
@@ -37,8 +47,15 @@ export class BillingApi {
     return response.data;
   }
 
-  /** Starts (or resumes) a checkout. */
-  static async startCheckout(input: { plan: PaidPlan; cycle: Cycle }, idempotencyKey: string): Promise<StartCheckoutResult> {
+  /**
+   * Starts (or resumes) a checkout. `trial` and `code` are the only extra
+   * intents a client can state; the server decides eligibility, the terms and
+   * every provider detail (a code with a trial is refused there, with a reason).
+   */
+  static async startCheckout(
+    input: { plan: PaidPlan; cycle: Cycle; trial?: boolean; code?: string },
+    idempotencyKey: string,
+  ): Promise<StartCheckoutResult> {
     const response = await HttpClient.post<StartCheckoutResult, typeof input>("/api/v1/me/billing/checkout", input, {
       headers: { "Idempotency-Key": idempotencyKey },
     });
@@ -58,6 +75,13 @@ export class BillingApi {
     const response = await HttpClient.post<StartCheckoutResult, typeof body>("/api/v1/me/billing/checkout", body, {
       headers: { "Idempotency-Key": idempotencyKey },
     });
+
+    return response.data;
+  }
+
+  /** Redeems a promotion code: free access to its plan, decided entirely by the server. No Idempotency-Key: a repeat is a 409. */
+  static async redeemPromotion(code: string): Promise<RedeemedPromotionDTO> {
+    const response = await HttpClient.post<RedeemedPromotionDTO, { code: string }>("/api/v1/me/billing/promotions/redeem", { code });
 
     return response.data;
   }

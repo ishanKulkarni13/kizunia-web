@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { LoadingButton } from "@/components/ui/loading-button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,6 +18,7 @@ import { ApiError } from "@/lib/http";
 import { BillingApi, type BillingSummaryDTO, type StartCheckoutResult } from "../../api/billing-api";
 import { useBillingSummary } from "../hooks/use-billing-summary";
 import { openRazorpayCheckout } from "../razorpay-checkout";
+import { PromotionRedeemCard } from "./promotion-redeem-card";
 import { CancelSubscriptionCard, OnHoldCard, PlanChangeCard } from "./subscription-actions";
 
 type PaidPlan = "PRO" | "PRO_PLUS";
@@ -36,7 +39,7 @@ const CYCLE_LABEL: Record<Cycle, string> = { MONTHLY: "Monthly", YEARLY: "Yearly
 const PHASE_LABEL: Record<string, string> = {
   PROVISIONING: "Being set up",
   PENDING_AUTHENTICATION: "Waiting for payment",
-  TRIALING: "Trial",
+  TRIALING: "Free trial",
   ACTIVE: "Active",
   PAST_DUE: "Payment retrying",
   HALTED: "On hold",
@@ -81,6 +84,8 @@ function formatDate(iso: string | null): string | null {
 export function BillingPanel() {
   const { summary, loading, failed, refresh, watch, polling } = useBillingSummary();
   const [cycle, setCycle] = useState<Cycle>("MONTHLY");
+  // What the customer typed. Whether it is valid, applies, or combines with a trial is the server's answer.
+  const [code, setCode] = useState("");
   const [busyIntent, setBusyIntent] = useState<string | null>(null);
   // One Idempotency-Key per click, reused if that click is retried after a network failure.
   const pendingKeys = useRef(new Map<string, string>());
@@ -97,8 +102,15 @@ export function BillingPanel() {
     );
   }
 
-  async function choose(plan: PaidPlan) {
-    const intentId = `${plan}:${cycle}`;
+  /**
+   * Starts (or resumes) a checkout for `plan`. A resumed checkout states the
+   * intent it was created with, so the server hands the same one back; a new
+   * one states only "trial" and/or the typed code, and the server decides the rest.
+   */
+  async function choose(plan: PaidPlan, options: { trial?: boolean; resume?: { kind: string; code: string | null } | null } = {}) {
+    const trial = options.resume ? options.resume.kind === "TRIAL" : options.trial === true;
+    const enteredCode = (options.resume ? (options.resume.code ?? "") : code).trim();
+    const intentId = `${plan}:${cycle}:${trial ? "trial" : "plan"}:${enteredCode}`;
     const idempotencyKey = pendingKeys.current.get(intentId) ?? crypto.randomUUID();
 
     pendingKeys.current.set(intentId, idempotencyKey);
@@ -107,7 +119,10 @@ export function BillingPanel() {
     let result: StartCheckoutResult;
 
     try {
-      result = await BillingApi.startCheckout({ plan, cycle }, idempotencyKey);
+      result = await BillingApi.startCheckout(
+        { plan, cycle, ...(trial && { trial: true }), ...(enteredCode !== "" && { code: enteredCode }) },
+        idempotencyKey,
+      );
     } catch (error) {
       // An answer from the server is final for this click; a network failure keeps the key for a retry.
       if (error instanceof ApiError) pendingKeys.current.delete(intentId);
@@ -154,6 +169,8 @@ export function BillingPanel() {
 
   const available = summary.allowedActions.startCheckout;
   const cycles = (["MONTHLY", "YEARLY"] as const).filter((c) => available.some((intent) => intent.cycle === c));
+  const trial = summary.allowedActions.trial;
+  const resume = summary.allowedActions.resumeCheckout;
 
   return (
     <div className="flex flex-col gap-4">
@@ -180,12 +197,27 @@ export function BillingPanel() {
                 </TabsList>
               </Tabs>
             )}
+            {available.length > 0 && !resume && (
+              <div className="flex max-w-sm flex-col gap-1">
+                <Label htmlFor="checkout-code">Have a code?</Label>
+                <Input
+                  id="checkout-code"
+                  value={code}
+                  onChange={(event) => setCode(event.target.value)}
+                  placeholder="Enter a code"
+                  autoComplete="off"
+                  maxLength={64}
+                />
+                <p className="text-xs text-muted-foreground">We check your code when you continue.</p>
+              </div>
+            )}
             <div className="grid gap-4 md:grid-cols-2">
               {PAID_PLANS.map((plan) => {
-                const intentId = `${plan}:${cycle}`;
+                // The busy intent is `plan:cycle:kind:code` (see `choose`); the code is not part of which button spins.
+                const busy = (kind: "plan" | "trial") => busyIntent?.startsWith(`${plan}:${cycle}:${kind}:`) ?? false;
                 const allowed = available.some((intent) => intent.plan === plan && intent.cycle === cycle);
-                const resumable =
-                  summary.allowedActions.resumeCheckout?.plan === plan && summary.allowedActions.resumeCheckout.cycle === cycle;
+                const resumable = resume?.plan === plan && resume.cycle === cycle;
+                const trialAllowed = !resumable && (trial?.plans.some((intent) => intent.plan === plan && intent.cycle === cycle) ?? false);
                 const current = summary.plan === plan && summary.subscription?.cycle === cycle;
 
                 return (
@@ -195,13 +227,25 @@ export function BillingPanel() {
                     current={current}
                     action={
                       allowed ? (
-                        <LoadingButton
-                          loading={busyIntent === intentId}
-                          disabled={busyIntent !== null}
-                          onClick={() => void choose(plan)}
-                        >
-                          {resumable ? "Continue checkout" : `Choose ${PLAN_DISPLAY_NAME[plan]}`}
-                        </LoadingButton>
+                        <div className="flex flex-wrap gap-2">
+                          <LoadingButton
+                            loading={busy("plan")}
+                            disabled={busyIntent !== null}
+                            onClick={() => void choose(plan, resumable ? { resume } : {})}
+                          >
+                            {resumable ? "Continue checkout" : `Choose ${PLAN_DISPLAY_NAME[plan]}`}
+                          </LoadingButton>
+                          {trialAllowed && trial && (
+                            <LoadingButton
+                              variant="outline"
+                              loading={busy("trial")}
+                              disabled={busyIntent !== null}
+                              onClick={() => void choose(plan, { trial: true })}
+                            >
+                              Start {trial.lengthDays}-day free trial
+                            </LoadingButton>
+                          )}
+                        </div>
                       ) : null
                     }
                   />
@@ -217,6 +261,9 @@ export function BillingPanel() {
           <CancelSubscriptionCard summary={summary} onChanged={refresh} watch={watch} />
         </div>
       )}
+
+      {/* Free access from a code is Kizunia's own record: no provider, so it is offered in every mode. */}
+      <PromotionRedeemCard onRedeemed={refresh} />
     </div>
   );
 }
@@ -248,6 +295,22 @@ function CurrentPlanCard({ summary }: { summary: BillingSummaryDTO }) {
         </ul>
         <p className="mt-2">Up to {summary.quotas.ownedProjects} owned projects.</p>
       </CardContent>
+      {summary.subscription && (summary.subscription.trialEndsAt || summary.subscription.offer) && (
+        <CardFooter className="flex flex-col items-start gap-1 text-sm text-muted-foreground">
+          {summary.subscription.trialEndsAt && (
+            <span>
+              Your free trial ends on {formatDate(summary.subscription.trialEndsAt)}. Your first payment is charged then,
+              unless you cancel before.
+            </span>
+          )}
+          {summary.subscription.offer && (
+            <span>
+              Code {summary.subscription.offer.code} applied
+              {summary.subscription.offer.description ? `: ${summary.subscription.offer.description}` : ""}.
+            </span>
+          )}
+        </CardFooter>
+      )}
       {summary.subscription && renews && summary.subscription.phase === "ACTIVE" && (
         <CardFooter className="flex flex-col items-start gap-1 text-sm text-muted-foreground">
           {/* A request, never an observation (I-1): "requested", not "cancelled". */}

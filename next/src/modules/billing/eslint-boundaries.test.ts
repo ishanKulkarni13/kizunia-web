@@ -186,6 +186,9 @@ describe("only billing, the app and the boot hook import modules/billing", () =>
     for (const path of [
       "src/app/api/v1/admin/billing/grants/route.ts",
       "src/app/(dashboard)/admin/billing/grants/page.tsx",
+      "src/app/(dashboard)/admin/billing/promotions/page.tsx",
+      "src/app/api/v1/admin/billing/promotions/route.ts",
+      "src/app/api/v1/me/billing/promotions/redeem/route.ts",
       "src/instrumentation.ts",
     ]) {
       for (const specifier of billingImports) {

@@ -104,6 +104,11 @@ export const SideBarNavMain: SidebarNavSection[] = [
         title: "Entitlement grants",
         url: "/admin/billing/grants",
       },
+      {
+        id: "admin-billing-promotions",
+        title: "Promotions",
+        url: "/admin/billing/promotions",
+      },
     ],
   },
   { // portfolio

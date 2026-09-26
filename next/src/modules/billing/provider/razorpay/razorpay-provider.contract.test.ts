@@ -30,6 +30,14 @@
  * Supplied subscriptions are only READ, unless RAZORPAY_CONTRACT_MUTATE_SUPPLIED=1
  * also lets the suite cancel them to check the cancellation behavior.
  *
+ * Phase VII adds trial and Offer creation (`start_at`, `offer_id`): a create with
+ * a future start (a trial) and an unknown Offer are exercised by API alone.
+ * RAZORPAY_CONTRACT_OFFER_ID is a real Offer created in the TEST Dashboard
+ * (Offers can only be created there); with it the suite creates a subscription
+ * carrying it and checks the Offer is echoed. Authenticating a trial, the first
+ * charge and the ₹5 refund need Razorpay Checkout: those are in the Phase VII
+ * runbook, never claimed from here.
+ *
  * Phase VI adds RAZORPAY_CONTRACT_DOMESTIC_CARD_SUBSCRIPTION_ID: an `active`
  * subscription authorized with a domestic card, whose plan update Razorpay
  * refuses (the V1 limitation, SB-LC-07). With MUTATE_SUPPLIED it sends both
@@ -337,6 +345,95 @@ describe.skipIf(!ENABLED)("Razorpay provider contract (TEST mode)", () => {
 
       expect(raw.status).toBe(404);
       expect(classOf(outcome)).toBe("NOT_FOUND");
+    });
+  });
+
+  describe("trials and Offers at creation (Phase VII)", () => {
+    const OFFER_ID = process.env.RAZORPAY_CONTRACT_OFFER_ID?.trim();
+    // Well formed but unknown: an id of any other length is a routing miss, not a lookup.
+    const UNKNOWN_OFFER_ID = "offer_AAAAAAAAAAAAAA";
+
+    it("creates a subscription with a future start_at (a trial) alongside expire_by, and echoes the start", async () => {
+      const startAt = new Date(Math.floor((Date.now() + 14 * 24 * 60 * 60 * 1000) / 1000) * 1000);
+      const expireBy = new Date(Date.now() + 30 * 60 * 1000);
+
+      const outcome = await provider.createSubscription({
+        plan: "PRO",
+        cycle: "MONTHLY",
+        totalCount: 12,
+        expireBy,
+        startAt,
+        notes: { kz_sub: "ksub_contract", kz_op: "kop_contract", kz_env: "TEST" },
+      });
+
+      observe("trial-create", {
+        class: classOf(outcome),
+        ...(outcome.kind === "FAILURE" && { code: outcome.providerErrorCode, description: outcome.providerErrorDescription }),
+      });
+
+      const trial = succeeded(outcome);
+      created.push(trial.providerSubscriptionId);
+
+      const fetched = succeeded(await provider.fetchSubscription(trial.providerSubscriptionId));
+
+      observe("trial-create-fetched", {
+        rawStatus: fetched.rawStatus,
+        startAt: fetched.startAt?.toISOString() ?? null,
+        chargeAt: fetched.chargeAt?.toISOString() ?? null,
+        expireBy: fetched.expireBy?.toISOString() ?? null,
+        currentStart: fetched.currentStart,
+        currentEnd: fetched.currentEnd,
+        paidCount: fetched.paidCount,
+      });
+
+      // Until a customer authenticates it is an ordinary `created` subscription; the trial is only the future start.
+      expect(fetched.rawStatus).toBe("created");
+      expect(fetched.startAt?.getTime()).toBe(startAt.getTime());
+      expect(fetched.paidCount).toBe(0);
+    });
+
+    it("classifies a create carrying an unknown (well-formed) offer_id as REJECTED, by code, and creates nothing", async () => {
+      const outcome = await provider.createSubscription({
+        plan: "PRO",
+        cycle: "MONTHLY",
+        totalCount: 12,
+        expireBy: new Date(Date.now() + 30 * 60 * 1000),
+        offerId: UNKNOWN_OFFER_ID,
+        notes: { kz_sub: "ksub_contract", kz_op: "kop_contract", kz_env: "TEST" },
+      });
+
+      observe("offer-unknown-create", {
+        class: classOf(outcome),
+        ...(outcome.kind === "FAILURE" && { code: outcome.providerErrorCode, description: outcome.providerErrorDescription }),
+      });
+
+      if (outcome.kind === "SUCCESS") created.push(outcome.value.providerSubscriptionId);
+
+      expect(classOf(outcome)).toBe("REJECTED");
+    });
+
+    it.skipIf(!OFFER_ID)("creates a subscription carrying a real TEST Offer and echoes it (RAZORPAY_CONTRACT_OFFER_ID)", async () => {
+      const outcome = await provider.createSubscription({
+        plan: "PRO",
+        cycle: "MONTHLY",
+        totalCount: 12,
+        expireBy: new Date(Date.now() + 30 * 60 * 1000),
+        offerId: OFFER_ID,
+        notes: { kz_sub: "ksub_contract", kz_op: "kop_contract", kz_env: "TEST" },
+      });
+
+      observe("offer-create", {
+        class: classOf(outcome),
+        ...(outcome.kind === "FAILURE" && { code: outcome.providerErrorCode, description: outcome.providerErrorDescription }),
+      });
+
+      const withOffer = succeeded(outcome);
+      created.push(withOffer.providerSubscriptionId);
+
+      const fetched = succeeded(await provider.fetchSubscription(withOffer.providerSubscriptionId));
+
+      observe("offer-create-fetched", { rawStatus: fetched.rawStatus, offerId: fetched.offerId });
+      expect(fetched.offerId).toBe(OFFER_ID);
     });
   });
 

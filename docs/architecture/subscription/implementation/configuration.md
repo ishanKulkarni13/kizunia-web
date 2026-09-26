@@ -20,7 +20,7 @@ Required configuration, TEST/LIVE separation, secrets, webhook secrets, tuning v
 | `RAZORPAY_WEBHOOK_SECRET_PREVIOUS` (+ optional `RAZORPAY_WEBHOOK_SECRET_PREVIOUS_UNTIL`) | rotation only | SB-WH-07 |
 | `RAZORPAY_ACCOUNT_ID` | test/live | Payload `account_id` check |
 | `BILLING_EXPECTED_MODE` | optional (set it explicitly in every deployment that has credentials) | `live` \| `test`; if absent: `live` when `VERCEL_ENV=production`, else `test` (IB-13, decided). Resolved mode must equal it or be `disabled`, else fail at boot |
-| `BILLING_*` tuning (C1–C7) | optional | `envInt` pattern with defaults: budget window/limit/headroom, backoff base/cap, cooldown bounds, heartbeats/margins, batch sizes, `after()` cap, `expire_by` horizon, operation lease, outcome-unknown window, orphan overlap/settle/pages, payload retention, trial-conversion grace (C7, IB-9), trial length (**owner decision before Phase VII**; the spec's 30 days is only an example), `total_count` per cycle |
+| `BILLING_*` tuning (C1–C7) | optional | `envInt` pattern with defaults: budget window/limit/headroom, backoff base/cap, cooldown bounds, heartbeats/margins, batch sizes, `after()` cap, `expire_by` horizon, operation lease, outcome-unknown window, orphan overlap/settle/pages, payload retention, trial-conversion grace (C7, IB-9), trial length (`BILLING_TRIAL_LENGTH_DAYS`, **14 days**, owner decision 2026-09-26, Phase VII), `total_count` per cycle |
 
 - **Mode rule:** no key ID, secret or webhook secret → `disabled`. A **partial** set is a configuration error and fails at boot (don't guess). Validation runs in `src/instrumentation.ts` `register()` and is memoized in `provider-mode.ts`; `isBillingProviderEnabled()` is the only runtime question.
 - **Plan and Offer catalogs:** TypeScript config per mode in `modules/billing/config/`, code-reviewed and deployed (plan IDs are not secret; retired IDs kept; SB-PB-05). See [TEST verification plans](#test-verification-plans-phase-iv) for the TEST catalog.
@@ -91,7 +91,7 @@ C3, C4, C7 and the alert thresholds, in `billing-config.ts` (`SYNC_SCHEDULE_CONF
 | `BILLING_WEBHOOK_LATENCY_ALERT_MS` | 3000 | `WEBHOOK_LATENCY` (Razorpay's limit is 5 s) |
 | `BILLING_WEBHOOK_SIGNATURE_FAILURES_PER_HOUR` | 20 | `WEBHOOK_SIGNATURE_FAILURES`, once per mode per hour |
 
-The notification drain default (`NOTIFICATION_WORKER_BUDGET_MS`) was lowered from 45 000 to 30 000 ms to make room for `billing:sync` in the tick ([internal jobs](../../workflows/internal-jobs.md#the-tick-one-cron-entry-many-tasks)). The inbound rate-limit policy `billing:webhook` allows 600 deliveries per minute per IP and fails open. The remaining tuning values (payload retention, trial length) belong to the phases that use them, and are added here as each lands.
+The notification drain default (`NOTIFICATION_WORKER_BUDGET_MS`) was lowered from 45 000 to 30 000 ms to make room for `billing:sync` in the tick ([internal jobs](../../workflows/internal-jobs.md#the-tick-one-cron-entry-many-tasks)). The inbound rate-limit policy `billing:webhook` allows 600 deliveries per minute per IP and fails open. The remaining tuning values (payload retention) belong to the phases that use them, and are added here as each lands.
 
 ## Tuning values chosen in Phase V
 
@@ -137,3 +137,14 @@ Phase VI adds **no environment variable**. What it chose:
 - [Environments](../provider-availability/environments.md)
 - [Disabled provider mode](../provider-availability/disabled-provider-mode.md)
 - [Security](../cross-cutting/security.md)
+
+## Values chosen in Phase VII
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BILLING_TRIAL_LENGTH_DAYS` | 14 | How long a trial lasts before the first real charge (owner decision, [IB-27](open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings) item 1). Fixed into a trial's `start_at` when the checkout is created, so a change affects new trials only |
+
+The C7 grace (`BILLING_TRIAL_CONVERSION_GRACE_SECONDS`, four days) is unchanged. The inbound rate-limit policy `promotions:redeem` allows 10 redemptions per 10 minutes per user and fails closed (the code is the secret, so this bounds guessing).
+
+**The Offer catalog is configuration, not environment.** It is TypeScript in `modules/billing/config/offer-catalog.ts`, per mode, code-reviewed and deployed, like the plan catalog. Each entry carries the marketing code, the Razorpay Offer ID, the plans and cycles it applies to, one eligibility rule, an optional window, and a description. Both lists ship empty (every code is refused as unknown). **Adding an Offer needs a code change and a deployment: an intentional V1 limitation** ([IB-27](open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings) item 6). The catalog is read through `OfferCodeSource`, so a later admin-managed, database-backed catalog changes the source only. TEST and LIVE Offers are different objects and never share an ID; the catalog's invariants are checked when it loads.
+

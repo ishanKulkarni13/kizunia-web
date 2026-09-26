@@ -1,6 +1,6 @@
 # Phase VII — Trials, Offers and Promotions
 
-> **Status:** Not started
+> **Status:** Implemented 2026-09-26. The code, the UI and the automated tests are complete, and every acceptance criterion holds on the Kizunia side. Four API-level scenarios are verified against Razorpay TEST: two contract cases (a trial create with a future `start_at`, and an unknown Offer refused) and the same two through the real checkout command (T0 and O4). **The phase is not closed:** everything that needs a customer to complete Razorpay Checkout is recorded as open until the owner runs the [TEST runbook](manual-test.md): a card trial reaching `TRIALING` with the ₹5 refund (T1), cancelling and abandoning trials, the conversion grace, and a real Dashboard Offer (O1–O3). Conversion and the first-charge failure cannot be manufactured in TEST (A7), and UPI trials stay PROVIDER-DEPENDENT (IB-18, A16 (b)). Implementation details the documents left open, and the owner's decisions for this phase, are ruled in [IB-27](../../implementation/open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings).
 >
 > **Depends on:** Phase V (and Phase I for grants) · **Razorpay needed:** TEST (card; UPI once enabled) · **Old slices:** S13, S14
 
@@ -111,12 +111,14 @@ Per the [persistence boundary](../README.md#persistence-boundary):
 
 ## Acceptance criteria
 
-- [ ] An eligible user can start one trial and gets the trial plan's access from authentication. A second trial is refused.
-- [ ] A converting trial keeps access through Razorpay's first charge within the grace, and an overdue conversion raises the anomaly.
-- [ ] A valid Offer code applies the configured Offer at creation. An invalid code is refused without a provider call.
-- [ ] A promotion code grants free access for its duration, exactly once per user, and never beyond its redemption limit.
-- [ ] The trial length (an owner decision) is configured and documented.
-- [ ] UPI trial support is verified, or recorded as PROVIDER-DEPENDENT together with the owner's fallback decision.
+Ticked means demonstrated on the Kizunia side by automated tests. Where a criterion also names Razorpay behavior, that behavior is stated as open beside it.
+
+- [x] An eligible user can start one trial and gets the trial plan's access from authentication. A second trial is refused. *(A card trial authenticating in Razorpay Checkout, T1, is open; the trial create and its `start_at` are verified against TEST.)*
+- [x] A converting trial keeps access through Razorpay's first charge within the grace, and an overdue conversion raises the anomaly. *(TEST never runs the first charge, A7, so conversion is UNVERIFIED at Razorpay.)*
+- [x] A valid Offer code applies the configured Offer at creation. An invalid code is refused without a provider call. *(Applying a real Dashboard Offer, O1, is open: none exists yet, and the catalogs ship empty. An Offer Razorpay does not know is verified refused.)*
+- [x] A promotion code grants free access for its duration, exactly once per user, and never beyond its redemption limit.
+- [x] The trial length (an owner decision) is configured and documented: **14 days**, `BILLING_TRIAL_LENGTH_DAYS`.
+- [x] UPI trial support is verified, or recorded as PROVIDER-DEPENDENT together with the owner's fallback decision. *(Recorded as PROVIDER-DEPENDENT with the fallback: offered for every method, a provider refusal surfaces; [IB-27](../../implementation/open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings) item 4.)*
 
 ## Explicit non-goals
 
@@ -129,16 +131,132 @@ Per the [persistence boundary](../README.md#persistence-boundary):
 ## Decisions that must already be settled
 
 - **DECIDED:** IB-9, SB-LC-01/10/11, SB-CP-01…05.
-- **Owner decision needed before this phase:** the **trial length**.
+- **Owner decision (made 2026-09-26, IB-27 item 1):** the **trial length**, 14 days.
 - **PROVIDER-DEPENDENT:** UPI trials (A16 (b)).
 - **Open, observe-and-apply:** A7, and A15/D11.
 
 ## Risks and blockers
 
-- **Blocker:** the trial length must be decided by the owner before trials are enabled.
+- ~~**Blocker:** the trial length must be decided by the owner before trials are enabled.~~ Decided: 14 days.
 - **Provider-dependent:** UPI trials; A7 (the first-charge failure path), which remains a LIVE observation.
 - **Risk:** TEST mode does not run the first scheduled charge promptly, so conversion cannot be fully observed in TEST.
 
 ## Expected output
 
 The trial flow and eligibility; the IB-9 grace in the mapping; the Offer catalog and code handling; promotions with atomic redemption; migrations; admin promotion tools; tests; TEST records.
+
+## Implementation record
+
+**What was built** (paths relative to `next/src/`)
+
+- **Migrations** (three, the two enum values each in their own `ALTER TYPE`, as the persistence boundary requires): `EntitlementSource.PROMOTION`; `BillingAnomalyType.TRIAL_CONVERSION_OVERDUE`; the `CodeEligibility` enum, `Promotion`, `PromotionRedemption`, `EntitlementGrant.promotionId` and `GrantAuditEntry.promotionId` (both `Restrict`), and the CHECKs:
+  - the counter is never negative;
+  - the duration is positive and the window ends after it starts;
+  - a code is stored normalized;
+  - a `PROMOTION` grant names its promotion, and an admin grant never does.
+
+  `prisma migrate diff` against the migrated database is empty.
+- **Trials, through the one checkout.** There is no trial flow.
+  - `StartCheckoutSchema` gains `trial` and `code`, and nothing else. `.strict()` still refuses every field that would let a client decide a price, a discount, eligibility, an Offer identifier or a start time.
+  - `policy/command-preconditions.ts` evaluates the trial and code rules after the open-subscription table, whose refusals win. The same-intent rule is now plan, cycle, kind and code.
+  - `policy/trial-eligibility.ts`, `policy/code-eligibility.ts` and `policy/trial-funnel.ts` are pure. `backend/commands/billing-history.ts` reads the user's own Subscription rows in one query, inside the per-user slot.
+  - `backend/commands/acquisition.ts` turns the request into the intent, the history and the fields `createProvisioning` records. The trial's `start_at` (now + 14 days) is computed once, written on the `PROVISIONING` record, and read back by the create step, so what is sent is what was recorded.
+  - `StartCheckout` and `Supersede` share all of it.
+- **Offers.** `config/offer-catalog.ts` is the static, per-mode catalog (code, Offer ID, plans and cycles, eligibility, window, description), empty in both modes. `backend/offers/offer-code-source.ts` is the narrow asynchronous port every consumer reads it through; the provider's Offer is an opaque reference nothing between the catalog and the create step interprets. A provider-refused create that carried an Offer is `CODE_REFUSED_BY_PROVIDER` with an `OFFER_REJECTED` alert.
+- **The apply path** raises `TRIAL_CONVERSION_OVERDUE` beside the alert, once per subscription (occurrences bump, no repeated alert), never auto-resolved, and logs the trial funnel (`trial.checkout_started`, `trial.started`, `trial.converted`, `trial.first_charge_failed`, `trial.cancelled`, `trial.ended`).
+- **Promotions.** `backend/grants/promotion.{service,repository,mapper,dto}.ts`. Redemption is one transaction: the conditional decrement, the grant, the redemption and the audit entry commit together or not at all. Create and list are authorized by `MANAGE_ENTITLEMENT_GRANTS`. Routes: `POST /api/v1/me/billing/promotions/redeem`, `GET|POST /api/v1/admin/billing/promotions`. Rate limit `promotions:redeem` (10 per 10 minutes, per user, fails closed).
+- **`/me/billing`** adds `allowedActions.trial` (the server's eligibility flag and the length), `subscription.kind`, `trialEndsAt` and `offer` (the code and the catalog's description), and `resumeCheckout` now states the intent a pending checkout was created with. No provider identifier.
+- **UI:** the trial CTA (only when `allowedActions.trial` says so), a code field, trial and applied-code lines, a redeem-a-code card that works in every provider mode, and the admin promotions page (`/admin/billing/promotions`, in the sidebar).
+- **Test seams and tools:** the opt-in contract cases for a future `start_at` and an unknown Offer (and a real Offer when `RAZORPAY_CONTRACT_OFFER_ID` is supplied), `pnpm billing:promo-verify`, and the [TEST runbook](manual-test.md).
+
+**Implementation decisions** (the lasting ones are IB-27)
+
+- **The Offer catalog is static in V1, deliberately (IB-27 item 6).** Adding an Offer is a code change and a deployment. It sits behind `OfferCodeSource` so that a later admin-managed, database-backed catalog replaces only the source. That future admin Offer UI and catalog are **not** built here and belong to Phase VIII or later.
+- **`FIRST_PAID_SUBSCRIPTION_ONLY` reads Subscription rows only** (IB-27 item 9). A user whose only paid access came from an admin grant or a promotion is still eligible. A mutation check that makes the history count grants fails a test.
+- **One authorization chain for promotions** (IB-27 item 16), and **one transaction for redemption** (item 15).
+
+**Deviations from the documentation**
+
+- **An Offer's terms are text, not numbers.** The plan sketched a `terms` object (kind, value, cycles). The catalog carries only a `description`: the discount is the Razorpay Offer's own configuration, and a duplicated number could drift from it and read as authoritative.
+- **The "code on a trial" refusal lives in the policy, not the schema.** One place for the rule, and it is recorded and replayable like any other refusal.
+- **Promotion redemption inserts the grant before the redemption record** (the record references the grant), after the conditional decrement. The documented pseudo-code lists the redemption first; the invariants are the same.
+- **The promotion redemption screen is a card on the billing page**, not a page of its own.
+- **Promotions can be created and listed, not edited or deactivated.** The phase scope names creation and listing only.
+- **The grant audit entries for extending or revoking a `PROMOTION` grant carry its `promotionId`.** Not in the plan; it keeps the audit trail traceable to the promotion.
+
+**Verification**
+
+- **Unit tests:** 1,372 after Phase VI, 1,445 now, all passing. New: code and trial eligibility, the acquisition rules of the precondition policy, the trial funnel, the offer catalog invariants, and the checkout and promotion schemas (including every tamper case).
+- **Integration tests:** 821 after Phase VI, 954 now. The new suites are:
+  - `checkout-acquisition.integration` (53: trial and code checkouts, concurrency, replay, provider refusal and unknown outcome, reuse and abandonment);
+  - `trial-lifecycle.integration` (14: TRIALING, the conversion grace at its exact edges, the anomaly, conversion, first-charge failure, cancelling and changing plan during a trial, and stale and racing observations);
+  - `promotion.service.integration` (34: atomic redemption, the same-user race, the last-slot race, sold-out, expiry by clock, the maximum across sources, the database CHECKs, and the authorization chain);
+  - `promotion.controller.integration` (17: 401, 403, 422, 409, the tamper cases and the rate limit);
+  - `billing-summary.acquisition.integration` (9);
+  - and six new cases in `billing-checkout.controller.integration`.
+- **Mutation checks.** Each made at least one test fail (the failing tests are named in the run output, not counted here), and each was reverted byte-for-byte:
+
+  | | Mutation |
+  | --- | --- |
+  | M1 | trial eligibility always true |
+  | M2 | an abandoned trial checkout counts as consumed |
+  | M3 | `ONCE_PER_USER` ignores history |
+  | M4 | `FIRST_PAID_SUBSCRIPTION_ONLY` counts grants |
+  | M5 | a code's window is not checked |
+  | M6 | a code's plan and cycle are not checked |
+  | M7 | a code is allowed on a trial |
+  | M8 | the overdue anomaly is not raised |
+  | M9 | the grace edge is off by one |
+  | P1 | the decrement is unconditional |
+  | P2 | the duplicate-redemption error is not mapped |
+  | P3 | the decrement runs outside the transaction |
+  | P4 | the create and the list authorization checks removed (separately) |
+  | P5 | the promotion window is not checked |
+  | P6 | the redeem rate limit removed |
+  | P7 | promotion eligibility skipped |
+  | P8 | the redeemer is taken from the request, not the session |
+
+- **Build and lint:**
+  - `tsc` is clean (source, tests and scripts);
+  - `next build` succeeds, with `/admin/billing/promotions`, `/api/v1/admin/billing/promotions` and `/api/v1/me/billing/promotions/redeem`;
+  - `eslint` reports nothing in any file this phase touched.
+- **Against Razorpay TEST (2026-09-26 UTC).** Details are in [the run](../../provider-boundary/razorpay-facts.md#phase-vii-trial-and-offer-run-2026-09-26-utc):
+  - a create with a future `start_at` (14 days) alongside `expire_by` is accepted; the subscription is `created`, `start_at` is echoed, `charge_at == start_at`, the period fields are null and `paid_count` is 0 (contract suite, and through the real checkout command as T0);
+  - an unknown well-formed `offer_id` is `400 BAD_REQUEST_ERROR` and creates nothing, classified `REJECTED`, and through the command it is `CODE_REFUSED_BY_PROVIDER` with the record `ABANDONED` and an `OFFER_REJECTED` alert (O4).
+
+**Known issues, not caused by this phase**
+
+- `delivery.integration.test.ts` › "skips a push that is no longer worth sending" fails: its fixed clock (`2026-09-17`) no longer holds. It is the failure recorded since Phase V.
+- `asset-admin.integration.test.ts` › "paginates" is an intermittent failure (passes on a re-run).
+- `postgres.store.integration.test.ts` › "admits exactly the ceiling under concurrency" fails intermittently on its own (1 in 8 isolated runs), with no billing code involved.
+- **One failure of the new redeem rate-limit test** occurred once in five full integration runs and did not reproduce in twelve isolated runs or three further billing-suite runs. It may belong to the same rate-limit store flake; it was not diagnosed. It is recorded, not dismissed.
+
+### Open items
+
+- **Card TEST runs (this phase's provider work)** need a customer's authenticated card subscription, which only the owner can create (hCaptcha). Each is scripted in [the runbook](manual-test.md), and none may be recorded as verified until it is run:
+  - T1, a card trial reaching `authenticated`, then `TRIALING`, with the ₹5 authentication refund observed;
+  - T2 to T5, a second trial refused, cancelling during a trial, a short trial inside the grace, and past it;
+  - O1 to O3, a checkout with a real Dashboard TEST Offer, and `ONCE_PER_USER` after authentication. **These need an Offer created in the TEST Dashboard**, which the owner will add later.
+- **Not manufacturable in TEST:**
+  - conversion, the first real charge at `start_at` (A7: `authenticated` stayed 47 minutes past `start_at`);
+  - the first-charge failure path, presumed to be `pending → halted` and unverified;
+  - the ₹5 refund's timing. Automated tests cover the Kizunia side; LIVE is where these are observed.
+- **UPI trials** (IB-18, A16 (b)): whether UPI AutoPay can authorize a future-`start_at` subscription is unverified. The fallback is recorded (IB-27 item 4); the decision is revisited after a UPI TEST run, and a UPI launch stays blocked.
+- **An Offer with a trial** is refused in V1 (IB-27 item 3). Whether they can combine at Razorpay is unverified.
+- **An Offer across an upgrade or downgrade** (A15, D11) stays observe-and-apply and unverified.
+- **Whether a `created` trial with a `start_at` expires at `expire_by`** (as a non-trial does, A8) was not observed.
+- **A database-backed, admin-managed Offer catalog and its admin UI** are future work (IB-27 item 6).
+- **Editing or deactivating a promotion** is not built.
+
+**Commits**
+
+In order:
+
+1. the owner decisions and the IB-27 rulings
+2. the migrations and schema
+3. trials and Offer codes through the existing checkout, the apply path and the summary
+4. promotion redemption and the admin promotion routes
+5. the trial CTA, code entry, redemption card and admin promotions page
+6. the TEST contract cases and the verification script
+7. the runbook, this record and the status updates
+

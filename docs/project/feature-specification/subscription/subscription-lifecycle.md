@@ -31,10 +31,10 @@ small authorization transaction, auto-refunded), and billing begins on a future 
 trial start. There is no separate, no-payment-method trial system.
 
 ```text
-User starts a 30-day Pro trial
+User starts a 14-day Pro trial
   -> payment method authorized immediately
   -> full Pro access from day 1
-  -> first real charge on day 30, automatically, unless the user cancels first
+  -> first real charge on day 14, automatically, unless the user cancels first
 ```
 
 Conversion is not a separate step the user takes — it is simply what happens if they do nothing.

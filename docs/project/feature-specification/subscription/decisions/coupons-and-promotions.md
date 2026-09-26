@@ -46,6 +46,13 @@ bookkeeping layered on top of a system not designed for it.
 small, pre-provisioned catalog of discount *shapes* (e.g. 10% off, 50% off, 99% off first cycle,
 flat ₹100 off) in the Razorpay Dashboard, and maps marketing codes onto that fixed catalog.
 
+**Amended (2026-09-26) — product decision (owner), Phase VII ([IB-27](../../../../architecture/subscription/implementation/open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings)):** in V1 the catalog is
+**static configuration** (Dashboard → `offer_id` → an entry in `config/offer-catalog.ts` → deploy). Adding an
+Offer needs a code change and a deployment; this is an **intentional V1 limitation**, not an open problem. The
+catalog is read through one narrow asynchronous port so that a later, admin-managed, database-backed catalog
+(an admin copies the `offer_id` and its metadata into a Kizunia dashboard, no deploy) replaces only the source.
+That admin tool is not built in Phase VII.
+
 **Rationale:** [RAZORPAY FACT] Razorpay Offers can only be created from the Dashboard, not via API
 (see [`../../../../architecture/subscription/provider-boundary/razorpay-facts.md`](../../../../architecture/subscription/provider-boundary/razorpay-facts.md#offers)).
 A bounded catalog of shapes, decided once, avoids needing dashboard access as part of any runtime
@@ -63,6 +70,13 @@ evaluated against the user's Kizunia records inside the per-user command seriali
 before any Razorpay call. The code used is stored on the resulting Subscription or grant. Promotion
 redemption is enforced by a unique `(promotion, user)` record and a conditional decrement of the
 remaining-redemptions counter, in one transaction.
+
+**Amended (2026-09-26), Phase VII ([IB-27](../../../../architecture/subscription/implementation/open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings)):**
+
+- **A code is consumed only by a subscription that carried it and reached a contributing phase** (product decision, owner). An abandoned or expired checkout that carried it consumes nothing.
+- **`FIRST_PAID_SUBSCRIPTION_ONLY` is evaluated from the user's Subscription records only** (`TRIALING`, `ACTIVE` or `PAST_DUE`, so a trial counts). Access from an admin grant or a promotion is not a paid subscription and never makes a user ineligible.
+- Eligibility is read in the current provider mode only.
+- Promotion redemption is one transaction (the conditional decrement, the grant, the redemption and the audit entry, all or nothing).
 
 **Rationale:** [RAZORPAY FACT] Offer usage limits are per card, not per customer, and nothing
 prevents the same customer from reusing an Offer on a new subscription

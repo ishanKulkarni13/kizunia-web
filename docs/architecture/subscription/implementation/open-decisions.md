@@ -76,7 +76,7 @@ The close-out sorted every open question into five classes. This is a record of 
 | Class | Items |
 | --- | --- |
 | **A. Must decide before coding** (major rework if postponed) | IB-3, IB-6, IB-13, IB-14 (storage), IB-15, product B1 (plan changes; see [IB-21](#ib-21--plan-change-extensibility)) — all decided |
-| **B. Decide before the specific phase** | IB-1 (VI), IB-2/4/5/7/12/16 (II), IB-9 (VII), IB-10 (IV) — all decided; trial length (before VII) and launch scope of trials/Offers/Promotions (before IX) remain for the owner |
+| **B. Decide before the specific phase** | IB-1 (VI), IB-2/4/5/7/12/16 (II), IB-9 (VII), IB-10 (IV) — all decided; trial length (before VII: **decided, 14 days**) and launch scope of trials/Offers/Promotions (before IX) remain for the owner |
 | **C. Safe to decide during implementation** | C1–C7 configuration values; exact tick budgets (IB-10); Idempotency-Key format; migration file layout |
 | **D. Safe to defer** | IB-11, IB-14 workflow, B2–B5, B7–B10, successor/switch plan changes (B1 successor flow) |
 | **E. External provider unknowns** | IB-18, IB-22, A3, A4, A6, A7, A10, A11, A12, A15 — each classified in [Open Razorpay items](#open-razorpay-items) |
@@ -717,7 +717,7 @@ From the product register ([§B](../../../project/feature-specification/subscrip
 
 Also open for the owner, and not blocking before the named phase:
 
-- **Trial length** (decide before Phase VII). The product specification gives "30-day" only as an example.
+- ~~**Trial length** (decide before Phase VII).~~ **Decided 2026-09-26: 14 days** ([IB-27](#ib-27--phase-vii-decisions-and-implementation-rulings) item 1).
 - **Launch scope**: whether LIVE launch waits for trials, Offers and Promotions (decide before Phase IX). The phases are independent, so either answer works.
 
 ## Open configuration values

@@ -1,8 +1,8 @@
 # Trials
 
-> **Status:** Design — not implemented
+> **Status:** Implemented in Phase VII (2026-09-26): trial eligibility in `policy/trial-eligibility.ts`, the trial create in the ordinary checkout command, the conversion grace in `policy/state-mapping.ts` with the anomaly raised in the apply path. The provider side is partly verified; see [the Phase VII runbook](../implementation-plan/phase-VII/manual-test.md).
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-26
 
 Trials use Razorpay's native mechanism only — see
 [SB-LC-01](../../../project/feature-specification/subscription/decisions/lifecycle.md#sb-lc-01--trial-is-razorpay-native-only),
@@ -15,23 +15,28 @@ Trials use Razorpay's native mechanism only — see
 
 Starting a trial is the ordinary checkout command
 ([`../commands/checkout-and-creation.md`](../commands/checkout-and-creation.md)) with
-`kind = TRIAL` and `start_at` = trial end. **FACT:** the customer completes the authentication
+`kind = TRIAL` and `start_at` = trial end. **Trial length: 14 days** (owner decision, 2026-09-26,
+[IB-27](../implementation/open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings);
+`BILLING_TRIAL_LENGTH_DAYS`). A trial may be started on any paid plan and any cycle, and converts to the
+plan and cycle it was started on. The `start_at` is computed once, written on the `PROVISIONING` record and
+read back by the create step, so what is sent is what was recorded. **TEST-observed (2026-09-26):** a create
+with a future `start_at` alongside `expire_by` is accepted and is `created` until a customer authenticates. **FACT:** the customer completes the authentication
 transaction immediately; with a future start and no upfront amount Razorpay charges ₹5 and refunds it
 automatically ([razorpay-facts](../provider-boundary/razorpay-facts.md#trials)).
 
 ```text
-checkout(kind = TRIAL, plan = PRO, start_at = now + 30d)
+checkout(kind = TRIAL, plan = PRO, start_at = now + 14d)
   -> eligibility check under the user's in-flight operation (SB-LC-11)
-  -> Razorpay: created -> authenticated (start_at = T+30d)
+  -> Razorpay: created -> authenticated (start_at = T+14d)
   -> sync: kind TRIAL + authenticated + future start_at -> TRIALING
-  -> effective access includes PRO from authentication, through T+30d
+  -> effective access includes PRO from authentication, through T+14d
 ```
 
 ## Eligibility
 
 A user may start a trial only if none of their Subscriptions of kind `TRIAL` has ever reached
 `TRIALING` — derived from existing Subscription records (history entries record the transition), no
-separate table. Checked inside the per-user command serialization, so two tabs cannot both start one.
+separate table. Checked inside the per-user command serialization, so two tabs cannot both start one. As built, "reached `TRIALING`" is a `TRIAL` Subscription with `firstContributedAt` set, read for the current provider mode only, so TEST history never affects LIVE.
 An abandoned trial checkout (never authenticated) does not consume eligibility; a cancelled,
 converted or failed trial does.
 
@@ -73,6 +78,12 @@ Eligibility stays consumed.
 | Plan change during a trial | Allowed only where Razorpay accepts an update for an `authenticated` subscription of that payment method ([`upgrade-downgrade.md`](upgrade-downgrade.md)); otherwise refused |
 | Two trial checkouts at once | One in-flight operation per user; the second is refused or returns the first |
 
+## Offers and trials
+
+A marketing code is refused on a trial checkout, before any provider call (owner decision, IB-27 item 3):
+whether an Offer and a trial can combine at Razorpay, and how it would interact with the ₹5 authentication
+charge, is not documented. A later ruling can relax it.
+
 ## UPI trials — provider-dependent
 
 A trial is a future-`start_at` subscription authorized now. Whether UPI AutoPay can authorize such a
@@ -80,9 +91,11 @@ subscription has **not been verified**: UPI is disabled for Subscriptions on the
 ([A16](../../../project/feature-specification/subscription/open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support),
 [IB-18](../implementation/open-decisions.md#ib-18--upi-disabled-on-the-razorpay-test-account)). The
 design does not depend on the answer: an unsupported method surfaces as a provider refusal of the
-create or the authorization. But if UPI trials turn out to be unsupported, the product must decide
-whether trials are offered only to other methods. That decision is made in implementation-plan
-[Phase VII](../implementation-plan/phase-VII/README.md), not assumed here.
+create or the authorization. **Owner's fallback (IB-27 item 4):** trials are offered for every payment
+method and nothing method-specific is coded; if UPI cannot authorize a future-`start_at` subscription, the
+refusal surfaces and the customer can use a card. If UPI trials turn out to be unsupported, the owner decides
+whether trials are then offered only to other methods, and records it before trials are launched to UPI
+users. A16 (b) stays **PROVIDER-DEPENDENT** until a UPI trial is run ([T7](../implementation-plan/phase-VII/manual-test.md)).
 
 ## What is not built
 

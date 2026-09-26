@@ -560,6 +560,8 @@ auto-refunded authentication charge
 documents the first post-trial charge failing** — neither the resulting status, nor whether the
 pending/retry/halted rules apply identically, nor any trial-specific notification.
 
+**TEST-OBSERVED (2026-09-26, Phase VII; T0).** A create with a future `start_at` and an `expire_by` together is accepted; the subscription is `created` until a customer authenticates, with `start_at` echoed, `charge_at == start_at`, null period fields and `paid_count` 0. That is the same shape the 2026-09-24 observation recorded after authentication, now also observed for a fresh create through Kizunia's own command ([run](#phase-vii-trial-and-offer-run-2026-09-26-utc)). Authenticating one, and the ₹5 refund, were not run.
+
 **OPEN (not reproducible in TEST; not documented).** What happens when the first real charge at
 `start_at` **fails**. The existing design presumes the ordinary `pending → halted` path — that is an
 **[INFERENCE]** from the general auto-charge rules and remains one. The state before `start_at` is
@@ -735,6 +737,8 @@ Checkout, in India. Source: [Link an Offer](https://razorpay.com/docs/payments/s
 **FACT.** Usage limits are "Max Usage" (total) and "Max Usage Per Card"; no per-customer limit is
 documented. "Offers can only be applied if the chargeable amount after applying the Offer is greater
 than ₹1." Source: [Create Subscription Offers](https://razorpay.com/docs/payments/subscriptions/offers/create/).
+
+**TEST-OBSERVED (2026-09-26, Phase VII; O4).** A create carrying a well-formed but unknown `offer_id` is refused: `HTTP 400`, `BAD_REQUEST_ERROR`, "Offer Not Found", and nothing is created. The refusal is classified by code (`REJECTED`), never by the description. No Offer exists in the TEST account yet, so an Offer being applied, echoed on the subscription, and its per-card usage limit were **not** observed ([run](#phase-vii-trial-and-offer-run-2026-09-26-utc)).
 
 **INTERPRETATION.** See [SB-CP-01 through SB-CP-05](../../../project/feature-specification/subscription/decisions/coupons-and-promotions.md).
 
@@ -943,6 +947,19 @@ either side.** "Safe to rely on" states the conservative reading the current des
 | Plan update on a `created` subscription at `now` and at `cycle_end`, straight through the provider (P6) | Both `FAILURE`, class `REJECTED`, code `BAD_REQUEST_ERROR` (as on 2026-09-24). A refetch showed the subscription unchanged: `created`, the same plan, `has_scheduled_changes = false` |
 
 **Not run (need a customer's authentication, an owner-approved international card, or UPI):** the cycle-end cancel of an `active` card subscription, immediate cancels of `pending`/`halted`/`paused` through the new command, supersession of a `halted` subscription, the domestic-card refusal classified through ChangePlan, a successful native change (A3, A15), the payment-method change on a halted subscription, and every UPI behavior (A16 (c)–(f), IB-22). Earlier observations of the raw cancel matrix (A1, 2026-09-24) still stand; they were made against the API, not through Phase VI's commands.
+
+## Phase VII trial and Offer run (2026-09-26 UTC)
+
+**What this section is.** The API-only part of Phase VII's TEST verification: the opt-in contract cases ("trials and Offers at creation") and `pnpm billing:promo-verify`, driven through the real checkout command, provider and apply path, against the dev database and throwaway verification users. Only scenarios that need no browser were run. Everything that needs a customer to complete Razorpay Checkout (authenticating a trial, the ₹5 refund, an Offer applied at the first charge, conversion) was **not run**: see [the Phase VII runbook](../implementation-plan/phase-VII/manual-test.md) for its status.
+
+| Probe (runbook ID) | Observed at ~04:50–04:52 UTC |
+| --- | --- |
+| A create with `start_at` = now + 14 days **and** `expire_by` = now + 30 minutes, with the catalog TEST plan (contract case; T0) | Accepted (`SUCCESS`). Fetched: status `created`, `start_at` echoed to the second, `charge_at == start_at`, `expire_by` kept, `current_start`/`current_end` null, `paid_count` 0. So `expire_by` and a future `start_at` are accepted together |
+| The same, through the real `StartCheckout` command with `trial: true` (T0) | `CHECKOUT_READY`; the operation `SUCCEEDED` with `request {kind: TRIAL, plan, cycle}`; the row `kind TRIAL`, `startAt` equal to Razorpay's `start_at`, `firstContributedAt` null; history `PROVISIONING → PENDING_AUTHENTICATION`. The customer cancel (`IMMEDIATE`) then observed `cancelled`; Razorpay still reports the `start_at` and no `charge_at` after a cancel |
+| A create with a well-formed but unknown `offer_id` (`offer_` + 14 characters) (contract case; O4) | `FAILURE`, class `REJECTED`, HTTP `400`, code `BAD_REQUEST_ERROR`, description "Offer Not Found". Nothing was created |
+| The same, through the command with an injected catalog entry (O4) | `CODE_REFUSED_BY_PROVIDER`; the operation `REJECTED` (`failureClass REJECTED`, `providerErrorCode BAD_REQUEST_ERROR`), the subscription `ABANDONED` with no provider ID, an `OFFER_REJECTED` alert, and no Razorpay subscription left behind. The customer-facing message carries none of the provider's words |
+
+**Not run (need a customer's authentication, a Dashboard-created Offer, or UPI):** a card trial reaching `authenticated`, then `TRIALING`, and the ₹5 authentication refund (T1); cancelling and abandoning a trial that authenticated (T3); the conversion grace (T4, T5); a checkout with a real TEST Offer, and the Offer echoed on the subscription (O1); `ONCE_PER_USER` after authentication (O2); every UPI trial behavior (A16 (b), IB-18). **Not manufacturable in TEST:** the first real charge and its failure path (A7), and conversion. Whether a `created` trial with a `start_at` expires at `expire_by` (as a non-trial does, A8) was not observed.
 
 ## Research pass 2 (2026-09-24)
 

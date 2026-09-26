@@ -1,8 +1,8 @@
 # Coupons and Offers — Mechanism
 
-> **Status:** Design — not implemented
+> **Status:** Implemented in Phase VII (2026-09-26): Offer codes through the existing checkout (`policy/code-eligibility.ts`, `backend/offers/offer-code-source.ts`, `config/offer-catalog.ts`), and promotions as grants (`backend/grants/promotion.service.ts`). Applying a real Dashboard Offer is not yet verified against Razorpay TEST; see [the Phase VII runbook](../implementation-plan/phase-VII/manual-test.md).
 >
-> **Last Updated:** 2026-09-24
+> **Last Updated:** 2026-09-26
 
 Mechanism behind [`../../../project/feature-specification/subscription/coupons-and-promotions.md`](../../../project/feature-specification/subscription/coupons-and-promotions.md).
 
@@ -25,6 +25,25 @@ User enters a marketing code at checkout
   -> the code is stored on the new Subscription
   -> Razorpay applies the discount per the Offer's own configuration
 ```
+
+**Rulings that shape it (Phase VII, [IB-27](../implementation/open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings)):**
+
+- A code is consumed only by a subscription that carried it **and reached a contributing phase** (`firstContributedAt`). An abandoned or expired checkout consumes nothing (owner decision).
+- `FIRST_PAID_SUBSCRIPTION_ONLY` reads Subscription rows only. Admin grants, promotion grants and effective access are never consulted, so a user whose only paid access came from a grant or a promotion is still eligible.
+- All eligibility is read from the user's Subscriptions in the current provider mode only.
+- A code with a trial checkout is refused before any provider call.
+- An invalid code is one answer: unknown, outside its window, and not sold in this mode are not told apart.
+- A create refused by the provider while an Offer was sent is `CODE_REFUSED_BY_PROVIDER` with an `OFFER_REJECTED` alert (a misconfigured Offer); no provider description is parsed.
+
+**V1 provisioning is static, and that is intentional (owner decision, IB-27 item 6).** The flow is
+Razorpay Dashboard → `offer_id` → an entry in `config/offer-catalog.ts` → deploy → the code works. Adding an
+Offer is a code change and a deployment. Every consumer reads the catalog through one narrow asynchronous
+port (`OfferCodeSource`), and the provider's Offer is an opaque reference carried from the catalog to the create
+step, so a later admin-managed catalog (an admin copies the `offer_id` and its metadata into a Kizunia
+dashboard, stored in the database, no deploy) replaces the source only: the eligibility rules, the checkout,
+the redemption and the entitlement code are unchanged. That admin UI and catalog are **not built in
+Phase VII** (Phase VIII or later), and Kizunia does not compute the discount: the Offer's own configuration at
+Razorpay does, and the catalog carries only a description for display.
 
 The mapping table is Kizunia's own and small. It maps human-friendly codes onto the fixed catalog of
 pre-provisioned Offer shapes ([SB-CP-03](../../../project/feature-specification/subscription/decisions/coupons-and-promotions.md#sb-cp-03--offers-are-pre-provisioned-from-a-fixed-catalog-of-discount-shapes)),
@@ -62,7 +81,12 @@ User enters a promotion code
 ```
 
 Identical mechanism to [`admin-grants.md`](admin-grants.md). No Razorpay call happens anywhere in this
-path, so it works in every provider mode. Both the unique redemption record and the conditional
+path, so it works in every provider mode. **As built:** the conditional decrement, the grant, the redemption
+record and the audit entry commit in **one** transaction or not at all; a duplicate, a sold-out promotion, an
+ineligible user or any error rolls all of it back (the redemption record references the grant, so the grant is
+inserted first). `MANAGE_ENTITLEMENT_GRANTS` (`SUPER_ADMIN`) is the one permission for creating and listing
+promotions, enforced in the service; redeeming needs only a session, and the redeemer is always the session user.
+Promotion codes and Offer codes are disjoint. Both the unique redemption record and the conditional
 decrement are required: the first stops one user redeeming twice from two tabs, the second stops two
 users taking the last slot.
 

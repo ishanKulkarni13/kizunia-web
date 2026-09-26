@@ -316,3 +316,11 @@ cycle-end-cancel before the first cycle) and start another indefinitely — unli
 [RAZORPAY FACT] Razorpay has no concept of a prior trial, so the rule can only live in Kizunia.
 Deriving it from the Subscription records Kizunia already keeps avoids new state. Cooldowns or
 re-trials remain open product question [B7](../open-decisions.md#b-genuinely-open-product-questions).
+
+**Amended (2026-09-26) — product decision (owner), Phase VII ([IB-27](../../../../architecture/subscription/implementation/open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings)):**
+
+- **The trial is 14 days** (`BILLING_TRIAL_LENGTH_DAYS`); the 30 days in the specification was only an example.
+- **A trial may be started on any paid plan and any cycle**, and converts to the plan and cycle it was started on.
+- **A marketing code cannot be used on a trial checkout;** it is refused before any provider call, because whether an Offer and a trial can combine at Razorpay is not documented.
+- **UPI trials:** trials are offered for every payment method. If UPI AutoPay cannot authorize a future-`start_at` subscription, the provider's refusal surfaces and the customer can use a card. This stays PROVIDER-DEPENDENT ([A16](../open-decisions.md#a-razorpay-behavior-requiring-test-mode-verification-or-support) (b)) until verified.
+- "Reached `TRIALING`" is read from `firstContributedAt` on the user's Subscriptions **in the current provider mode**.

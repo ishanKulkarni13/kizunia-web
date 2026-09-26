@@ -70,5 +70,6 @@ export const PlatformPermissionSet = {
         PlatformAction.VIEW_BILLING,
         PlatformAction.MANAGE_BILLING,
         PlatformAction.MANAGE_ENTITLEMENT_GRANTS,
+        PlatformAction.VIEW_BILLING_RAW_PAYLOADS,
     ]),
 } as const;

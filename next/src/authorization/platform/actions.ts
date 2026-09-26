@@ -61,8 +61,11 @@ export enum PlatformAction {
   // anomalies. Never a write.
   VIEW_BILLING = "VIEW_BILLING",
   // Billing writes other than grants (admin immediate cancel, anomaly
-  // resolution, bulk re-sync). Assigned now; first used in a later phase.
+  // resolution, bulk re-sync).
   MANAGE_BILLING = "MANAGE_BILLING",
+  // Reading a webhook's raw provider payload, which may carry customer contact
+  // details. Narrower than VIEW_BILLING: SUPER_ADMIN only (IB-15, IB-28).
+  VIEW_BILLING_RAW_PAYLOADS = "VIEW_BILLING_RAW_PAYLOADS",
 
   // Site
   MANAGE_SITE_SETTINGS = "MANAGE_SITE_SETTINGS",

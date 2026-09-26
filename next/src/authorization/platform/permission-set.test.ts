@@ -74,6 +74,7 @@ describe("PlatformPermissionSet - billing actions", () => {
     [PlatformAction.MANAGE_ENTITLEMENT_GRANTS, [PlatformRole.SUPER_ADMIN]],
     [PlatformAction.MANAGE_BILLING, [PlatformRole.SUPER_ADMIN]],
     [PlatformAction.VIEW_BILLING, [PlatformRole.SUPER_ADMIN, PlatformRole.ADMIN]],
+    [PlatformAction.VIEW_BILLING_RAW_PAYLOADS, [PlatformRole.SUPER_ADMIN]],
   ];
 
   it.each(matrix)("%s is held by exactly the expected roles", (action, holders) => {

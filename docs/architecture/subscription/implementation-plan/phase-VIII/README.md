@@ -222,3 +222,6 @@ The admin billing UI and API (explain, timeline, anomalies, bulk re-sync, health
 7. `dd627e0` feat(subscription-p8): expose the admin billing API routes and link alerts to admin views
 8. `6bdfb01` test(subscription-p8): cover the admin billing authorization matrix, envelopes and payload secrecy
 9. `68a5d9f` feat(subscription-p8): add the admin billing overview, user and anomaly pages
+10. `6c30699` docs(subscription-p8): align the operations runbook with the admin tools
+11. `ab07c56` docs(subscription-p8): record IB-28, the configuration and the Phase VIII implementation
+12. the commit that lists these two (this record)

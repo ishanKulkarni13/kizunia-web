@@ -86,5 +86,20 @@ export function logBillingAlert(
   severity: BillingAlertSeverity,
   fields: LogFields = {},
 ): void {
-  billingLogger.warn("billing.alert", { ...fields, condition, severity });
+  billingLogger.warn("billing.alert", { ...fields, condition, severity, adminPath: adminPathFor(fields) });
+}
+
+/**
+ * Where an administrator looks at an alert (Phase VIII): the anomaly when the
+ * alert names one, else the user's billing page, else the billing overview
+ * (which shows the health summary). A relative path into the admin dashboard,
+ * so a log-drain alert can link to it.
+ */
+export function adminPathFor(fields: LogFields): string {
+  const { anomalyId, userId } = fields;
+
+  if (typeof anomalyId === "string" && anomalyId) return `/admin/billing/anomalies/${encodeURIComponent(anomalyId)}`;
+  if (typeof userId === "string" && userId) return `/admin/billing/users/${encodeURIComponent(userId)}`;
+
+  return "/admin/billing";
 }

@@ -56,6 +56,12 @@ describe("sanitizeFields", () => {
     });
   });
 
+  it("redacts a billing webhook's raw payload however it is spelled, as a safety net (Phase VIII)", () => {
+    expect(
+      sanitizeFields({ rawPayload: { customer_email: "a@example.test" }, raw_payload: "x", event: { rawPayload: {} } }),
+    ).toEqual({ rawPayload: "[REDACTED]", raw_payload: "[REDACTED]", event: { rawPayload: "[REDACTED]" } });
+  });
+
   it("recurses into arrays", () => {
     const input = { subscriptions: [{ endpoint: "https://push.example/abc" }] };
 

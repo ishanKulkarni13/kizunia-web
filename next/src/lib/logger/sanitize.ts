@@ -25,6 +25,10 @@
  *                                        provider endpoint URL that is effectively
  *                                        a bearer credential for sending to that
  *                                        device
+ *  - `rawPayload`                     — a billing webhook's raw provider payload,
+ *                                        which may carry customer contact details.
+ *                                        Billing never logs it (Phase VIII); this is
+ *                                        the safety net behind that rule
  *
  * This is a key-name match, not a value-pattern scanner: it is cheap,
  * predictable, and matches how every one of the sensitive fields above
@@ -39,7 +43,7 @@
 const REDACTED = "[REDACTED]";
 
 const SENSITIVE_KEY_PATTERN =
-  /password|token|secret|authorization|cookie|apikey|api_key|privatekey|private_key|credential|pushsubscription|endpoint/i;
+  /password|token|secret|authorization|cookie|apikey|api_key|privatekey|private_key|credential|pushsubscription|endpoint|rawpayload|raw_payload/i;
 
 function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY_PATTERN.test(key);

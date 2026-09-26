@@ -482,7 +482,7 @@ export const RATE_LIMIT_POLICIES: Readonly<
     subjectStrategies: ["user"],
     failureMode: "closed",
     description:
-      "Billing administrators listing entitlement grants. Admin-only and interactive; fails closed because the data is billing-sensitive.",
+      "Billing administrators reading billing state: grants, and the Phase VIII explain, timeline, anomaly, health and raw-payload views. Admin-only and interactive; fails closed because the data is billing-sensitive.",
   },
   [RateLimitPolicyId.BILLING_ADMIN_WRITE]: {
     id: RateLimitPolicyId.BILLING_ADMIN_WRITE,
@@ -491,7 +491,7 @@ export const RATE_LIMIT_POLICIES: Readonly<
     subjectStrategies: ["user"],
     failureMode: "closed",
     description:
-      "Creating, extending or revoking entitlement grants. A grant is money-equivalent, so the write is rare, deliberate and audited; fails closed.",
+      "Billing administrator writes: creating, extending or revoking grants, and the Phase VIII anomaly resolution and bulk re-sync, plus the admin sync-now and immediate cancel, which spend provider budget. Rare, deliberate and recorded; fails closed.",
   },
   [RateLimitPolicyId.BILLING_WEBHOOK]: {
     id: RateLimitPolicyId.BILLING_WEBHOOK,

@@ -189,6 +189,12 @@ describe("only billing, the app and the boot hook import modules/billing", () =>
       "src/app/(dashboard)/admin/billing/promotions/page.tsx",
       "src/app/api/v1/admin/billing/promotions/route.ts",
       "src/app/api/v1/me/billing/promotions/redeem/route.ts",
+      "src/app/api/v1/admin/billing/health/route.ts",
+      "src/app/api/v1/admin/billing/anomalies/[id]/resolve/route.ts",
+      "src/app/api/v1/internal/billing/payload-prune/route.ts",
+      "src/app/(dashboard)/admin/billing/page.tsx",
+      "src/app/(dashboard)/admin/billing/anomalies/page.tsx",
+      "src/app/(dashboard)/admin/billing/users/[id]/page.tsx",
       "src/instrumentation.ts",
     ]) {
       for (const specifier of billingImports) {

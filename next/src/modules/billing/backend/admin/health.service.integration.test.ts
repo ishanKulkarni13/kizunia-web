@@ -147,8 +147,13 @@ describe("BillingHealthService.summary", () => {
   });
 
   it("lets ADMIN and SUPER_ADMIN read, and refuses MODERATOR and USER", async () => {
-    await expect(service.summary(await actorWithRole(PREFIX, PlatformRole.ADMIN))).resolves.toBeDefined();
-    await expect(service.summary(await actorWithRole(PREFIX, PlatformRole.SUPER_ADMIN))).resolves.toBeDefined();
+    // The permission flags are the server's, so the overview shows the bulk re-sync panel only to SUPER_ADMIN.
+    await expect(service.summary(await actorWithRole(PREFIX, PlatformRole.ADMIN))).resolves.toMatchObject({
+      permissions: { canManageBilling: false, canViewRawPayloads: false },
+    });
+    await expect(service.summary(await actorWithRole(PREFIX, PlatformRole.SUPER_ADMIN))).resolves.toMatchObject({
+      permissions: { canManageBilling: true, canViewRawPayloads: true },
+    });
 
     for (const role of [PlatformRole.MODERATOR, PlatformRole.USER]) {
       await expect(service.summary(await actorWithRole(PREFIX, role))).rejects.toBeInstanceOf(ForbiddenError);

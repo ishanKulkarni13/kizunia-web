@@ -274,6 +274,8 @@ export interface JobRunDTO {
 
 export interface BillingHealthDTO {
   readonly generatedAt: string;
+  /** What the viewer may do; lets the overview show the bulk re-sync panel only to SUPER_ADMIN. */
+  readonly permissions: BillingAdminPermissionsDTO;
   /** The resolved provider mode: `TEST`, `LIVE`, or `DISABLED`. */
   readonly providerMode: ProviderMode | "DISABLED";
   /** The mode whose subscriptions grant access (BILLING_EXPECTED_MODE). */

@@ -94,7 +94,10 @@ export interface HealthInputs {
   }[];
 }
 
-export function buildHealthSummary(input: HealthInputs): BillingHealthDTO {
+/** The summary before the service adds the viewer's permissions. */
+export type BillingHealthSummary = Omit<BillingHealthDTO, "permissions">;
+
+export function buildHealthSummary(input: HealthInputs): BillingHealthSummary {
   const { now } = input;
 
   const subscriptionsByPhase = input.phaseCounts

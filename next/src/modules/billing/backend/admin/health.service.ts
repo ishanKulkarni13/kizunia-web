@@ -31,6 +31,7 @@ import prisma from "@/lib/prisma";
 import { getProviderMode, type ResolvedProviderMode } from "../../provider/provider-mode";
 import { BillingAuthorizer } from "../authorization/authorizer";
 import type { BillingHealthDTO } from "./admin-billing.dto";
+import { adminPermissions } from "./admin-mappers";
 import { buildHealthSummary, HEALTH_TASK_IDS } from "./health-summary";
 
 /** How many of the oldest due rows and `OUTCOME_UNKNOWN` operations are listed. */
@@ -103,7 +104,7 @@ export class BillingHealthService {
       }),
     ]);
 
-    return buildHealthSummary({
+    const summary = buildHealthSummary({
       now,
       providerMode: (this.deps.resolvedMode ?? getProviderMode)(),
       expectedMode: (this.deps.expectedMode ?? expectedBillingMode)(),
@@ -128,5 +129,7 @@ export class BillingHealthService {
         lastPreviousSecretAt: lastPreviousSecret.find((row) => row.providerMode === mode)?._max.receivedAt ?? null,
       })),
     });
+
+    return { ...summary, permissions: adminPermissions(context) };
   }
 }

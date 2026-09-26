@@ -100,14 +100,26 @@ export const SideBarNavMain: SidebarNavSection[] = [
         url: "/admin/notification-announcements",
       },
       {
+        id: "admin-billing-overview",
+        title: "Billing operations",
+        url: "/admin/billing",
+      },
+      {
+        id: "admin-billing-anomalies",
+        title: "Billing anomalies",
+        url: "/admin/billing/anomalies",
+      },
+      {
         id: "admin-billing-grants",
         title: "Entitlement grants",
         url: "/admin/billing/grants",
       },
       {
+        // The page needs MANAGE_ENTITLEMENT_GRANTS (SUPER_ADMIN only, IB-15): do not show ADMIN a link it refuses.
         id: "admin-billing-promotions",
         title: "Promotions",
         url: "/admin/billing/promotions",
+        roles: [PlatformRole.SUPER_ADMIN],
       },
     ],
   },

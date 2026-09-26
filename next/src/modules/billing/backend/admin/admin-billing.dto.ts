@@ -289,10 +289,11 @@ export interface BillingHealthDTO {
     readonly oldestDueAt: string | null;
     readonly oldestDueAgeSeconds: number | null;
   }[];
-  /** The oldest due subscriptions of the resolved mode (bounded), for the runbook's "use sync now". */
+  /** The oldest due subscriptions (bounded), for the runbook's "use sync now". */
   readonly oldestDue: readonly {
     readonly subscriptionId: string;
     readonly userId: string | null;
+    readonly providerMode: ProviderMode;
     readonly syncDueAt: string;
     readonly syncReason: SyncReason | null;
     readonly syncAttempts: number;
@@ -322,6 +323,7 @@ export interface BillingHealthDTO {
     readonly cooldownUntil: string | null;
     readonly cooldownLevel: number;
     readonly consecutiveFailures: number;
+    /** An authentication failure is pinned; it lifts itself once the configured key changes. */
     readonly authFailurePinned: boolean;
     readonly orphanWatermark: string | null;
     readonly orphanWindowTo: string | null;

@@ -12,9 +12,13 @@
  * under concurrency. `opened` says whether this call created the row: the
  * alert fires once, when an anomaly opens, not on every repeat.
  *
- * Resolution by a person arrives with the Phase VIII admin tools. Phase IV
- * resolves only what an observation proves stale (IB-24 item 6), through
- * `resolveOpen`.
+ * Two ways to resolve. An observation resolves only what it proves stale
+ * (IB-24 item 6), through `resolveOpen`. A person resolves one anomaly by id
+ * through `resolveById` (Phase VIII): a conditional update on the open row, so
+ * two concurrent resolutions record exactly one. Resolving is an operational
+ * acknowledgement and touches no other table; if the situation is still true,
+ * the next detection opens a new anomaly (the partial unique index only covers
+ * open rows).
  *
  * Takes a database client so it runs inside the transaction that detected the
  * anomaly.
@@ -23,6 +27,7 @@ import {
   BillingAnomalyType as BillingAnomalyTypeEnum,
   ProviderMode as ProviderModeEnum,
   Prisma,
+  type BillingAnomaly,
   type BillingAnomalyType,
   type PrismaClient,
   type ProviderMode,
@@ -108,4 +113,64 @@ export class BillingAnomalyRepository {
 
     return count > 0;
   }
+
+  /**
+   * A person resolves one anomaly. One conditional `UPDATE … WHERE id AND
+   * resolvedAt IS NULL`: the loser of a race, or a second click, matches no
+   * row and gets `false`. Returns whether this call resolved it.
+   */
+  static async resolveById(
+    db: Db,
+    id: string,
+    resolvedByUserId: string,
+    resolutionReason: string,
+    now: Date,
+  ): Promise<boolean> {
+    const { count } = await db.billingAnomaly.updateMany({
+      where: { id, resolvedAt: null },
+      data: { resolvedAt: now, resolvedByUserId, resolutionReason },
+    });
+
+    return count > 0;
+  }
+
+  static async findById(db: Db, id: string): Promise<BillingAnomaly | null> {
+    return db.billingAnomaly.findUnique({ where: { id } });
+  }
+
+  /** Open anomalies first, then the most recently seen. */
+  static async list(
+    db: Db,
+    filter: AnomalyListWhere,
+    page: { readonly skip: number; readonly take: number },
+  ): Promise<{ items: BillingAnomaly[]; total: number }> {
+    const where = BillingAnomalyRepository.buildWhere(filter);
+
+    const [items, total] = await Promise.all([
+      db.billingAnomaly.findMany({
+        where,
+        orderBy: [{ resolvedAt: { sort: "asc", nulls: "first" } }, { lastSeenAt: "desc" }, { id: "desc" }],
+        skip: page.skip,
+        take: page.take,
+      }),
+      db.billingAnomaly.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  static buildWhere(filter: AnomalyListWhere): Prisma.BillingAnomalyWhereInput {
+    return {
+      ...(filter.status === "OPEN" && { resolvedAt: null }),
+      ...(filter.status === "RESOLVED" && { resolvedAt: { not: null } }),
+      ...(filter.type && { type: filter.type }),
+      ...(filter.userId && { userId: filter.userId }),
+    };
+  }
+}
+
+export interface AnomalyListWhere {
+  readonly status: "OPEN" | "RESOLVED" | "ALL";
+  readonly type?: BillingAnomalyType;
+  readonly userId?: string;
 }

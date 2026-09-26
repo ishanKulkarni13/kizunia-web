@@ -65,6 +65,11 @@ model User {
   grantAuditEntries GrantAuditEntry[]  @relation("grantAuditTarget")
 
   // ---------------------------------------------------------------------------
+  // Subscription & Billing — promotions (Phase VII)
+  // ---------------------------------------------------------------------------
+  promotionRedemptions PromotionRedemption[] @relation("promotionRedeemer")
+
+  // ---------------------------------------------------------------------------
   // Subscription & Billing — billing persistence (Phase III)
   // ---------------------------------------------------------------------------
   subscriptions              Subscription[]             @relation("subscriptionOwner")
@@ -1827,7 +1832,10 @@ model EntitlementGrant {
   /// `null` = no expiry. Contributes while `validFrom <= now < validUntil`.
   validUntil       DateTime?
   /// The granting administrator. Never the recipient (SB-EA-08, also a CHECK).
+  /// Null for a `PROMOTION` grant, which the user redeemed themselves.
   grantedByUserId  String?
+  /// The promotion a `PROMOTION` grant came from (CHECK: required for that source).
+  promotionId      String?
   reason           String
   revokedAt        DateTime?
   revokedByUserId  String?
@@ -1835,7 +1843,9 @@ model EntitlementGrant {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
-  user         User?             @relation("entitlementGrantRecipient", fields: [userId], references: [id], onDelete: Restrict)
+  user         User?                @relation("entitlementGrantRecipient", fields: [userId], references: [id], onDelete: Restrict)
+  promotion    Promotion?           @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  redemption   PromotionRedemption?
   auditEntries GrantAuditEntry[]
 
   /// The resolver's read: a user's ACTIVE grants whose window has not ended.
@@ -1857,10 +1867,13 @@ model GrantAuditEntry {
   previousValidUntil DateTime?
   newValidUntil      DateTime?
   reason             String
+  /// Set when the entry records a promotion redemption (Phase VII).
+  promotionId        String?
   createdAt          DateTime         @default(now())
 
   grant      EntitlementGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
   targetUser User?            @relation("grantAuditTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+  promotion  Promotion?       @relation(fields: [promotionId], references: [id], onDelete: Restrict)
 
   @@index([grantId, createdAt])
   @@index([targetUserId, createdAt])
@@ -1875,9 +1888,75 @@ enum MembershipPlan {
   PRO_PLUS
 }
 
-/// How a grant came to exist. PROMOTION is added in Phase VII.
+/// How a grant came to exist. `PROMOTION` (Phase VII) is added by its own
+/// ALTER TYPE migration.
 enum EntitlementSource {
   ADMIN_GRANT
+  PROMOTION
+}
+
+/// A marketing code's eligibility rule (SB-CP-04): a small fixed set, evaluated
+/// against the user's own Subscription records. Used by Offer codes (in the
+/// static catalog, as a TypeScript type) and by promotions (stored).
+enum CodeEligibility {
+  ANY_USER
+  FIRST_PAID_SUBSCRIPTION_ONLY
+  ONCE_PER_USER
+}
+
+// =============================================================================
+// Subscription & Billing — promotions (Phase VII)
+// =============================================================================
+//
+// A Promotion is free plan-level access for a period, redeemed with a code. It
+// is a Kizunia-only record: no Razorpay object is ever involved (SB-CP-01), and
+// redemption creates an `EntitlementGrant(source = PROMOTION)`.
+//
+// Hand-written CHECK constraints (redemption counter, duration, validity
+// window, PROMOTION grants carry a promotion) live in migration
+// 20260926000200_add_promotions.
+
+/// A redeemable, time-limited free-access offer.
+model Promotion {
+  id                   String          @id @default(cuid())
+  /// Normalized: trimmed, upper-case. Disjoint from Offer codes (SB-CP-01).
+  code                 String          @unique
+  plan                 MembershipPlan
+  durationDays         Int
+  /// `null` = unlimited. Never negative (CHECK); decremented conditionally.
+  remainingRedemptions Int?
+  validFrom            DateTime
+  validUntil           DateTime?
+  eligibility          CodeEligibility @default(ANY_USER)
+  /// Plain string, no FK: audit survives an administrator's removal.
+  createdByUserId      String
+  createdAt            DateTime        @default(now())
+
+  redemptions  PromotionRedemption[]
+  grants       EntitlementGrant[]
+  auditEntries GrantAuditEntry[]
+
+  @@map("promotion")
+}
+
+/// One user's redemption of one promotion. The unique pair is what stops the
+/// same user redeeming twice from two tabs; the conditional decrement on
+/// `Promotion.remainingRedemptions` is what stops two users taking the last slot.
+model PromotionRedemption {
+  id               String   @id @default(cuid())
+  promotionId      String
+  /// Redeemer. Nulled only by a future pseudonymization workflow (IB-14).
+  userId           String?
+  subjectPseudonym String?
+  grantId          String   @unique
+  createdAt        DateTime @default(now())
+
+  promotion Promotion        @relation(fields: [promotionId], references: [id], onDelete: Restrict)
+  user      User?            @relation("promotionRedeemer", fields: [userId], references: [id], onDelete: Restrict)
+  grant     EntitlementGrant @relation(fields: [grantId], references: [id], onDelete: Restrict)
+
+  @@unique([promotionId, userId])
+  @@map("promotion_redemption")
 }
 
 enum GrantStatus {
@@ -2317,7 +2396,8 @@ enum HistoryTrigger {
 /// `MALFORMED` is alert-only, not an anomaly (IB-17(d)).
 /// `TERMINAL_STATE_CONTRADICTED` (Phase IV): Razorpay reported a subscription
 /// held in a terminal phase in another state; never applied.
-/// `TRIAL_CONVERSION_OVERDUE` is added in Phase VII by its own ALTER TYPE migration.
+/// `TRIAL_CONVERSION_OVERDUE` (Phase VII, IB-9): a `TRIAL` subscription still
+/// `authenticated` past `start_at` + C7; it no longer contributes.
 enum BillingAnomalyType {
   MULTIPLE_OPEN_SUBSCRIPTIONS
   UNMATCHED_PROVIDER_SUBSCRIPTION
@@ -2327,4 +2407,5 @@ enum BillingAnomalyType {
   PROVIDER_SUBSCRIPTION_MISSING
   CANCELLATION_NOT_EFFECTIVE
   TERMINAL_STATE_CONTRADICTED
+  TRIAL_CONVERSION_OVERDUE
 }

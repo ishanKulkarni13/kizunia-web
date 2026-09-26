@@ -38,7 +38,7 @@ export interface GrantAuditEntryDTO {
 export interface GrantDTO {
   readonly id: string;
   readonly plan: GrantPlanDTO;
-  readonly source: "ADMIN_GRANT";
+  readonly source: "ADMIN_GRANT" | "PROMOTION";
   readonly status: "ACTIVE" | "REVOKED";
   /** Derived at `evaluatedAt`: ACTIVE, SCHEDULED, EXPIRED or REVOKED. */
   readonly state: GrantState;

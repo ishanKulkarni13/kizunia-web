@@ -127,6 +127,8 @@ export class GrantRepository {
     readonly action: GrantAuditAction;
     readonly performedByUserId: string;
     readonly targetUserId: string | null;
+    /** The promotion of a `PROMOTION` grant, so its audit trail names it. */
+    readonly promotionId?: string | null;
     readonly plan: MembershipPlan;
     readonly previousValidUntil: Date | null;
     readonly newValidUntil: Date | null;

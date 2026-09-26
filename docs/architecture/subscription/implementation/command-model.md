@@ -50,7 +50,7 @@ One runner, `backend/commands/command-runner.ts`, implements the documented life
 | **Supersede** (`SUPERSEDE` → `CANCEL_IMMEDIATELY` → confirm → `CREATE_SUBSCRIPTION`) | user | Open sub is `HALTED`/`PAUSED`; request carries `supersedesSubscriptionId` + explicit confirmation | Immediate cancel, fetch, create | Old `CANCELLED` observed → `supersededById` + history `SUPERSESSION` → create |
 | **Recover (HALTED)** | user | — | none: client opens Razorpay's card-change Checkout; Kizunia offers "check now" = ConfirmCheckout-style sync trigger | Sync |
 | **Admin grant/revoke** | admin | Not a billing command: no BillingOperation, no provider | — | Grant audit ([admin grants](admin-grants.md)) |
-| **Sync now / bulk re-sync** | admin | Not a command: marks due (priority 1 / 3) | fetch only | Sync |
+| **Sync now / bulk re-sync** | admin | Not a command. Sync now (`VIEW_BILLING`) fetches one Subscription at priority 1. Bulk re-sync (`MANAGE_BILLING`) only marks rows due (reason `ADMIN`); they drain through `billing:sync` at priority 3 (IB-28) | fetch only (sync now); none (bulk re-sync) | Sync |
 
 **Operation-slot rules (IB-6, decided).** Admin commands take the same per-user root slot as customer commands. Every user-facing mutating endpoint requires an `Idempotency-Key` header, unique per `(userId, idempotencyKey)`. The app has no such convention yet, so billing introduces it; the key format is chosen at implementation time.
 

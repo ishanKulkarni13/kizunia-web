@@ -1,6 +1,6 @@
 # Observability
 
-> **Status:** Design — not implemented
+> **Status:** Partly implemented — the structured events and the admin tools (explain, timeline, health) exist (Phases IV–VIII); the alert delivery channel is Phase IX
 >
 > **Last Updated:** 2026-09-24 (decision close-out: IB-11, IB-9 alert)
 
@@ -28,11 +28,12 @@ billing must be answerable from durable records, not from reproducing the bug.
 
 ## Effective-access explanation
 
-The resolver has a sibling, `explainEffectiveAccess(userId, at?)`, available only to billing-admin
-tooling: it returns every entitlement source considered, whether each contributed, why not (phase,
+The resolver has a sibling, `explainEffectiveAccess(userId, options)`, available only to billing-admin
+tooling (`GET /api/v1/admin/billing/users/{id}/access`, Phase VIII): it returns every entitlement source considered, whether each contributed, why not (phase,
 mode mismatch, grant expired/revoked), and the resulting tier. It uses the same predicate as the
-resolver, so the explanation cannot disagree with the decision. With `at`, it answers the question
-historically from history entries and grant audit.
+resolver, so the explanation cannot disagree with the decision. It answers for the current instant; the
+historical variant (replayed from history entries and grant audit) is not built
+([IB-28](../implementation/open-decisions.md#ib-28--phase-viii-decisions-and-implementation-rulings) item 7).
 
 ## Correlation
 

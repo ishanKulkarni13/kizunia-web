@@ -74,8 +74,11 @@ every provider-linked row is mode-stamped and a `test` subscription never grants
 ## Personal data
 
 - `notes` sent to Razorpay contain only opaque Kizunia identifiers.
-- Raw webhook payloads (which may include contact details) are kept only in `BillingEvent`, behind
-  billing-admin access, and deleted after the payload retention horizon.
+- Raw webhook payloads (which may include contact details) are kept only in `BillingEvent`. They are
+  read only by a `SUPER_ADMIN` through a dedicated endpoint (never in the timeline, never for `ADMIN`),
+  never logged (the logger also redacts `rawPayload`), and **nulled** after the payload retention
+  horizon (180 days by default) by `billing:payload-prune`; the row itself is kept
+  ([IB-28](../implementation/open-decisions.md#ib-28--phase-viii-decisions-and-implementation-rulings)).
 - On account removal, billing records are pseudonymized rather than deleted, and removal is refused
   while a subscription is open ([SB-DP-04](../../../project/feature-specification/subscription/decisions/data-preservation.md#sb-dp-04--billing-records-survive-account-removal)).
   Billing tables must not use `onDelete: Cascade` from `User`.

@@ -84,6 +84,7 @@ Free" end to end, including which steps Kizunia caused.
 
 History entries, operations and money facts are never pruned; on account removal they are
 pseudonymized, not deleted ([SB-DP-04](../../../project/feature-specification/subscription/decisions/data-preservation.md#sb-dp-04--billing-records-survive-account-removal)).
-Raw webhook payloads inside `BillingEvent` are deleted after the payload retention horizon; the
-event row (ID, type, timestamps, linkage) remains. Final retention periods are open product question
+Raw webhook payloads inside `BillingEvent` are **nulled** after the payload retention horizon
+(`billing:payload-prune`, 180 days by default; `payloadPrunedAt` is stamped); the event row (ID, type,
+timestamps, linkage) remains and is never deleted. Final retention periods are open product question
 [B3](../../../project/feature-specification/subscription/open-decisions.md#b-genuinely-open-product-questions).

@@ -116,6 +116,12 @@ The close-out ruled every open IB finding before implementation. The full findin
 | --- | --- | --- |
 | [IB-27](open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings) items 7–19 | Eligibility from Subscription rows in the current mode; `FIRST_PAID_SUBSCRIPTION_ONLY` from Subscription rows only (never grants); same-intent reuse; code refusals; provider-refused Offer alert; promotion redemption is one transaction with no idempotency key; `MANAGE_ENTITLEMENT_GRANTS` is the one promotion permission; disjoint codes; overdue anomaly never auto-resolved | Details the Phase VII design left open |
 
+### Architecture/technical decisions (autonomous) — 2026-09-26 (Phase VIII)
+
+| Item | Ruling (short form) | Rationale |
+| --- | --- | --- |
+| [IB-28](open-decisions.md#ib-28--phase-viii-decisions-and-implementation-rulings) | Prune nulls the payload and never deletes the row (180-day default, B3 stays DEFERRED); bulk re-sync only marks due at priority 3 and never demotes a pending webhook sync; raw payloads only through a `SUPER_ADMIN` endpoint, never in the timeline or a log; explain reuses the resolver; health carries the runbook's extras; anomaly resolution is one conditional update; admin actions audited by logs with the actor | The phase is a read-and-mark layer over Phases I–VII: no schema, no provider call, no new authority. Each ruling keeps an existing invariant (provider boundary, per-row concurrency, role split of IB-15) and closes a place the documents disagreed |
+
 ### Still open for the owner (not blocking before the named phase)
 
 - Whether LIVE launch waits for trials, Offers and Promotions: before [Phase IX](../implementation-plan/phase-IX/README.md).

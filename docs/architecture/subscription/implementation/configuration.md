@@ -148,3 +148,15 @@ The C7 grace (`BILLING_TRIAL_CONVERSION_GRACE_SECONDS`, four days) is unchanged.
 
 **The Offer catalog is configuration, not environment.** It is TypeScript in `modules/billing/config/offer-catalog.ts`, per mode, code-reviewed and deployed, like the plan catalog. Each entry carries the marketing code, the Razorpay Offer ID, the plans and cycles it applies to, one eligibility rule, an optional window, and a description. Both lists ship empty (every code is refused as unknown). **Adding an Offer needs a code change and a deployment: an intentional V1 limitation** ([IB-27](open-decisions.md#ib-27--phase-vii-decisions-and-implementation-rulings) item 6). The catalog is read through `OfferCodeSource`, so a later admin-managed, database-backed catalog changes the source only. TEST and LIVE Offers are different objects and never share an ID; the catalog's invariants are checked when it loads.
 
+## Values chosen in Phase VIII
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `BILLING_PAYLOAD_RETENTION_DAYS` | 180 | How long a webhook's raw payload is kept before `billing:payload-prune` nulls it. The B3 default; B3 (account-removal retention) stays DEFERRED ([IB-28](open-decisions.md#ib-28--phase-viii-decisions-and-implementation-rulings) item 2) |
+| `BILLING_PAYLOAD_PRUNE_BATCH_SIZE` | 500 | Rows nulled per statement (each its own short transaction) |
+| `BILLING_PAYLOAD_PRUNE_MAX_BATCHES` | 20 | Statements per run: 10 000 rows by default; a backlog drains over several runs |
+| `BILLING_PAYLOAD_PRUNE_WALL_CLOCK_MS` | 3 000 | The run's soft wall-clock budget inside the tick: no new batch starts after it |
+| `BILLING_PAYLOAD_PRUNE_MIN_INTERVAL_SECONDS` | 86 400 | The tick's minimum gap between runs: daily |
+| `BILLING_BULK_RESYNC_BATCH_SIZE` | 500 | Subscriptions marked due per statement by the admin bulk re-sync |
+
+No new environment variable is required. The admin tools use the existing `billing-admin:read` (120 per minute) and `billing-admin:write` (60 per hour) rate-limit policies; the manual `GET /api/v1/internal/billing/payload-prune` uses `CRON_SECRET` like the other internal routes.

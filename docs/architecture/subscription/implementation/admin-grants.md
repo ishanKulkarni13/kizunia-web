@@ -22,7 +22,7 @@ Admin grants designed independently of Razorpay: creation, expiry, revocation, a
 | Effective access | Just another `max` input; exceeds or falls back to paid access without touching the Subscription (SB-EA-02/03) |
 | Paid interaction | Independent. The Subscription keeps billing. The UI shows both sources. The explain view says which one is winning |
 | Admin users vs admin-granted access | Admin role = operational bypass on interactive chains. Admin *grant* = customer access. An admin who needs customer access (for example notifications) gets a grant from **another** admin |
-| API | `GET/POST /api/v1/admin/billing/grants`, `POST …/grants/{id}/extend`, `POST …/grants/{id}/revoke`, `GET /api/v1/admin/billing/users/{id}/access` (explain) |
+| API | `GET/POST /api/v1/admin/billing/grants`, `POST …/grants/{id}/extend`, `POST …/grants/{id}/revoke`, `GET /api/v1/admin/billing/users/{id}/access` (explain, Phase VIII; the other Phase VIII admin routes are listed in the [operations runbook](../cross-cutting/operations-runbook.md#admin-tools)) |
 | Razorpay | Never called; works in disabled mode; the test tool for every paid feature |
 
 ---
